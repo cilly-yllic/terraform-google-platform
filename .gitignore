@@ -1,1 +1,16 @@
 .idea
+.claude/settings.local.json
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+.terraform.lock.hcl
+
+# Environment
+/.env
+/backups
+
+# Node.js (actions / cloud-run-router)
+node_modules/
