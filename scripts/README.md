@@ -7,7 +7,7 @@ Bootstrap スクリプト群のリファレンス。メインスクリプトは 
 `infra-bootstrap` GCP Project / Service Account / Workload Identity Federation を構築するスクリプト。
 Terraform Cloud が `terraform-project-factory` SA を OIDC 経由で impersonate できる状態を作ります。
 
-詳細な背景・前提条件・トラブルシューティングは [docs/bootstrap.md](../docs/bootstrap.md) を参照してください。
+詳細な背景・前提条件・トラブルシューティングは [docs/project-bootstrap/bootstrap.md](../docs/project-bootstrap/bootstrap.md) を参照してください。
 
 ---
 
@@ -187,6 +187,6 @@ scripts/bootstrap.sh --init=envrc
 
 ## 関連ドキュメント
 
-- [docs/bootstrap.md](../docs/bootstrap.md) — 前提条件・実行手順の詳細・トラブルシューティング
-- [docs/design/iam-policy.md](../docs/design/iam-policy.md) — IAM role 付与の設計根拠
-- [docs/design/wif-attribute-mapping.md](../docs/design/wif-attribute-mapping.md) — WIF Attribute Mapping の詳細
+- [docs/project-bootstrap/bootstrap.md](../docs/project-bootstrap/bootstrap.md) — 前提条件・実行手順の詳細・トラブルシューティング
+- [docs/project-bootstrap/design/iam-policy.md](../docs/project-bootstrap/design/iam-policy.md) — IAM role 付与の設計根拠
+- [docs/project-bootstrap/design/wif-attribute-mapping.md](../docs/project-bootstrap/design/wif-attribute-mapping.md) — WIF Attribute Mapping の詳細

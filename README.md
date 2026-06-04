@@ -4,8 +4,8 @@ GCP / Firebase プロジェクトの作成・設定を一元管理する Terrafo
 
 以下の 2 つのリポジトリを統合したものです:
 
-- [`terraform-google-firebase-project-platform`](https://github.com/MoooDoNE/terraform-google-firebase-project-platform) — Firebase / GCP サービスリソースの有効化・設定
-- [`terraform-gcp-project-factory`](https://github.com/MoooDoNE/terraform-gcp-project-factory) — GCP Project 作成・SA 管理・WIF 設定
+- [`terraform-google-firebase-project-platform`](https://github.com/cilly-yllic/terraform-google-firebase-project-platform) — Firebase / GCP サービスリソースの有効化・設定
+- `project-bootstrap` — GCP Project 作成・SA 管理・WIF 設定
 
 ---
 
@@ -32,13 +32,15 @@ module "firebase_platform" {
 
 詳細: [`modules/firebase-project-platform/`](./modules/firebase-project-platform/) / [docs](./docs/firebase-project-platform/)
 
-### `modules/gcp-project-factory`
+### `modules/project-bootstrap`
 
 GCP Project 作成と Terraform 実行用 Service Account 作成・管理を行うモジュール。
 
+Terraform Registry: `cilly-yllic/project-bootstrap/google`
+
 ```hcl
-module "project_factory" {
-  source = "{namespace}/gcp-project-factory/google"
+module "project_bootstrap" {
+  source = "cilly-yllic/project-bootstrap/google"
 
   project_id                   = "example-prd-001"
   project_name                 = "Example Production"
@@ -49,7 +51,7 @@ module "project_factory" {
 }
 ```
 
-詳細: [`modules/gcp-project-factory/`](./modules/gcp-project-factory/) / [docs](./docs/gcp-project-factory/)
+詳細: [`modules/project-bootstrap/`](./modules/project-bootstrap/) / [docs](./docs/project-bootstrap/)
 
 ---
 
@@ -57,8 +59,8 @@ module "project_factory" {
 
 | Action | Path | Usage |
 |--------|------|-------|
-| dispatch-tfc-firebase-platform | `actions/dispatch-firebase-platform/` | `uses: MoooDoNE/terraform-google-platform/actions/dispatch-firebase-platform@main` |
-| dispatch-tfc-project-factory | `actions/dispatch-project-factory/` | `uses: MoooDoNE/terraform-google-platform/actions/dispatch-project-factory@main` |
+| dispatch-tfc-firebase-platform | `actions/dispatch-firebase-platform/` | `uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main` |
+| dispatch-tfc-project-bootstrap | `actions/dispatch-project-bootstrap/` | `uses: cilly-yllic/terraform-google-platform/actions/dispatch-project-bootstrap@main` |
 
 ---
 
@@ -70,7 +72,7 @@ TFC notification を受けて GitHub `repository_dispatch` を発火する Cloud
 
 ---
 
-## Bootstrap (gcp-project-factory)
+## Bootstrap (project-bootstrap)
 
 `infra-bootstrap` Project / Service Account / WIF を構築するための bootstrap script:
 
@@ -82,7 +84,7 @@ make bootstrap-check   # 事前確認
 make bootstrap         # リソース作成
 ```
 
-詳細: [`scripts/`](./scripts/) / [docs/gcp-project-factory/bootstrap.md](./docs/gcp-project-factory/bootstrap.md)
+詳細: [`scripts/`](./scripts/) / [docs/project-bootstrap/bootstrap.md](./docs/project-bootstrap/bootstrap.md)
 
 ---
 
@@ -92,8 +94,8 @@ make bootstrap         # リソース作成
 |--------|---------|------|
 | firebase-project-platform | minimal | [`examples/firebase-project-platform/minimal/`](./examples/firebase-project-platform/minimal/) |
 | firebase-project-platform | full | [`examples/firebase-project-platform/full/`](./examples/firebase-project-platform/full/) |
-| gcp-project-factory | minimal | [`examples/gcp-project-factory/minimal/`](./examples/gcp-project-factory/minimal/) |
-| gcp-project-factory | complete | [`examples/gcp-project-factory/complete/`](./examples/gcp-project-factory/complete/) |
+| project-bootstrap | minimal | [`examples/project-bootstrap/minimal/`](./examples/project-bootstrap/minimal/) |
+| project-bootstrap | complete | [`examples/project-bootstrap/complete/`](./examples/project-bootstrap/complete/) |
 
 ---
 
@@ -108,7 +110,7 @@ terraform-google-platform/
 │   │   ├── outputs.tf
 │   │   ├── versions.tf
 │   │   └── modules/                  # Sub-modules (analytics, auth, firestore, …)
-│   └── gcp-project-factory/          # Project 作成 Module
+│   └── project-bootstrap/            # Project 作成 Module
 │       ├── main.tf
 │       ├── variables.tf
 │       ├── outputs.tf
@@ -118,19 +120,19 @@ terraform-google-platform/
 │       └── modules/                  # Sub-modules (project, service-account, iam)
 ├── actions/
 │   ├── dispatch-firebase-platform/   # GitHub Action: TFC dispatch (firebase)
-│   └── dispatch-project-factory/     # GitHub Action: TFC dispatch (project-factory)
+│   └── dispatch-project-bootstrap/   # GitHub Action: TFC dispatch (project-bootstrap)
 ├── cloud-run-router/                 # Cloud Run: TFC notification → repository_dispatch
-├── scripts/                          # Bootstrap scripts (gcp-project-factory)
+├── scripts/                          # Bootstrap scripts (project-bootstrap)
 ├── examples/
 │   ├── firebase-project-platform/
 │   │   ├── minimal/
 │   │   └── full/
-│   └── gcp-project-factory/
+│   └── project-bootstrap/
 │       ├── minimal/
 │       └── complete/
 ├── docs/
 │   ├── firebase-project-platform/    # Firebase Module ドキュメント
-│   └── gcp-project-factory/          # Project Factory ドキュメント
+│   └── project-bootstrap/            # Project Bootstrap ドキュメント
 ├── Makefile
 ├── LICENSE
 └── README.md
@@ -145,10 +147,10 @@ terraform-google-platform/
 | Firebase Platform Architecture | [docs/firebase-project-platform/architecture.md](./docs/firebase-project-platform/architecture.md) |
 | Firebase Variables Reference | [docs/firebase-project-platform/variables-reference.md](./docs/firebase-project-platform/variables-reference.md) |
 | Firebase Upgrade Guide | [docs/firebase-project-platform/upgrade-guide.md](./docs/firebase-project-platform/upgrade-guide.md) |
-| Project Factory Architecture | [docs/gcp-project-factory/architecture.md](./docs/gcp-project-factory/architecture.md) |
-| Project Factory Bootstrap | [docs/gcp-project-factory/bootstrap.md](./docs/gcp-project-factory/bootstrap.md) |
-| IAM Policy Design | [docs/gcp-project-factory/design/iam-policy.md](./docs/gcp-project-factory/design/iam-policy.md) |
-| WIF Attribute Mapping | [docs/gcp-project-factory/design/wif-attribute-mapping.md](./docs/gcp-project-factory/design/wif-attribute-mapping.md) |
+| Project Bootstrap Architecture | [docs/project-bootstrap/architecture.md](./docs/project-bootstrap/architecture.md) |
+| Project Bootstrap Guide | [docs/project-bootstrap/bootstrap.md](./docs/project-bootstrap/bootstrap.md) |
+| IAM Policy Design | [docs/project-bootstrap/design/iam-policy.md](./docs/project-bootstrap/design/iam-policy.md) |
+| WIF Attribute Mapping | [docs/project-bootstrap/design/wif-attribute-mapping.md](./docs/project-bootstrap/design/wif-attribute-mapping.md) |
 
 ---
 
@@ -166,16 +168,16 @@ source = "cilly-yllic/firebase-project-platform/google"
 source = "cilly-yllic/firebase-project-platform/google"  # Registry 名は変更なし
 ```
 
+```hcl
+# project-bootstrap
+source = "cilly-yllic/project-bootstrap/google"
+```
+
 ### GitHub Actions
 
 ```yaml
-# Before
-uses: MoooDoNE/terraform-google-firebase-project-platform/actions/dispatch@main
-uses: MoooDoNE/terraform-gcp-project-factory/actions/dispatch@main
-
-# After
-uses: MoooDoNE/terraform-google-platform/actions/dispatch-firebase-platform@main
-uses: MoooDoNE/terraform-google-platform/actions/dispatch-project-factory@main
+uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
+uses: cilly-yllic/terraform-google-platform/actions/dispatch-project-bootstrap@main
 ```
 
 ---

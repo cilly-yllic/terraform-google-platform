@@ -1,8 +1,8 @@
 {
-  "name": "dispatch-tfc-project-factory",
+  "name": "dispatch-tfc-project-bootstrap",
   "version": "1.0.0",
   "private": true,
-  "description": "GitHub Action: dispatch Terraform Cloud project-factory Run from settings.yml",
+  "description": "GitHub Action: dispatch Terraform Cloud project-bootstrap Run from settings.yml",
   "main": "dist/index.js",
   "scripts": {
     "build": "ncc build src/index.ts -o dist --source-map --license licenses.txt",

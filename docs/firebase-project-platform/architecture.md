@@ -200,8 +200,8 @@ cloud-run-router は TFC notification が設定されていない限り呼ばれ
 
 | Upstream document | Mapping in this repo |
 |---|---|
-| [architecture.md](https://github.com/MoooDoNE/terraform-gcp-project-factory/blob/main/docs/architecture.md) | Overall architecture reference |
-| [related-components.md](https://github.com/MoooDoNE/terraform-gcp-project-factory/blob/main/docs/related-components.md) | Related components including this repo |
+| [architecture.md](../project-bootstrap/architecture.md) | Overall architecture reference |
+| [related-components.md](../project-bootstrap/related-components.md) | Related components including this repo |
 
 Full index with descriptions: [upstream-spec-links.md](./upstream-spec-links.md).
 
@@ -209,8 +209,8 @@ Full index with descriptions: [upstream-spec-links.md](./upstream-spec-links.md)
 
 | 上流ドキュメント | 本リポジトリでの対応 |
 |---|---|
-| [architecture.md](https://github.com/MoooDoNE/terraform-gcp-project-factory/blob/main/docs/architecture.md) | 全体アーキテクチャの参照元 |
-| [related-components.md](https://github.com/MoooDoNE/terraform-gcp-project-factory/blob/main/docs/related-components.md) | 本リポジトリを含む関連コンポーネント |
+| [architecture.md](../project-bootstrap/architecture.md) | 全体アーキテクチャの参照元 |
+| [related-components.md](../project-bootstrap/related-components.md) | 本リポジトリを含む関連コンポーネント |
 
 詳細な説明付きインデックス: [upstream-spec-links.md](./upstream-spec-links.md)。
 

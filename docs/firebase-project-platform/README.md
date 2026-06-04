@@ -10,7 +10,7 @@ Detailed documentation for the firebase-project-platform module. See also the to
 | [console-access.md](./console-access.md) | Firebase Console / GCP IAM access design and the `users` variable |
 | [service-accounts.md](./service-accounts.md) | CI Service Account auto-role logic and additional SA operations |
 | [upgrade-guide.md](./upgrade-guide.md) | Breaking changes per Registry version, in chronological order |
-| [upstream-spec-links.md](./upstream-spec-links.md) | Index of upstream design specs (`terraform-gcp-project-factory`) that underpin this repo |
+| [upstream-spec-links.md](./upstream-spec-links.md) | Index of upstream design specs (`project-bootstrap`) that underpin this repo |
 
 Per-submodule behavior is documented in `modules/firebase-project-platform/modules/<name>/README.md`. Deploy steps for the reference implementations live in [`cloud-run-router/README.md`](../../cloud-run-router/README.md) and [`actions/dispatch-firebase-platform/README.md`](../../actions/dispatch-firebase-platform/README.md).
 

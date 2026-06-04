@@ -1,11 +1,11 @@
-# dispatch-tfc-project-factory
+# dispatch-tfc-project-bootstrap
 
 `settings.yml` + branch 情報を元に Terraform Cloud の `project-factory-{service}` Workspace へ Run を起動する GitHub Action。
 
 ## Usage
 
 ```yaml
-- uses: MoooDoNE/terraform-gcp-project-factory/actions/dispatch@v1
+- uses: cilly-yllic/terraform-google-platform/actions/dispatch-project-bootstrap@main
   with:
     service: my-service
     environment: prd
@@ -60,7 +60,7 @@
 
 ```yaml
 # infra-orchestrator の workflow から
-- uses: MoooDoNE/terraform-gcp-project-factory/actions/dispatch@v1
+- uses: cilly-yllic/terraform-google-platform/actions/dispatch-project-bootstrap@main
   id: pf
   with:
     service: ${{ github.event.client_payload.service }}
@@ -78,7 +78,7 @@
 
 ```yaml
 # Project Repo の workflow から
-- uses: MoooDoNE/terraform-gcp-project-factory/actions/dispatch@v1
+- uses: cilly-yllic/terraform-google-platform/actions/dispatch-project-bootstrap@main
   id: pf
   with:
     service: my-service

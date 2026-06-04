@@ -1,6 +1,6 @@
 # IAM Policy Design
 
-bootstrap script (`scripts/bootstrap.sh`) および `terraform-gcp-project-factory` module が付与する IAM role の設計根拠と、意図的に付与しない role の例外条件をまとめる。
+bootstrap script (`scripts/bootstrap.sh`) および `project-bootstrap` module が付与する IAM role の設計根拠と、意図的に付与しない role の例外条件をまとめる。
 
 ---
 
@@ -45,7 +45,7 @@ principalSet は `TFC_ORGANIZATION_NAME` に対応する attribute を使用。W
 
 ---
 
-## terraform-gcp-project-factory module が付与する role
+## project-bootstrap module が付与する role
 
 ### Project レベル (サービス Project)
 
@@ -99,14 +99,14 @@ principalSet://iam.googleapis.com/projects/{bootstrap_project_number}/locations/
 
 **不付与の理由:**
 
-- `terraform-gcp-project-factory` module は API 有効化を行わない方針
+- `project-bootstrap` module は API 有効化を行わない方針
 - API 有効化はサービス Project 側で `terraform-{service}-{env}` SA が `terraform-google-firebase-project-platform` 実行時に行う
 - bootstrap script が `infra-bootstrap` Project に必要 API を全て enable 済み
 - 二重管理 (Project Factory 側と Firebase Platform 側で API を別々に enable) を避けたい
 
 **再付与が必要になる条件:**
 
-- `terraform-gcp-project-factory` module が `google_project_service` を扱う設計に変更された場合
+- `project-bootstrap` module が `google_project_service` を扱う設計に変更された場合
 - bootstrap 完了後に `infra-bootstrap` 自身で追加 API を有効化する必要が出た場合
 
 **再付与時の最小スコープ:**

@@ -1,12 +1,12 @@
 # Upstream documentation links
 
-An index of the upstream documentation in the [`MoooDoNE/terraform-gcp-project-factory`](https://github.com/MoooDoNE/terraform-gcp-project-factory) repository that underpins this repository.
+An index of the upstream documentation that underpins this repository. These documents now live in [`docs/project-bootstrap/`](../project-bootstrap/) within this monorepo.
 
 <details><summary>Ja</summary>
 
 本リポジトリの設計・実装の根拠となる上流ドキュメントへのリンク集。
 
-上流ドキュメントは [`MoooDoNE/terraform-gcp-project-factory`](https://github.com/MoooDoNE/terraform-gcp-project-factory) リポジトリで管理されている。
+これらのドキュメントは現在本モノリポの [`docs/project-bootstrap/`](../project-bootstrap/) に統合されている。
 
 </details>
 
@@ -16,7 +16,7 @@ An index of the upstream documentation in the [`MoooDoNE/terraform-gcp-project-f
 
 ### architecture.md
 
-[`docs/architecture.md`](https://github.com/MoooDoNE/terraform-gcp-project-factory/blob/main/docs/architecture.md)
+[`docs/project-bootstrap/architecture.md`](../project-bootstrap/architecture.md)
 
 An overarching architecture document describing the full Terraform execution platform (bootstrap → project-factory → firebase-project-platform → service workspaces), Phase 1/Phase 2 provisioning strategies, Workspace structure, and Apply policies.
 
@@ -36,7 +36,7 @@ An overarching architecture document describing the full Terraform execution pla
 
 ### related-components.md
 
-[`docs/related-components.md`](https://github.com/MoooDoNE/terraform-gcp-project-factory/blob/main/docs/related-components.md)
+[`docs/project-bootstrap/related-components.md`](../project-bootstrap/related-components.md)
 
 Describes related components including this repository (terraform-google-firebase-project-platform), infra-orchestrator, Cloud Run router, and the public GitHub Actions.
 
@@ -48,7 +48,7 @@ Describes related components including this repository (terraform-google-firebas
 
 本リポジトリ (terraform-google-firebase-project-platform) を含む関連コンポーネント、infra-orchestrator、Cloud Run router、public GitHub Actions の概要と責務分離を記述している。
 
-対応するコード: `cloud-run-router/`, `actions/dispatch/`
+対応するコード: `cloud-run-router/`, `actions/dispatch-firebase-platform/`
 
 </details>
 
@@ -56,7 +56,7 @@ Describes related components including this repository (terraform-google-firebas
 
 ### design/iam-policy.md
 
-[`docs/design/iam-policy.md`](https://github.com/MoooDoNE/terraform-gcp-project-factory/blob/main/docs/design/iam-policy.md)
+[`docs/project-bootstrap/design/iam-policy.md`](../project-bootstrap/design/iam-policy.md)
 
 IAM role assignment design rationale: which roles are granted and why, which roles are intentionally withheld, and under what conditions they should be re-granted.
 
@@ -70,7 +70,7 @@ IAM role 付与の設計根拠: どの role をなぜ付与するか、意図的
 
 ### design/wif-attribute-mapping.md
 
-[`docs/design/wif-attribute-mapping.md`](https://github.com/MoooDoNE/terraform-gcp-project-factory/blob/main/docs/design/wif-attribute-mapping.md)
+[`docs/project-bootstrap/design/wif-attribute-mapping.md`](../project-bootstrap/design/wif-attribute-mapping.md)
 
 WIF Attribute Mapping / Attribute Condition details for the Workload Identity Provider.
 

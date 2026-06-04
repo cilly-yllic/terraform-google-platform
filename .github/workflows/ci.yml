@@ -45,8 +45,8 @@ jobs:
         working-directory: examples/firebase-project-platform/full
         run: terraform validate
 
-  terraform-gcp-project-factory:
-    name: "Terraform Validate – gcp-project-factory"
+  terraform-project-bootstrap:
+    name: "Terraform Validate – project-bootstrap"
     runs-on: ubuntu-latest
 
     steps:
@@ -57,30 +57,30 @@ jobs:
           terraform_version: "1.12.x"
 
       - name: terraform fmt -check
-        run: terraform fmt -check -recursive modules/gcp-project-factory
+        run: terraform fmt -check -recursive modules/project-bootstrap
 
       - name: terraform init (module root)
-        working-directory: modules/gcp-project-factory
+        working-directory: modules/project-bootstrap
         run: terraform init -backend=false
 
       - name: terraform validate (module root)
-        working-directory: modules/gcp-project-factory
+        working-directory: modules/project-bootstrap
         run: terraform validate
 
       - name: terraform init (examples/minimal)
-        working-directory: examples/gcp-project-factory/minimal
+        working-directory: examples/project-bootstrap/minimal
         run: terraform init -backend=false
 
       - name: terraform validate (examples/minimal)
-        working-directory: examples/gcp-project-factory/minimal
+        working-directory: examples/project-bootstrap/minimal
         run: terraform validate
 
       - name: terraform init (examples/complete)
-        working-directory: examples/gcp-project-factory/complete
+        working-directory: examples/project-bootstrap/complete
         run: terraform init -backend=false
 
       - name: terraform validate (examples/complete)
-        working-directory: examples/gcp-project-factory/complete
+        working-directory: examples/project-bootstrap/complete
         run: terraform validate
 
   action-dispatch-firebase-platform:
@@ -110,13 +110,13 @@ jobs:
       - name: dist/ up to date
         run: git diff --exit-code dist/
 
-  action-dispatch-project-factory:
-    name: "Action – dispatch-project-factory (Lint & Build)"
+  action-dispatch-project-bootstrap:
+    name: "Action – dispatch-project-bootstrap (Lint & Build)"
     runs-on: ubuntu-latest
 
     defaults:
       run:
-        working-directory: actions/dispatch-project-factory
+        working-directory: actions/dispatch-project-bootstrap
 
     steps:
       - uses: actions/checkout@v4

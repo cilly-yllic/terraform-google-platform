@@ -1,6 +1,6 @@
-name: "Dispatch TFC Project Factory"
-description: "Read settings.yml, resolve billing, upsert TFC workspace, and trigger a project-factory Run"
-author: "MoooDoNE"
+name: "Dispatch TFC Project Bootstrap"
+description: "Read settings.yml, resolve billing, upsert TFC workspace, and trigger a project-bootstrap Run"
+author: "cilly-yllic"
 
 inputs:
   service:

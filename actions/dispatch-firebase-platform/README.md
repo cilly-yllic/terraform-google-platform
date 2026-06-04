@@ -6,9 +6,9 @@ Starting from the Project Repository's `terraform/settings.yml`, it fetches the 
 
 For its position in the overall architecture, see [`docs/architecture.md`](../../docs/architecture.md).
 
-> **Upstream docs**: [architecture.md](https://github.com/MoooDoNE/terraform-gcp-project-factory/blob/main/docs/architecture.md) / [related-components.md](https://github.com/MoooDoNE/terraform-gcp-project-factory/blob/main/docs/related-components.md)
+> **Related docs**: [architecture.md](../../docs/project-bootstrap/architecture.md) / [related-components.md](../../docs/project-bootstrap/related-components.md)
 
-This corresponds to **Action B** (`dispatch-tfc-firebase-platform`). Action A (`dispatch-tfc-project-factory`) lives in a separate repository and handles the project-factory stage.
+This corresponds to **Action B** (`dispatch-tfc-firebase-platform`). Action A (`dispatch-tfc-project-bootstrap`) lives in [`actions/dispatch-project-bootstrap/`](../dispatch-project-bootstrap/) and handles the project-bootstrap stage.
 
 <details><summary>Ja</summary>
 
@@ -18,9 +18,9 @@ Project Repository が `terraform/settings.yml` を起点に、project-factory w
 
 全体アーキテクチャ上の位置づけは [`docs/architecture.md`](../../docs/architecture.md) を参照。
 
-> **上流ドキュメント**: [architecture.md](https://github.com/MoooDoNE/terraform-gcp-project-factory/blob/main/docs/architecture.md) / [related-components.md](https://github.com/MoooDoNE/terraform-gcp-project-factory/blob/main/docs/related-components.md)
+> **関連ドキュメント**: [architecture.md](../../docs/project-bootstrap/architecture.md) / [related-components.md](../../docs/project-bootstrap/related-components.md)
 
-**Action B** (`dispatch-tfc-firebase-platform`) に対応する。Action A (`dispatch-tfc-project-factory`) は別リポジトリで管理され、project-factory ステージを担当する。
+**Action B** (`dispatch-tfc-firebase-platform`) に対応する。Action A (`dispatch-tfc-project-bootstrap`) は [`actions/dispatch-project-bootstrap/`](../dispatch-project-bootstrap/) で管理され、project-bootstrap ステージを担当する。
 
 </details>
 
@@ -157,7 +157,7 @@ jobs:
 
       - name: Dispatch Firebase Platform Run
         id: dispatch
-        uses: cilly-yllic/terraform-google-firebase-project-platform/actions/dispatch@v1
+        uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
         with:
           service: my-app
           environment: dev
@@ -183,7 +183,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: cilly-yllic/terraform-google-firebase-project-platform/actions/dispatch@v1
+      - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
         with:
           service: ${{ github.event.client_payload.service }}
           environment: ${{ github.event.client_payload.environment }}

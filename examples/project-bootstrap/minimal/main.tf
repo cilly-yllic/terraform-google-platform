@@ -1,5 +1,5 @@
 module "project_factory" {
-  source = "../../../modules/gcp-project-factory"
+  source = "../../../modules/project-bootstrap"
 
   project_id                   = "example-prd-001"
   project_name                 = "Example Production"

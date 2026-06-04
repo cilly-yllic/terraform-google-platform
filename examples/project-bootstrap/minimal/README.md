@@ -6,7 +6,7 @@
 
 ```hcl
 module "project_factory" {
-  source = "{namespace}/gcp-project-factory/google"
+  source = "cilly-yllic/project-bootstrap/google"
 
   project_id                   = "example-prd-001"
   project_name                 = "Example Production"

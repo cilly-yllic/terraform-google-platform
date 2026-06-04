@@ -444,7 +444,7 @@ show_help() {
 Usage: scripts/bootstrap.sh [OPTIONS] <SUBCOMMAND>
 
 Bootstrap the infra-bootstrap GCP Project, Service Account, and Workload
-Identity Federation resources required by terraform-gcp-project-factory.
+Identity Federation resources required by the project-bootstrap module.
 
 SUBCOMMANDS
   check       Verify prerequisites (commands, auth, env vars, existing
