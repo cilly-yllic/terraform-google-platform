@@ -17,6 +17,7 @@ REQUIRED_APIS=(
   iamcredentials.googleapis.com
   sts.googleapis.com
   cloudbilling.googleapis.com
+  billingbudgets.googleapis.com
 )
 
 # --- Required environment variables ---
@@ -36,6 +37,26 @@ REQUIRED_VARS=(
 
 info()  { echo "[INFO]  $*"; }
 error() { echo "[ERROR] $*" >&2; exit 1; }
+
+# Sleep to absorb GCP eventual-consistency propagation.
+#   high → 10s (critical: SA create → IAM binding)
+#   med  → 5s  (moderate: API enable → next API call, WIF pool → provider)
+#   low  → 1s  (minor: project create, billing link, WIF provider → IAM)
+propagate_sleep() {
+  local level="$1"
+  local reason="${2:-propagation}"
+  local seconds
+  case "${level}" in
+    high) seconds=10 ;;
+    med)  seconds=5 ;;
+    low)  seconds=1 ;;
+    *)    seconds=0 ;;
+  esac
+  if (( seconds > 0 )); then
+    info "Waiting ${seconds}s for ${reason}..."
+    sleep "${seconds}"
+  fi
+}
 
 ###############################################################################
 # Load .env
@@ -139,6 +160,27 @@ provider_exists() {
     --workload-identity-pool="${WORKLOAD_IDENTITY_POOL_ID}" &>/dev/null
 }
 
+budget_display_name() {
+  echo "${BUDGET_DISPLAY_NAME:-${BOOTSTRAP_PROJECT_NAME} Budget}"
+}
+
+budget_exists() {
+  # Use CLOUDSDK_CORE_DISABLE_PROMPTS to avoid an interactive
+  # "API not enabled, enable now?" prompt that would hang the script
+  # when billingbudgets.googleapis.com is not yet enabled (e.g. during
+  # `check` before `enable_apis` has run).
+  # --project pins the quota/context project so the call does not
+  # depend on the user's currently-selected gcloud config project.
+  local existing
+  existing="$(CLOUDSDK_CORE_DISABLE_PROMPTS=1 \
+    gcloud billing budgets list \
+      --billing-account="${BILLING_ACCOUNT_ID}" \
+      --project="${BOOTSTRAP_PROJECT_ID}" \
+      --filter="displayName=\"$(budget_display_name)\"" \
+      --format='value(name)' 2>/dev/null || true)"
+  [[ -n "${existing}" ]]
+}
+
 ###############################################################################
 # check subcommand
 ###############################################################################
@@ -178,6 +220,21 @@ run_check() {
     info "Workload Identity Provider ${WORKLOAD_IDENTITY_PROVIDER_ID} does not exist (will be created on apply)."
   fi
 
+  if [[ -n "${BUDGET_AMOUNT:-}" ]]; then
+    if project_exists; then
+      info "Checking Budget '$(budget_display_name)'..."
+      if budget_exists; then
+        info "Budget '$(budget_display_name)' already exists."
+      else
+        info "Budget '$(budget_display_name)' does not exist (will be created on apply)."
+      fi
+    else
+      info "Budget check deferred: bootstrap project does not exist yet. '$(budget_display_name)' will be created on apply."
+    fi
+  else
+    info "BUDGET_AMOUNT not set. Budget creation will be skipped on apply."
+  fi
+
   info "Check completed."
 }
 
@@ -195,6 +252,11 @@ confirm_apply() {
     echo "  - Service Account: $(sa_email)"
     echo "  - Workload Identity Pool: ${WORKLOAD_IDENTITY_POOL_ID}"
     echo "  - Workload Identity Provider: ${WORKLOAD_IDENTITY_PROVIDER_ID}"
+    if [[ -n "${BUDGET_AMOUNT:-}" ]]; then
+      echo "  - Budget: $(budget_display_name) (${BUDGET_AMOUNT} ${BUDGET_CURRENCY:-USD}, scope=${BUDGET_SCOPE:-project}, thresholds=${BUDGET_THRESHOLDS:-0.1,0.3,0.5,0.9,1.0})"
+    else
+      echo "  - Budget: (skipped — BUDGET_AMOUNT not set)"
+    fi
     echo ""
     read -r -p "Proceed? [y/N] " answer
     if [[ "${answer}" != "y" && "${answer}" != "Y" ]]; then
@@ -223,6 +285,7 @@ create_project() {
     "${parent_flag}"
 
   info "Project ${BOOTSTRAP_PROJECT_ID} created."
+  propagate_sleep low "project to be ready for billing/API operations"
 }
 
 link_billing() {
@@ -241,6 +304,7 @@ link_billing() {
     --billing-account="${BILLING_ACCOUNT_ID}"
 
   info "Billing Account linked."
+  propagate_sleep low "billing link to be effective for API enablement"
 }
 
 enable_apis() {
@@ -248,6 +312,7 @@ enable_apis() {
   gcloud services enable "${REQUIRED_APIS[@]}" \
     --project="${BOOTSTRAP_PROJECT_ID}"
   info "APIs enabled."
+  propagate_sleep med "newly-enabled APIs to be ready (iam / billingbudgets)"
 }
 
 create_service_account() {
@@ -262,6 +327,7 @@ create_service_account() {
     --display-name="${TERRAFORM_PROJECT_FACTORY_SA_DISPLAY_NAME:-Terraform Project Factory}"
 
   info "Service Account $(sa_email) created."
+  propagate_sleep high "SA to be visible to IAM before adding policy bindings"
 }
 
 grant_iam() {
@@ -333,6 +399,7 @@ create_workload_identity_pool() {
     --display-name="${WORKLOAD_IDENTITY_POOL_DISPLAY_NAME:-Terraform Cloud}"
 
   info "Workload Identity Pool created."
+  propagate_sleep med "WIF pool to be ready for provider creation"
 }
 
 create_workload_identity_provider() {
@@ -358,6 +425,7 @@ attribute.terraform_run_phase=assertion.terraform_run_phase" \
     --attribute-condition="assertion.terraform_organization_name == \"${TFC_ORGANIZATION_NAME}\""
 
   info "Workload Identity Provider created."
+  propagate_sleep low "WIF provider to be visible before SA binding"
 }
 
 grant_wif_impersonation() {
@@ -378,6 +446,61 @@ grant_wif_impersonation() {
   info "WIF impersonation binding created."
 }
 
+create_budget() {
+  if [[ -z "${BUDGET_AMOUNT:-}" ]]; then
+    info "BUDGET_AMOUNT not set. Skipping Budget creation."
+    return
+  fi
+
+  local display_name
+  display_name="$(budget_display_name)"
+  local currency="${BUDGET_CURRENCY:-USD}"
+  local scope="${BUDGET_SCOPE:-project}"
+  local thresholds="${BUDGET_THRESHOLDS:-0.1,0.3,0.5,0.9,1.0}"
+
+  info "Creating Budget '${display_name}' (${BUDGET_AMOUNT} ${currency}, scope=${scope})..."
+
+  if budget_exists; then
+    info "Budget '${display_name}' already exists. Skipping."
+    return
+  fi
+
+  local cmd=(
+    gcloud billing budgets create
+    --billing-account="${BILLING_ACCOUNT_ID}"
+    --project="${BOOTSTRAP_PROJECT_ID}"
+    --display-name="${display_name}"
+    --budget-amount="${BUDGET_AMOUNT}${currency}"
+  )
+
+  local threshold
+  IFS=',' read -ra threshold_arr <<< "${thresholds}"
+  for threshold in "${threshold_arr[@]}"; do
+    threshold="${threshold// /}"
+    [[ -z "${threshold}" ]] && continue
+    cmd+=(--threshold-rule="percent=${threshold}")
+  done
+
+  case "${scope}" in
+    project)
+      local project_number
+      project_number="$(gcloud projects describe "${BOOTSTRAP_PROJECT_ID}" \
+        --format='value(projectNumber)')"
+      cmd+=(--filter-projects="projects/${project_number}")
+      ;;
+    billing-account)
+      : # No project filter -> whole billing account
+      ;;
+    *)
+      error "Unknown BUDGET_SCOPE: ${scope}. Use 'project' or 'billing-account'."
+      ;;
+  esac
+
+  "${cmd[@]}"
+
+  info "Budget '${display_name}' created."
+}
+
 run_apply() {
   check_commands
   check_gcloud_auth
@@ -395,6 +518,7 @@ run_apply() {
   create_workload_identity_pool
   create_workload_identity_provider
   grant_wif_impersonation
+  create_budget
 
   info "Bootstrap apply completed."
   echo ""
@@ -484,6 +608,20 @@ ENVIRONMENT VARIABLES (loaded from .env)
     WORKLOAD_IDENTITY_PROVIDER_DISPLAY_NAME
                                          Provider display name
     CONFIRM_BEFORE_APPLY                 Prompt before apply (default: true)
+
+  Optional (Budget — created only when BUDGET_AMOUNT is set):
+    BUDGET_AMOUNT                        Monthly budget amount (e.g. 1000).
+                                         Budget is created only when set.
+    BUDGET_CURRENCY                      Budget currency (default: USD)
+    BUDGET_DISPLAY_NAME                  Budget display name
+                                         (default: "${BOOTSTRAP_PROJECT_NAME} Budget")
+    BUDGET_SCOPE                         'project' (default) — monitors
+                                         BOOTSTRAP_PROJECT_ID only.
+                                         'billing-account' — monitors entire
+                                         billing account.
+    BUDGET_THRESHOLDS                    Comma-separated alert thresholds as
+                                         fractions (default:
+                                         0.1,0.3,0.5,0.9,1.0)
 
 EXAMPLES
   # Show this help
@@ -578,6 +716,11 @@ run_dry_run() {
     "WORKLOAD_IDENTITY_POOL_DISPLAY_NAME|Pool display name (default: Terraform Cloud)"
     "WORKLOAD_IDENTITY_PROVIDER_DISPLAY_NAME|Provider display name (default: Terraform Cloud)"
     "CONFIRM_BEFORE_APPLY|Prompt before apply (default: true)"
+    "BUDGET_AMOUNT|Monthly budget amount (e.g. 1000). Budget is created only when set"
+    "BUDGET_CURRENCY|Budget currency (default: USD)"
+    "BUDGET_DISPLAY_NAME|Budget display name (default: \${BOOTSTRAP_PROJECT_NAME} Budget)"
+    "BUDGET_SCOPE|Budget scope: 'project' (default) or 'billing-account'"
+    "BUDGET_THRESHOLDS|Comma-separated alert thresholds (default: 0.1,0.3,0.5,0.9,1.0)"
   )
   for entry in "${optional_vars[@]}"; do
     local var="${entry%%|*}"
