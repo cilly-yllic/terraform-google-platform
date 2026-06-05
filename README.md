@@ -86,6 +86,23 @@ make bootstrap         # リソース作成
 
 詳細: [`scripts/`](./scripts/) / [docs/project-bootstrap/bootstrap.md](./docs/project-bootstrap/bootstrap.md)
 
+### Billing Account 作成
+
+Billing Account を master billing account 配下に新規作成するスクリプト:
+
+```bash
+cp scripts/create-billing-account.example.env .env.billing
+vi .env.billing
+
+make create-billing-account-check      # 事前確認
+make create-billing-account            # Billing Account 作成
+make create-billing-account-print-env  # 作成された ID を確認
+```
+
+> **注意**: master billing account (Reseller / Channel Partner) を持つ場合のみ利用可能です。
+
+詳細: [`scripts/`](./scripts/) / [docs/project-bootstrap/create-billing-account.md](./docs/project-bootstrap/create-billing-account.md)
+
 ---
 
 ## Examples
@@ -149,6 +166,7 @@ terraform-google-platform/
 | Firebase Upgrade Guide | [docs/firebase-project-platform/upgrade-guide.md](./docs/firebase-project-platform/upgrade-guide.md) |
 | Project Bootstrap Architecture | [docs/project-bootstrap/architecture.md](./docs/project-bootstrap/architecture.md) |
 | Project Bootstrap Guide | [docs/project-bootstrap/bootstrap.md](./docs/project-bootstrap/bootstrap.md) |
+| Billing Account 作成ガイド | [docs/project-bootstrap/create-billing-account.md](./docs/project-bootstrap/create-billing-account.md) |
 | IAM Policy Design | [docs/project-bootstrap/design/iam-policy.md](./docs/project-bootstrap/design/iam-policy.md) |
 | WIF Attribute Mapping | [docs/project-bootstrap/design/wif-attribute-mapping.md](./docs/project-bootstrap/design/wif-attribute-mapping.md) |
 

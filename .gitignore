@@ -10,6 +10,9 @@
 
 # Environment
 /.env
+/.envrc
+/.env.billing
+/.envrc.billing
 /backups
 
 # Node.js (actions / cloud-run-router)
