@@ -6,7 +6,9 @@
 
 ## terraform-google-firebase-project-platform
 
-**リポジトリ:** [cilly-yllic/terraform-google-firebase-project-platform](https://github.com/cilly-yllic/terraform-google-firebase-project-platform)
+> **Note**: 旧リポジトリ `cilly-yllic/terraform-google-firebase-project-platform` は本リポジトリに統合済みです。
+
+**パス:** [`modules/firebase-project-platform/`](../../modules/firebase-project-platform/)
 
 公開 Terraform Registry Module。`project-bootstrap` で作成した GCP Project を Firebase Platform として初期化し、Firebase および関連 GCP サービスを管理する。
 

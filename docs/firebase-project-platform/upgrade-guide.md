@@ -2,13 +2,13 @@
 
 Tracks breaking changes between Registry versions in chronological order.
 
-Releases are listed at [GitHub Releases](https://github.com/cilly-yllic/terraform-google-firebase-project-platform/releases).
+Releases are listed at [GitHub Releases](https://github.com/cilly-yllic/terraform-google-platform/releases).
 
 <details><summary>Ja</summary>
 
 Registry バージョン間の breaking change を時系列で記録する。
 
-各リリースは [GitHub Releases](https://github.com/cilly-yllic/terraform-google-firebase-project-platform/releases) で参照可能。
+各リリースは [GitHub Releases](https://github.com/cilly-yllic/terraform-google-platform/releases) で参照可能。
 
 </details>
 

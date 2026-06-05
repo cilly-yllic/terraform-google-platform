@@ -2,10 +2,18 @@
 
 GCP / Firebase プロジェクトの作成・設定を一元管理する Terraform Module および GitHub Actions のモノリポ。
 
-以下の 2 つのリポジトリを統合したものです:
+以下の 2 つの旧リポジトリ（廃止済み）を統合したものです:
 
-- [`terraform-google-firebase-project-platform`](https://github.com/cilly-yllic/terraform-google-firebase-project-platform) — Firebase / GCP サービスリソースの有効化・設定
-- `project-bootstrap` — GCP Project 作成・SA 管理・WIF 設定
+- `terraform-google-firebase-project-platform` → [`modules/firebase-project-platform/`](./modules/firebase-project-platform/)
+- `terraform-gcp-project-factory` → [`modules/project-bootstrap/`](./modules/project-bootstrap/)
+
+---
+
+## Getting Started
+
+本リポジトリの全コンポーネントを使って GCP Project 作成から Firebase Platform 構築までを行うエンドツーエンド導入ガイドを用意しています。
+
+→ **[docs/getting-started/](./docs/getting-started/)** — 前提条件・各ステップの詳細手順・通し検証まで
 
 ---
 
@@ -148,6 +156,7 @@ terraform-google-platform/
 │       ├── minimal/
 │       └── complete/
 ├── docs/
+│   ├── getting-started/              # エンドツーエンド導入ガイド
 │   ├── firebase-project-platform/    # Firebase Module ドキュメント
 │   └── project-bootstrap/            # Project Bootstrap ドキュメント
 ├── Makefile
@@ -161,6 +170,7 @@ terraform-google-platform/
 
 | Topic | Link |
 |-------|------|
+| **Getting Started** | [docs/getting-started/](./docs/getting-started/) |
 | Firebase Platform Architecture | [docs/firebase-project-platform/architecture.md](./docs/firebase-project-platform/architecture.md) |
 | Firebase Variables Reference | [docs/firebase-project-platform/variables-reference.md](./docs/firebase-project-platform/variables-reference.md) |
 | Firebase Upgrade Guide | [docs/firebase-project-platform/upgrade-guide.md](./docs/firebase-project-platform/upgrade-guide.md) |
