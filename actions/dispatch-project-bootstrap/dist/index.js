@@ -30030,6 +30030,73 @@ function resolveBillingAccount(raw, key) {
 
 /***/ }),
 
+/***/ 4992:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.buildTarball = buildTarball;
+const node_child_process_1 = __nccwpck_require__(1421);
+const node_fs_1 = __nccwpck_require__(3024);
+const node_os_1 = __nccwpck_require__(8161);
+const path = __importStar(__nccwpck_require__(6760));
+/**
+ * Build a gzipped tar archive from a set of in-memory files. Files are placed
+ * at the root of the archive (no parent directory), which is what the Terraform
+ * Cloud configuration-version upload endpoint expects.
+ */
+function buildTarball(files) {
+    const dir = (0, node_fs_1.mkdtempSync)(path.join((0, node_os_1.tmpdir)(), "tfc-cv-"));
+    try {
+        for (const [name, content] of Object.entries(files)) {
+            (0, node_fs_1.writeFileSync)(path.join(dir, name), content);
+        }
+        return (0, node_child_process_1.execFileSync)("tar", ["-czf", "-", "-C", dir, "."], {
+            maxBuffer: 64 * 1024 * 1024,
+        });
+    }
+    finally {
+        (0, node_fs_1.rmSync)(dir, { recursive: true, force: true });
+    }
+}
+
+
+/***/ }),
+
 /***/ 9661:
 /***/ ((__unused_webpack_module, exports) => {
 
@@ -30135,6 +30202,82 @@ function extractEnvironment(settings, env) {
         throw new Error(`Environment "${env}" not found in settings.yml. Available: ${Object.keys(settings.environments).join(", ")}`);
     }
     return envConfig;
+}
+
+
+/***/ }),
+
+/***/ 8270:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.buildTemplateFiles = buildTemplateFiles;
+const VERSION_PLACEHOLDER = "##MODULE_VERSION_LINE##";
+const MAIN_TF = `module "project_factory" {
+  source = "cilly-yllic/project-bootstrap/google"
+${VERSION_PLACEHOLDER}
+  for_each = jsondecode(var.environments)
+
+  project_id                   = each.value.project_id
+  project_name                 = lookup(each.value, "project_name", each.value.project_id)
+  billing_account_id           = each.value.billing_account_id
+  terraform_service_account_id = each.value.terraform_service_account_id
+  tfc_workspace_name           = each.value.tfc_workspace_name
+
+  org_id    = try(jsondecode(var.parent).organization_id, null)
+  folder_id = try(jsondecode(var.parent).folder_id, null)
+
+  bootstrap_project_id          = var.bootstrap_project_id
+  workload_identity_pool_id     = var.workload_identity_pool_id
+  workload_identity_provider_id = var.workload_identity_provider_id
+}
+
+variable "service" {
+  type = string
+}
+
+variable "environments" {
+  description = "JSON string keyed by environment name. Synced by the dispatch-project-bootstrap Action."
+  type        = string
+}
+
+variable "parent" {
+  description = "JSON string holding organization_id or folder_id."
+  type        = string
+  default     = "{}"
+}
+
+variable "bootstrap_project_id" {
+  type = string
+}
+
+variable "workload_identity_pool_id" {
+  type = string
+}
+
+variable "workload_identity_provider_id" {
+  type = string
+}
+`;
+const VERSIONS_TF = `terraform {
+  required_version = ">= 1.3"
+
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = ">= 5.0"
+    }
+  }
+}
+`;
+function buildTemplateFiles(moduleVersion) {
+    const versionLine = moduleVersion ? `  version = ${JSON.stringify(moduleVersion)}` : "";
+    return {
+        "main.tf": MAIN_TF.replace(VERSION_PLACEHOLDER, versionLine),
+        "versions.tf": VERSIONS_TF,
+    };
 }
 
 
@@ -30368,8 +30511,69 @@ class TfcClient {
             await this.request("POST", `/workspaces/${workspaceId}/notification-configurations`, payload);
         }
     }
+    // --- Configuration Version ---
+    async createConfigurationVersion(workspaceId, opts = {}) {
+        const { data } = await this.request("POST", `/workspaces/${workspaceId}/configuration-versions`, {
+            data: {
+                type: "configuration-versions",
+                attributes: {
+                    "auto-queue-runs": opts.autoQueueRuns ?? false,
+                },
+            },
+        });
+        return data;
+    }
+    async uploadConfigurationVersion(uploadUrl, tarball) {
+        const res = await fetch(uploadUrl, {
+            method: "PUT",
+            headers: { "Content-Type": "application/octet-stream" },
+            body: new Uint8Array(tarball),
+        });
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`Failed to upload configuration version tarball (${res.status}): ${text}`);
+        }
+    }
+    async getConfigurationVersion(configVersionId) {
+        const { data } = await this.request("GET", `/configuration-versions/${configVersionId}`);
+        return data;
+    }
+    async waitForConfigurationVersionUploaded(configVersionId, opts = {}) {
+        const timeoutMs = opts.timeoutMs ?? 60_000;
+        const intervalMs = opts.intervalMs ?? 2_000;
+        const deadline = Date.now() + timeoutMs;
+        let last;
+        while (Date.now() < deadline) {
+            last = await this.getConfigurationVersion(configVersionId);
+            const status = last.attributes.status;
+            if (status === "uploaded")
+                return last;
+            if (status === "errored") {
+                throw new Error(`Configuration version ${configVersionId} ingestion failed (status=errored)`);
+            }
+            await new Promise((resolve) => setTimeout(resolve, intervalMs));
+        }
+        const lastStatus = last?.attributes.status ?? "unknown";
+        throw new Error(`Timed out waiting for configuration version ${configVersionId} to reach status=uploaded (last status=${lastStatus})`);
+    }
     // --- Run ---
     async createRun(workspaceId, opts = {}) {
+        const relationships = {
+            workspace: {
+                data: {
+                    type: "workspaces",
+                    id: workspaceId,
+                },
+            },
+        };
+        if (opts.configurationVersionId) {
+            relationships["configuration-version"] = {
+                data: {
+                    type: "configuration-versions",
+                    id: opts.configurationVersionId,
+                },
+            };
+        }
         const { data } = await this.request("POST", `/runs`, {
             data: {
                 type: "runs",
@@ -30377,14 +30581,7 @@ class TfcClient {
                     "auto-apply": opts.autoApply ?? true,
                     message: opts.message ?? "",
                 },
-                relationships: {
-                    workspace: {
-                        data: {
-                            type: "workspaces",
-                            id: workspaceId,
-                        },
-                    },
-                },
+                relationships,
             },
         });
         return data;
@@ -30443,6 +30640,8 @@ const settings_1 = __nccwpck_require__(4718);
 const billing_1 = __nccwpck_require__(8562);
 const github_1 = __nccwpck_require__(6944);
 const dispatch_1 = __nccwpck_require__(9661);
+const templates_1 = __nccwpck_require__(8270);
+const config_version_1 = __nccwpck_require__(4992);
 async function run() {
     try {
         // ---- Read inputs ----
@@ -30474,6 +30673,7 @@ async function run() {
         const enableWebhook = core.getInput("enable_webhook_notification") === "true";
         const cloudRunWebhookUrl = core.getInput("cloud_run_webhook_url");
         const cloudRunWebhookSecret = core.getInput("cloud_run_webhook_secret");
+        const moduleVersion = core.getInput("module_version");
         // Mask sensitive values
         core.setSecret(tfcToken);
         core.setSecret(githubAppPrivateKey);
@@ -30604,7 +30804,25 @@ async function run() {
             sensitive: false,
         })));
         core.info("Terraform variables synced");
-        // ---- 11. Create Run ----
+        // ---- 11. Upload Configuration Version (main.tf template) ----
+        core.info(moduleVersion
+            ? `Building configuration tarball (module version pinned to ${moduleVersion})`
+            : "Building configuration tarball (module version unpinned)");
+        const tarball = (0, config_version_1.buildTarball)((0, templates_1.buildTemplateFiles)(moduleVersion || undefined));
+        core.info("Creating configuration version");
+        const cv = await tfc.createConfigurationVersion(ws.id, {
+            autoQueueRuns: false,
+        });
+        const uploadUrl = cv.attributes["upload-url"];
+        if (!uploadUrl) {
+            throw new Error(`Configuration version ${cv.id} did not return an upload-url`);
+        }
+        core.info(`Uploading tarball (${tarball.length} bytes)`);
+        await tfc.uploadConfigurationVersion(uploadUrl, tarball);
+        core.info("Waiting for configuration version ingestion");
+        await tfc.waitForConfigurationVersionUploaded(cv.id);
+        core.info(`Configuration version ready: ${cv.id}`);
+        // ---- 12. Create Run ----
         const context = github.context;
         const runMessage = (0, dispatch_1.buildRunMessage)({
             service,
@@ -30616,6 +30834,7 @@ async function run() {
         const tfcRun = await tfc.createRun(ws.id, {
             message: runMessage,
             autoApply: true,
+            configurationVersionId: cv.id,
         });
         const runUrl = `https://app.terraform.io/app/${tfcOrg}/workspaces/${workspaceName}/runs/${tfcRun.id}`;
         core.info(`Run created: ${runUrl}`);
@@ -30743,6 +30962,14 @@ module.exports = require("net");
 
 /***/ }),
 
+/***/ 1421:
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("node:child_process");
+
+/***/ }),
+
 /***/ 7598:
 /***/ ((module) => {
 
@@ -30756,6 +30983,30 @@ module.exports = require("node:crypto");
 
 "use strict";
 module.exports = require("node:events");
+
+/***/ }),
+
+/***/ 3024:
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("node:fs");
+
+/***/ }),
+
+/***/ 8161:
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("node:os");
+
+/***/ }),
+
+/***/ 6760:
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("node:path");
 
 /***/ }),
 
