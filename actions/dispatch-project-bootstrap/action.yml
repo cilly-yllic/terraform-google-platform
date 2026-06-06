@@ -1,0 +1,76 @@
+name: "Dispatch TFC Project Bootstrap"
+description: "Read settings.yml, resolve billing, upsert TFC workspace, and trigger a project-bootstrap Run"
+author: "cilly-yllic"
+
+inputs:
+  service:
+    description: "service name"
+    required: true
+  environment:
+    description: "target environment (dev/stg/prd)"
+    required: true
+  settings_path:
+    description: "path to settings.yml within the calling repo"
+    default: "terraform/settings.yml"
+  tfc_org:
+    description: "Terraform Cloud organization name"
+    required: true
+  tfc_workspace_name:
+    description: "project-factory workspace name pattern (placeholders: {service})"
+    default: "project-factory-{service}"
+  parent_organization_id:
+    description: "GCP Org ID (use one of organization_id or folder_id)"
+    required: false
+  parent_folder_id:
+    description: "GCP Folder ID (use one of organization_id or folder_id)"
+    required: false
+  bootstrap_project_id:
+    description: "Bootstrap project ID where SA is created"
+    default: "infra-bootstrap"
+  bootstrap_project_number:
+    description: "Bootstrap project number (numeric). Required for TFC_GCP_WORKLOAD_PROVIDER_NAME."
+    required: true
+  workload_identity_pool_id:
+    description: "Workload Identity Pool ID"
+    default: "terraform-cloud"
+  workload_identity_provider_id:
+    description: "Workload Identity Provider ID"
+    default: "terraform-cloud"
+  billing_registry_repo:
+    description: "owner/repo of infra repo holding billing-accounts.yml"
+    required: true
+  billing_registry_path:
+    description: "path to billing-accounts.yml in the billing registry repo"
+    default: "configs/billing-accounts.yml"
+  github_app_id:
+    description: "GitHub App ID with read access to billing_registry_repo"
+    required: true
+  github_app_private_key:
+    description: "GitHub App private key (PEM)"
+    required: true
+  tfc_token:
+    description: "Terraform Cloud API token"
+    required: true
+  enable_webhook_notification:
+    description: "if true, ensure TFC notification config exists for Phase 2"
+    default: "false"
+  cloud_run_webhook_url:
+    description: "Cloud Run router URL (required when enable_webhook_notification=true)"
+    required: false
+  cloud_run_webhook_secret:
+    description: "HMAC secret shared with Cloud Run router"
+    required: false
+
+outputs:
+  run_id:
+    description: "Terraform Cloud Run ID"
+  run_url:
+    description: "URL to the Run in TFC UI"
+  workspace_id:
+    description: "Terraform Cloud Workspace ID"
+  workspace_name:
+    description: "Terraform Cloud Workspace name"
+
+runs:
+  using: "node20"
+  main: "dist/index.js"
