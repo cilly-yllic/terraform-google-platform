@@ -8,6 +8,8 @@ import { parseSettings, extractEnvironment } from "../lib/settings";
 import { resolveBillingAccount } from "../lib/billing";
 import { fetchFileViaApp } from "../lib/github";
 import { expandWorkspaceName, buildRunMessage } from "../lib/dispatch";
+import { buildTemplateFiles } from "../lib/templates";
+import { buildTarball } from "../lib/config-version";
 
 async function run(): Promise<void> {
   try {
@@ -44,6 +46,7 @@ async function run(): Promise<void> {
       core.getInput("enable_webhook_notification") === "true";
     const cloudRunWebhookUrl = core.getInput("cloud_run_webhook_url");
     const cloudRunWebhookSecret = core.getInput("cloud_run_webhook_secret");
+    const moduleVersion = core.getInput("module_version");
 
     // Mask sensitive values
     core.setSecret(tfcToken);
@@ -216,7 +219,33 @@ async function run(): Promise<void> {
     );
     core.info("Terraform variables synced");
 
-    // ---- 11. Create Run ----
+    // ---- 11. Upload Configuration Version (main.tf template) ----
+    core.info(
+      moduleVersion
+        ? `Building configuration tarball (module version pinned to ${moduleVersion})`
+        : "Building configuration tarball (module version unpinned)"
+    );
+    const tarball = buildTarball(buildTemplateFiles(moduleVersion || undefined));
+
+    core.info("Creating configuration version");
+    const cv = await tfc.createConfigurationVersion(ws.id, {
+      autoQueueRuns: false,
+    });
+    const uploadUrl = cv.attributes["upload-url"];
+    if (!uploadUrl) {
+      throw new Error(
+        `Configuration version ${cv.id} did not return an upload-url`
+      );
+    }
+
+    core.info(`Uploading tarball (${tarball.length} bytes)`);
+    await tfc.uploadConfigurationVersion(uploadUrl, tarball);
+
+    core.info("Waiting for configuration version ingestion");
+    await tfc.waitForConfigurationVersionUploaded(cv.id);
+    core.info(`Configuration version ready: ${cv.id}`);
+
+    // ---- 12. Create Run ----
     const context = github.context;
     const runMessage = buildRunMessage({
       service,
@@ -229,6 +258,7 @@ async function run(): Promise<void> {
     const tfcRun = await tfc.createRun(ws.id, {
       message: runMessage,
       autoApply: true,
+      configurationVersionId: cv.id,
     });
 
     const runUrl = `https://app.terraform.io/app/${tfcOrg}/workspaces/${workspaceName}/runs/${tfcRun.id}`;

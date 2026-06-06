@@ -454,6 +454,101 @@ export async function upsertNotification(
 }
 
 // ---------------------------------------------------------------------------
+// Configuration Version
+// ---------------------------------------------------------------------------
+
+export interface ConfigurationVersionData {
+  id: string;
+  attributes: {
+    status: string;
+    "upload-url"?: string;
+    "auto-queue-runs"?: boolean;
+  };
+}
+
+export async function createConfigurationVersion(
+  workspaceId: string,
+  autoQueueRuns: boolean,
+  token: string,
+): Promise<ConfigurationVersionData> {
+  interface Resp {
+    data: ConfigurationVersionData;
+  }
+  const resp = await api<Resp>(
+    `/workspaces/${workspaceId}/configuration-versions`,
+    {
+      method: "POST",
+      token,
+      body: {
+        data: {
+          type: "configuration-versions",
+          attributes: { "auto-queue-runs": autoQueueRuns },
+        },
+      },
+    },
+  );
+  return resp.data;
+}
+
+export async function uploadConfigurationVersion(
+  uploadUrl: string,
+  tarball: Buffer,
+): Promise<void> {
+  const res = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: { "Content-Type": "application/octet-stream" },
+    body: new Uint8Array(tarball),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(
+      `Failed to upload configuration version tarball (${res.status}): ${body.slice(0, MAX_ERROR_BODY)}`,
+    );
+  }
+}
+
+export async function getConfigurationVersion(
+  configVersionId: string,
+  token: string,
+): Promise<ConfigurationVersionData> {
+  interface Resp {
+    data: ConfigurationVersionData;
+  }
+  const resp = await api<Resp>(
+    `/configuration-versions/${configVersionId}`,
+    { token },
+  );
+  return resp.data;
+}
+
+export async function waitForConfigurationVersionUploaded(
+  configVersionId: string,
+  token: string,
+  opts: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<ConfigurationVersionData> {
+  const timeoutMs = opts.timeoutMs ?? 60_000;
+  const intervalMs = opts.intervalMs ?? 2_000;
+  const deadline = Date.now() + timeoutMs;
+  let last: ConfigurationVersionData | undefined;
+  while (Date.now() < deadline) {
+    last = await getConfigurationVersion(configVersionId, token);
+    const status = last.attributes.status;
+    if (status === "uploaded") return last;
+    if (status === "errored") {
+      throw new Error(
+        `Configuration version ${configVersionId} ingestion failed (status=errored)`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  const lastStatus = last?.attributes.status ?? "unknown";
+  throw new Error(
+    `Timed out waiting for configuration version ${configVersionId} to reach status=uploaded (last status=${lastStatus})`,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Run
 // ---------------------------------------------------------------------------
 
@@ -461,6 +556,7 @@ export interface RunCreateOpts {
   workspaceId: string;
   message?: string;
   autoApply?: boolean;
+  configurationVersionId?: string;
   token: string;
 }
 
@@ -473,6 +569,19 @@ export async function createRun(opts: RunCreateOpts): Promise<RunData> {
   interface Resp {
     data: RunData;
   }
+  const relationships: Record<string, unknown> = {
+    workspace: {
+      data: { type: "workspaces", id: opts.workspaceId },
+    },
+  };
+  if (opts.configurationVersionId) {
+    relationships["configuration-version"] = {
+      data: {
+        type: "configuration-versions",
+        id: opts.configurationVersionId,
+      },
+    };
+  }
   const resp = await api<Resp>("/runs", {
     method: "POST",
     token: opts.token,
@@ -483,11 +592,7 @@ export async function createRun(opts: RunCreateOpts): Promise<RunData> {
           message: opts.message ?? "",
           "auto-apply": opts.autoApply ?? false,
         },
-        relationships: {
-          workspace: {
-            data: { type: "workspaces", id: opts.workspaceId },
-          },
-        },
+        relationships,
       },
     },
   });

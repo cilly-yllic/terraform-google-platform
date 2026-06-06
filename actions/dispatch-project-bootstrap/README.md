@@ -40,6 +40,7 @@
 | `enable_webhook_notification` | no | `false` | Create TFC notification for Phase 2 webhook |
 | `cloud_run_webhook_url` | no | — | Cloud Run router URL (required if webhook enabled) |
 | `cloud_run_webhook_secret` | no | — | HMAC secret for webhook |
+| `module_version` | no | — | Version constraint for the Registry module written into the uploaded main.tf (e.g. `1.2.3`, `~> 1.0`). Empty = no pin (always latest). |
 
 ## Outputs
 
@@ -52,6 +53,7 @@
 
 ## Notes
 
+- main.tf / versions.tf は Action 内に同梱されたテンプレートを毎回 Terraform Cloud Configuration Version として upload します。Workspace 側に手動で VCS 連携や config を用意する必要はありません。テンプレートの module シェイプは `for_each = jsondecode(var.environments)` 形式で、`environments` 変数に env を追記していくことで service 単位の単一 workspace に複数 env を累積管理します。
 - `parent` と `environments` は JSON 文字列 (`hcl: false`) として TFC Variable に格納されます。消費側の Terraform では `jsondecode()` で展開してください。
 - `billing_registry_repo` は `owner/repo` 形式で指定してください。不正な形式の場合は明確なエラーメッセージが表示されます。
 - `TFC_GCP_WORKLOAD_PROVIDER_NAME` には `bootstrap_project_number` (numeric) を使用します。GCP WIF リソース名は project number を要求するため、project ID ではなく project number を指定してください。

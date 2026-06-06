@@ -45,6 +45,7 @@ Project Repository が `terraform/settings.yml` を起点に、project-factory w
 | `enable_webhook_notification` | Whether to configure a Phase 2 webhook notification | no | `false` |
 | `cloud_run_webhook_url` | Cloud Run router URL (required when webhook is on) | no | — |
 | `cloud_run_webhook_secret` | HMAC secret (shared with the Cloud Run router) | no | — |
+| `module_version` | Version constraint for the Registry module written into the uploaded main.tf (e.g. `1.2.3`, `~> 1.0`). Empty = no pin (always latest). | no | — |
 
 <details><summary>Ja</summary>
 
@@ -63,6 +64,7 @@ Project Repository が `terraform/settings.yml` を起点に、project-factory w
 - `enable_webhook_notification` (default `false`): Phase 2 webhook 通知を設定するか
 - `cloud_run_webhook_url`: Cloud Run router URL (webhook 有効時必須)
 - `cloud_run_webhook_secret`: HMAC secret (Cloud Run router と共有)
+- `module_version`: アップロードする main.tf 内の Registry module バージョン制約 (`1.2.3` や `~> 1.0`)。空の場合は version 属性を出力せず常に最新を使用
 
 </details>
 
@@ -220,11 +222,11 @@ jobs:
 
 > **⚠️ Full Workspace Management:** This Action fully manages the workspace's variables. Any variable the Action does not generate (e.g. manually added or set by other tooling) **will be deleted on every run**. Include manually-required variables in the `firebase_platform` section of `settings.yml`, or use a separate workspace.
 
-> **ℹ️ API-driven Workspace:** This Action creates and manages an API-driven workspace with no VCS connection. GitHub Actions detects repo changes, sets Terraform variables based on settings.yml, and runs apply — no VCS link is needed.
+> **ℹ️ API-driven Workspace:** This Action creates and manages an API-driven workspace with no VCS connection. main.tf / versions.tf are bundled inside the Action and uploaded as a Terraform Cloud Configuration Version on every dispatch — no pre-existing config in the workspace is required.
 
 <details><summary>Ja</summary>
 
 - **Full Workspace Management:** この Action は workspace の変数を完全に管理する。Action が生成しない変数 (手動追加や他ツールで設定した変数) は **毎回削除される**。手動で設定が必要な変数がある場合は `settings.yml` の `firebase_platform` セクションに含めるか、別の workspace を使用すること
-- **API-driven Workspace:** この Action は VCS 接続なしの API-driven workspace を作成・管理する。GitHub Actions 側がリポジトリの変更を検知し、settings.yml の値を元に Terraform 変数を設定して apply run を実行する設計のため、VCS 連携は不要
+- **API-driven Workspace:** この Action は VCS 接続なしの API-driven workspace を作成・管理する。main.tf / versions.tf は Action 内に同梱されており、dispatch のたびに Terraform Cloud Configuration Version として upload される。workspace 側に事前に config を用意する必要はない
 
 </details>
