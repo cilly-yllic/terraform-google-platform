@@ -1,0 +1,336 @@
+# ---------------------------------------------------------------------------
+# Project
+# ---------------------------------------------------------------------------
+
+variable "project_id" {
+  description = "GCP / Firebase project ID."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{4,28}[a-z0-9]$", var.project_id))
+    error_message = "project_id must be 6-30 lowercase letters, digits, or hyphens, starting with a letter and ending with a letter or digit."
+  }
+}
+
+variable "region" {
+  description = "Default GCP region for resources."
+  type        = string
+  default     = "asia-northeast1"
+
+  validation {
+    condition     = can(regex("^[a-z]+-[a-z]+[0-9]+$", var.region))
+    error_message = "region must be a valid GCP region identifier (e.g. asia-northeast1, us-central1)."
+  }
+}
+
+variable "billing_account" {
+  description = "Billing account ID to associate with the project (format: XXXXXX-XXXXXX-XXXXXX). If empty, billing is not configured."
+  type        = string
+  default     = ""
+}
+
+# ---------------------------------------------------------------------------
+# Feature configuration
+#
+# Each feature variable accepts one of:
+#   null  → disabled (no resources created)
+#   true  → enabled with default settings
+#   { … } → enabled with custom settings (unspecified fields use defaults)
+# ---------------------------------------------------------------------------
+
+# -- Firebase core -----------------------------------------------------------
+
+variable "firebase" {
+  description = "Firebase Project. null to disable, true for defaults."
+  type        = any
+  default     = true
+}
+
+variable "authentication" {
+  description = <<-EOT
+    Firebase Authentication / Identity Platform.
+    null to disable, true for defaults, or object:
+      blocking_functions.before_create  = Cloud Function URI (default: "")
+      blocking_functions.before_sign_in = Cloud Function URI (default: "")
+  EOT
+  type        = any
+  default     = null
+}
+
+variable "firestore" {
+  description = <<-EOT
+    Cloud Firestore.
+    null to disable, true for defaults (default DB only), or object:
+      location                = Default DB location (default: var.region)
+      type                    = FIRESTORE_NATIVE | DATASTORE_MODE (default: "FIRESTORE_NATIVE")
+      delete_protection_state = Default DB protection (default: "DELETE_PROTECTION_DISABLED")
+      point_in_time_recovery  = Default DB PITR (default: false)
+      databases               = Additional databases list. Each:
+        database_id             = Database ID (required)
+        location                = Location (default: same as default DB)
+        type                    = FIRESTORE_NATIVE | DATASTORE_MODE
+        delete_protection_state = Protection state
+        point_in_time_recovery  = PITR enabled
+    Default database is always created. Initial rules (deny all) applied.
+  EOT
+  type        = any
+  default     = null
+}
+
+variable "rtdb" {
+  description = <<-EOT
+    Firebase Realtime Database.
+    null to disable, true for defaults, or object:
+      location = RTDB location (default: var.region)
+      type     = DEFAULT_DATABASE | USER_DATABASE (default: "DEFAULT_DATABASE")
+  EOT
+  type        = any
+  default     = null
+}
+
+variable "storage" {
+  description = <<-EOT
+    Cloud Storage for Firebase.
+    null to disable, true for defaults (default bucket only), or object:
+      buckets = list of additional buckets. Each bucket:
+        name          = bucket name (auto-prefixed with {project_id}-)
+        raw_name      = true to skip auto-prefix (default: false)
+        location      = bucket location (default: var.region)
+        storage_class = storage class (default: "REGIONAL")
+        iams          = list of IAM bindings (optional). Each:
+          role    = IAM role
+          members = list of members
+      firestore_backup = Firestore backup bucket config (optional):
+        true or string (bucket name suffix). Creates bucket with:
+          autoclass, 7-year lifecycle, export IAM auto-configured.
+        export_platform = "cloud_functions" | "cloud_run" (default: "cloud_functions")
+    Default bucket is always created when storage is enabled.
+  EOT
+  type        = any
+  default     = null
+}
+
+variable "hosting" {
+  description = <<-EOT
+    Firebase Hosting.
+    null to disable, true for defaults, or object:
+      site_id = Hosting site ID (default: project_id)
+  EOT
+  type        = any
+  default     = null
+}
+
+variable "app_hosting" {
+  description = <<-EOT
+    Firebase App Hosting.
+    null to disable, true for defaults, or object:
+      location         = Backend location (default: var.region)
+      app_id           = Firebase Web App ID (required)
+      service_account  = Service account email (default: auto-created)
+      serving_locality = GLOBAL_ACCESS | REGION_LOCKED (default: "GLOBAL_ACCESS")
+  EOT
+  type        = any
+  default     = null
+}
+
+variable "data_connect" {
+  description = <<-EOT
+    Firebase Data Connect.
+    null to disable, true for defaults, or object:
+      location   = Data Connect location (default: var.region)
+      service_id = Data Connect service ID (default: "{project_id}-dataconnect")
+      cloud_sql  = Cloud SQL instance config (optional):
+        instance_id         = Instance name (default: "{project_id}-fdc")
+        database            = Database name (default: project_id)
+        tier                = Machine tier (default: "db-f1-micro")
+        database_version    = PostgreSQL version (default: "POSTGRES_15")
+        deletion_protection = Prevent deletion (default: false)
+  EOT
+  type        = any
+  default     = null
+}
+
+# -- Firebase extensions -----------------------------------------------------
+
+variable "fcm" {
+  description = "Firebase Cloud Messaging. null to disable, true for defaults."
+  type        = any
+  default     = null
+}
+
+variable "remote_config" {
+  description = "Firebase Remote Config. null to disable, true for defaults."
+  type        = any
+  default     = null
+}
+
+variable "app_check" {
+  description = "Firebase App Check. null to disable, true for defaults."
+  type        = any
+  default     = null
+}
+
+variable "crashlytics" {
+  description = "Firebase Crashlytics. null to disable, true for defaults."
+  type        = any
+  default     = null
+}
+
+variable "performance" {
+  description = "Firebase Performance Monitoring. null to disable, true for defaults."
+  type        = any
+  default     = null
+}
+
+variable "analytics" {
+  description = "Google Analytics for Firebase. null to disable, true for defaults."
+  type        = any
+  default     = null
+}
+
+variable "extensions" {
+  description = "Firebase Extensions. null to disable, true for defaults."
+  type        = any
+  default     = null
+}
+
+# -- GCP services ------------------------------------------------------------
+
+variable "secret_manager" {
+  description = "Secret Manager. null to disable, true for defaults."
+  type        = any
+  default     = null
+}
+
+variable "cloud_tasks" {
+  description = <<-EOT
+    Cloud Tasks.
+    null to disable, true for defaults, or object:
+      location = Cloud Tasks location (default: var.region)
+  EOT
+  type        = any
+  default     = null
+}
+
+variable "cloud_scheduler" {
+  description = <<-EOT
+    Cloud Scheduler.
+    null to disable, true for defaults, or object:
+      location = Cloud Scheduler location (default: var.region)
+  EOT
+  type        = any
+  default     = null
+}
+
+variable "pubsub" {
+  description = "Pub/Sub. null to disable, true for defaults."
+  type        = any
+  default     = null
+}
+
+variable "eventarc" {
+  description = <<-EOT
+    Eventarc.
+    null to disable, true for defaults, or object:
+      location = Eventarc location (default: var.region)
+  EOT
+  type        = any
+  default     = null
+}
+
+variable "cloud_run" {
+  description = "Cloud Run IAM configuration. null to disable, true to enable."
+  type        = any
+  default     = null
+}
+
+variable "cloud_functions" {
+  description = "Cloud Functions IAM configuration. null to disable, true to enable."
+  type        = any
+  default     = null
+}
+
+# ---------------------------------------------------------------------------
+# API management
+# ---------------------------------------------------------------------------
+
+variable "additional_apis" {
+  description = "Additional GCP APIs to enable beyond those auto-determined by feature flags."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for s in var.additional_apis : can(regex("\\.googleapis\\.com$", s))])
+    error_message = "Each additional_apis entry must end with '.googleapis.com'."
+  }
+}
+
+# ---------------------------------------------------------------------------
+# IAM – Users
+# ---------------------------------------------------------------------------
+
+variable "users" {
+  description = <<-EOT
+    Project IAM members to grant roles to.
+      email  = user email address (required)
+      role   = viewer | editor | owner (default: "viewer")
+      deploy = grant Cloud Functions / Artifact Registry deploy roles (default: false)
+  EOT
+  type = list(object({
+    email  = string
+    role   = optional(string, "viewer")
+    deploy = optional(bool, false)
+  }))
+  default = []
+
+  validation {
+    condition     = alltrue([for u in var.users : contains(["viewer", "editor", "owner"], u.role)])
+    error_message = "users[*].role must be one of: viewer, editor, owner."
+  }
+}
+
+# ---------------------------------------------------------------------------
+# CI Service Account (auto-determined roles from enabled features)
+# ---------------------------------------------------------------------------
+
+variable "ci_service_account" {
+  description = <<-EOT
+    CI deploy service account. Roles are auto-determined from enabled features.
+    null to disable, true for defaults, or object:
+      account_id       = SA ID (default: "ci-deploy")
+      display_name     = display name (default: "CI/CD Deployment")
+      additional_roles = extra roles to grant beyond auto-determined (default: [])
+  EOT
+  type        = any
+  default     = null
+}
+
+# ---------------------------------------------------------------------------
+# Service Accounts (manual)
+# ---------------------------------------------------------------------------
+
+variable "service_accounts" {
+  description = <<-EOT
+    Additional service accounts to create with explicit role assignment.
+      account_id   = SA ID (required)
+      display_name = display name (optional)
+      type         = "deploy" (required)
+      roles        = additional custom IAM roles (optional)
+      args         = feature flags for deploy type:
+        hosting   = true/false (roles/firebasehosting.admin)
+        functions = true/false (roles/cloudfunctions.admin, roles/iam.serviceAccountUser, roles/artifactregistry.admin)
+        firestore = true/false (roles/datastore.indexAdmin, roles/firebaserules.admin)
+        storage   = true/false (roles/firebasestorage.viewer, roles/storage.objectAdmin, roles/storage.admin)
+        scheduler = true/false (roles/cloudscheduler.admin)
+        tasks     = true/false (roles/cloudtasks.queueAdmin)
+        blocking  = true/false (roles/firebaseauth.admin)
+  EOT
+  type = list(object({
+    account_id   = string
+    display_name = optional(string, "")
+    type         = string
+    roles        = optional(list(string), [])
+    args         = optional(any, {})
+  }))
+  default = []
+}

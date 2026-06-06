@@ -1,0 +1,25 @@
+{
+  "name": "dispatch-tfc-project-bootstrap",
+  "version": "1.0.0",
+  "private": true,
+  "description": "GitHub Action: dispatch Terraform Cloud project-bootstrap Run from settings.yml",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "ncc build src/index.ts -o dist --source-map --license licenses.txt",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint 'src/**/*.ts' 'lib/**/*.ts'"
+  },
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@actions/github": "^6.0.0",
+    "@octokit/auth-app": "^7.1.5",
+    "@octokit/rest": "^21.1.1",
+    "yaml": "^2.7.1",
+    "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@vercel/ncc": "^0.38.3",
+    "typescript": "^5.8.3"
+  }
+}

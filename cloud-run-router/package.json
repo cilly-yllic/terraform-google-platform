@@ -1,0 +1,25 @@
+{
+  "name": "cloud-run-router",
+  "version": "0.1.0",
+  "description": "TFC notification → GitHub repository_dispatch Cloud Run router (reference implementation)",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit",
+    "fmt": "prettier --write ."
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "prettier": "^3.4.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.1.0"
+  }
+}

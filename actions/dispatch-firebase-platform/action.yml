@@ -1,0 +1,73 @@
+name: "dispatch-tfc-firebase-platform"
+description: >
+  Dispatch a Terraform Cloud Run for the firebase-project-platform module.
+  Reads settings.yml + project-factory outputs, upserts a {service}-{env}
+  workspace, maps firebase_platform feature flags to Terraform variables,
+  syncs Dynamic Credentials, and starts a Run with env-based apply policy.
+
+inputs:
+  service:
+    description: "Service name (e.g. my-app)"
+    required: true
+  environment:
+    description: "Target environment (dev / stg / prd)"
+    required: true
+  settings_path:
+    description: "Path to settings.yml within the calling repo"
+    default: "terraform/settings.yml"
+  tfc_org:
+    description: "Terraform Cloud organization name"
+    required: true
+  project_factory_workspace:
+    description: >
+      Upstream project-factory workspace name pattern.
+      Placeholder: {service}
+    default: "project-factory-{service}"
+  target_workspace:
+    description: >
+      This stage's workspace name pattern.
+      Placeholders: {service}, {environment}
+    default: "{service}-{environment}"
+  bootstrap_project_id:
+    description: "GCP bootstrap project ID for Workload Identity"
+    default: "infra-bootstrap"
+  bootstrap_project_number:
+    description: "GCP bootstrap project number (numeric) for Workload Identity Pool path"
+    required: true
+  workload_identity_pool_id:
+    description: "Workload Identity Pool ID"
+    default: "terraform-cloud"
+  workload_identity_provider_id:
+    description: "Workload Identity Provider ID"
+    default: "terraform-cloud"
+  tfc_token:
+    description: "Terraform Cloud API token"
+    required: true
+  apply_policy:
+    description: >
+      Run apply policy: auto | manual | env-based.
+      env-based (default): dev=auto, stg/prd=manual.
+    default: "env-based"
+  enable_webhook_notification:
+    description: "If true, ensure TFC notification config exists for Phase 2"
+    default: "false"
+  cloud_run_webhook_url:
+    description: "Cloud Run router URL (required when enable_webhook_notification=true)"
+    required: false
+  cloud_run_webhook_secret:
+    description: "HMAC secret shared with Cloud Run router"
+    required: false
+
+outputs:
+  run_id:
+    description: "Terraform Cloud Run ID"
+  run_url:
+    description: "URL to the Run in Terraform Cloud UI"
+  workspace_id:
+    description: "Terraform Cloud Workspace ID"
+  workspace_name:
+    description: "Terraform Cloud Workspace name"
+
+runs:
+  using: "node20"
+  main: "dist/index.js"

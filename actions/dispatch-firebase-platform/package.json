@@ -1,0 +1,25 @@
+{
+  "name": "dispatch-tfc-firebase-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "GitHub Action: Dispatch TFC Run for firebase-project-platform",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "ncc build src/index.ts -o dist --license licenses.txt",
+    "lint": "tsc --noEmit",
+    "fmt": "prettier --write ."
+  },
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "yaml": "^2.7.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@vercel/ncc": "^0.38.3",
+    "prettier": "^3.4.0",
+    "typescript": "^5.7.0"
+  }
+}

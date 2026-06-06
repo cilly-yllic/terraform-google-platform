@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  terraform-firebase-platform:
+    name: "Terraform Validate – firebase-project-platform"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.12.x"
+
+      - name: terraform fmt -check
+        run: terraform fmt -check -recursive modules/firebase-project-platform
+
+      - name: terraform init (module root)
+        working-directory: modules/firebase-project-platform
+        run: terraform init -backend=false
+
+      - name: terraform validate (module root)
+        working-directory: modules/firebase-project-platform
+        run: terraform validate
+
+      - name: terraform init (examples/minimal)
+        working-directory: examples/firebase-project-platform/minimal
+        run: terraform init -backend=false
+
+      - name: terraform validate (examples/minimal)
+        working-directory: examples/firebase-project-platform/minimal
+        run: terraform validate
+
+      - name: terraform init (examples/full)
+        working-directory: examples/firebase-project-platform/full
+        run: terraform init -backend=false
+
+      - name: terraform validate (examples/full)
+        working-directory: examples/firebase-project-platform/full
+        run: terraform validate
+
+  terraform-project-bootstrap:
+    name: "Terraform Validate – project-bootstrap"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.12.x"
+
+      - name: terraform fmt -check
+        run: terraform fmt -check -recursive modules/project-bootstrap
+
+      - name: terraform init (module root)
+        working-directory: modules/project-bootstrap
+        run: terraform init -backend=false
+
+      - name: terraform validate (module root)
+        working-directory: modules/project-bootstrap
+        run: terraform validate
+
+      - name: terraform init (examples/minimal)
+        working-directory: examples/project-bootstrap/minimal
+        run: terraform init -backend=false
+
+      - name: terraform validate (examples/minimal)
+        working-directory: examples/project-bootstrap/minimal
+        run: terraform validate
+
+      - name: terraform init (examples/complete)
+        working-directory: examples/project-bootstrap/complete
+        run: terraform init -backend=false
+
+      - name: terraform validate (examples/complete)
+        working-directory: examples/project-bootstrap/complete
+        run: terraform validate
+
+  action-dispatch-firebase-platform:
+    name: "Action – dispatch-firebase-platform (Lint & Build)"
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: actions/dispatch-firebase-platform
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: npm ci
+        run: npm ci
+
+      - name: tsc --noEmit
+        run: npx tsc --noEmit
+
+      - name: ncc build
+        run: npm run build
+
+      - name: dist/ up to date
+        run: git diff --exit-code dist/
+
+  action-dispatch-project-bootstrap:
+    name: "Action – dispatch-project-bootstrap (Lint & Build)"
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: actions/dispatch-project-bootstrap
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: npm ci
+        run: npm ci
+
+      - name: typecheck
+        run: npm run typecheck
+
+      - name: ncc build
+        run: npm run build
+
+      - name: dist/ up to date
+        run: git diff --exit-code dist/
