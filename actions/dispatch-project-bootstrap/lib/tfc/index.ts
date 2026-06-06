@@ -56,6 +56,15 @@ export interface TfcRun {
   };
 }
 
+export interface TfcConfigurationVersion {
+  id: string;
+  attributes: {
+    status: string;
+    "upload-url"?: string;
+    "auto-queue-runs"?: boolean;
+  };
+}
+
 export class TfcApiError extends Error {
   constructor(
     public readonly method: string,
@@ -385,6 +394,79 @@ export class TfcClient {
     }
   }
 
+  // --- Configuration Version ---
+
+  async createConfigurationVersion(
+    workspaceId: string,
+    opts: { autoQueueRuns?: boolean } = {}
+  ): Promise<TfcConfigurationVersion> {
+    const { data } = await this.request<TfcConfigurationVersion>(
+      "POST",
+      `/workspaces/${workspaceId}/configuration-versions`,
+      {
+        data: {
+          type: "configuration-versions",
+          attributes: {
+            "auto-queue-runs": opts.autoQueueRuns ?? false,
+          },
+        },
+      }
+    );
+    return data;
+  }
+
+  async uploadConfigurationVersion(
+    uploadUrl: string,
+    tarball: Buffer
+  ): Promise<void> {
+    const res = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: new Uint8Array(tarball),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(
+        `Failed to upload configuration version tarball (${res.status}): ${text}`
+      );
+    }
+  }
+
+  async getConfigurationVersion(
+    configVersionId: string
+  ): Promise<TfcConfigurationVersion> {
+    const { data } = await this.request<TfcConfigurationVersion>(
+      "GET",
+      `/configuration-versions/${configVersionId}`
+    );
+    return data;
+  }
+
+  async waitForConfigurationVersionUploaded(
+    configVersionId: string,
+    opts: { timeoutMs?: number; intervalMs?: number } = {}
+  ): Promise<TfcConfigurationVersion> {
+    const timeoutMs = opts.timeoutMs ?? 60_000;
+    const intervalMs = opts.intervalMs ?? 2_000;
+    const deadline = Date.now() + timeoutMs;
+    let last: TfcConfigurationVersion | undefined;
+    while (Date.now() < deadline) {
+      last = await this.getConfigurationVersion(configVersionId);
+      const status = last.attributes.status;
+      if (status === "uploaded") return last;
+      if (status === "errored") {
+        throw new Error(
+          `Configuration version ${configVersionId} ingestion failed (status=errored)`
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+    const lastStatus = last?.attributes.status ?? "unknown";
+    throw new Error(
+      `Timed out waiting for configuration version ${configVersionId} to reach status=uploaded (last status=${lastStatus})`
+    );
+  }
+
   // --- Run ---
 
   async createRun(
@@ -392,8 +474,25 @@ export class TfcClient {
     opts: {
       message?: string;
       autoApply?: boolean;
+      configurationVersionId?: string;
     } = {}
   ): Promise<TfcRun> {
+    const relationships: Record<string, unknown> = {
+      workspace: {
+        data: {
+          type: "workspaces",
+          id: workspaceId,
+        },
+      },
+    };
+    if (opts.configurationVersionId) {
+      relationships["configuration-version"] = {
+        data: {
+          type: "configuration-versions",
+          id: opts.configurationVersionId,
+        },
+      };
+    }
     const { data } = await this.request<TfcRun>("POST", `/runs`, {
       data: {
         type: "runs",
@@ -401,14 +500,7 @@ export class TfcClient {
           "auto-apply": opts.autoApply ?? true,
           message: opts.message ?? "",
         },
-        relationships: {
-          workspace: {
-            data: {
-              type: "workspaces",
-              id: workspaceId,
-            },
-          },
-        },
+        relationships,
       },
     });
     return data;

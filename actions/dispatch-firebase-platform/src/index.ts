@@ -5,6 +5,9 @@ import {
   getProjectFactoryOutputs,
   upsertNotification,
   createRun,
+  createConfigurationVersion,
+  uploadConfigurationVersion,
+  waitForConfigurationVersionUploaded,
 } from "../lib/tfc/index.js";
 import { loadSettings, extractFirebasePlatform } from "../lib/settings/index.js";
 import {
@@ -14,6 +17,8 @@ import {
   buildEnvVariables,
   buildRunMessage,
 } from "../lib/dispatch/index.js";
+import { buildTemplateFiles } from "../lib/templates/index.js";
+import { buildTarball } from "../lib/config-version/index.js";
 
 async function run(): Promise<void> {
   try {
@@ -38,6 +43,7 @@ async function run(): Promise<void> {
       core.getInput("enable_webhook_notification") === "true";
     const webhookUrl = core.getInput("cloud_run_webhook_url");
     const webhookSecret = core.getInput("cloud_run_webhook_secret");
+    const moduleVersion = core.getInput("module_version");
 
     core.setSecret(tfcToken);
     if (webhookSecret) core.setSecret(webhookSecret);
@@ -149,7 +155,35 @@ async function run(): Promise<void> {
     core.info("Variable sync complete");
 
     // -----------------------------------------------------------------------
-    // 8. Create Run
+    // 8. Upload Configuration Version (main.tf template)
+    // -----------------------------------------------------------------------
+    core.info(
+      moduleVersion
+        ? `Building configuration tarball (module version pinned to ${moduleVersion})`
+        : "Building configuration tarball (module version unpinned)",
+    );
+    const tarball = buildTarball(
+      buildTemplateFiles(moduleVersion || undefined),
+    );
+
+    core.info("Creating configuration version");
+    const cv = await createConfigurationVersion(workspaceId, false, tfcToken);
+    const uploadUrl = cv.attributes["upload-url"];
+    if (!uploadUrl) {
+      throw new Error(
+        `Configuration version ${cv.id} did not return an upload-url`,
+      );
+    }
+
+    core.info(`Uploading tarball (${tarball.length} bytes)`);
+    await uploadConfigurationVersion(uploadUrl, tarball);
+
+    core.info("Waiting for configuration version ingestion");
+    await waitForConfigurationVersionUploaded(cv.id, tfcToken);
+    core.info(`Configuration version ready: ${cv.id}`);
+
+    // -----------------------------------------------------------------------
+    // 9. Create Run
     // -----------------------------------------------------------------------
     const sourceRepo = process.env["GITHUB_REPOSITORY"] ?? "";
     const sha = process.env["GITHUB_SHA"] ?? "";
@@ -166,6 +200,7 @@ async function run(): Promise<void> {
       workspaceId,
       message,
       autoApply,
+      configurationVersionId: cv.id,
       token: tfcToken,
     });
 
