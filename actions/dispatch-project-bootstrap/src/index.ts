@@ -5,8 +5,6 @@ import * as path from "path";
 
 import { TfcClient } from "../lib/tfc";
 import { parseSettings, extractEnvironment } from "../lib/settings";
-import { resolveBillingAccount } from "../lib/billing";
-import { fetchFileViaApp } from "../lib/github";
 import { expandWorkspaceName, buildRunMessage } from "../lib/dispatch";
 import { buildTemplateFiles } from "../lib/templates";
 import { buildTarball } from "../lib/config-version";
@@ -27,20 +25,6 @@ async function run(): Promise<void> {
     });
     const wifPoolId = core.getInput("workload_identity_pool_id");
     const wifProviderId = core.getInput("workload_identity_provider_id");
-    const billingRegistryRepo = core.getInput("billing_registry_repo", {
-      required: true,
-    });
-
-    if (!billingRegistryRepo.includes("/") || billingRegistryRepo.split("/").length !== 2) {
-      throw new Error(
-        `billing_registry_repo must be in "owner/repo" format, got: "${billingRegistryRepo}"`
-      );
-    }
-    const billingRegistryPath = core.getInput("billing_registry_path");
-    const githubAppId = core.getInput("github_app_id", { required: true });
-    const githubAppPrivateKey = core.getInput("github_app_private_key", {
-      required: true,
-    });
     const tfcToken = core.getInput("tfc_token", { required: true });
     const enableWebhook =
       core.getInput("enable_webhook_notification") === "true";
@@ -50,7 +34,6 @@ async function run(): Promise<void> {
 
     // Mask sensitive values
     core.setSecret(tfcToken);
-    core.setSecret(githubAppPrivateKey);
     if (cloudRunWebhookSecret) core.setSecret(cloudRunWebhookSecret);
 
     // ---- 1. Read settings.yml ----
@@ -62,30 +45,13 @@ async function run(): Promise<void> {
     core.info(`Parsed settings for service: ${settings.service}`);
 
     // ---- 2. Extract environment config ----
+    // env key (e.g. "prd-001", "dev-002") is the project_id suffix.
     const envConfig = extractEnvironment(settings, environment);
+    const projectId = `${service}-${environment}`;
     core.info(
-      `Environment "${environment}": project_id=${envConfig.project_id}, billing_account_key=${envConfig.billing_account_key}`
+      `Environment "${environment}": project_id=${projectId}`,
     );
-
-    // ---- 3. Fetch billing-accounts.yml via GitHub App ----
-    core.info(
-      `Fetching billing registry from ${billingRegistryRepo}/${billingRegistryPath}`
-    );
-    const [billingOwner, billingRepo] = billingRegistryRepo.split("/");
-    const billingRaw = await fetchFileViaApp(
-      { appId: githubAppId, privateKey: githubAppPrivateKey },
-      billingOwner,
-      billingRepo,
-      billingRegistryPath
-    );
-
-    // ---- 4. Resolve billing_account_key -> billing_account_id ----
-    const billingAccountId = resolveBillingAccount(
-      billingRaw,
-      envConfig.billing_account_key
-    );
-    core.info(`Resolved billing_account_key -> billing_account_id`);
-    core.setSecret(billingAccountId);
+    core.setSecret(envConfig.billing_account_id);
 
     // ---- 5. Upsert TFC Workspace ----
     const tfc = new TfcClient({ token: tfcToken, org: tfcOrg });
@@ -116,10 +82,17 @@ async function run(): Promise<void> {
 
     // ---- 7-9. Read-modify-write environments variable ----
     core.info("Updating environments variable (read-modify-write with etag)");
+    const terraformSaId = `terraform-${service}-${environment}`;
+    if (terraformSaId.length > 30) {
+      throw new Error(
+        `terraform_service_account_id "${terraformSaId}" is ${terraformSaId.length} chars (GCP limit is 30). ` +
+          `Shorten the service name or env key.`,
+      );
+    }
     const envEntry: Record<string, string> = {
-      project_id: envConfig.project_id,
-      billing_account_id: billingAccountId,
-      terraform_service_account_id: `terraform-${service}-${environment}`,
+      project_id: projectId,
+      billing_account_id: envConfig.billing_account_id,
+      terraform_service_account_id: terraformSaId,
       tfc_workspace_name: `${service}-${environment}`,
     };
     await tfc.readModifyWriteEnvironments(

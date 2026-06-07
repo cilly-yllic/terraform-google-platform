@@ -2,8 +2,7 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
 const environmentSchema = z.object({
-  project_id: z.string(),
-  billing_account_key: z.string(),
+  billing_account_id: z.string(),
   firebase_platform: z.record(z.unknown()).optional(),
 });
 
@@ -16,7 +15,8 @@ export type Settings = z.infer<typeof settingsSchema>;
 export type EnvironmentConfig = z.infer<typeof environmentSchema>;
 
 export function parseSettings(raw: string): Settings {
-  const parsed: unknown = parseYaml(raw);
+  // merge: true enables YAML "<<" merge keys for DRY-ing repeated env config.
+  const parsed: unknown = parseYaml(raw, { merge: true });
   return settingsSchema.parse(parsed);
 }
 

@@ -2,7 +2,6 @@ import * as core from "@actions/core";
 import {
   upsertWorkspace,
   syncVariables,
-  getProjectFactoryOutputs,
   upsertNotification,
   createRun,
   createConfigurationVersion,
@@ -29,7 +28,6 @@ async function run(): Promise<void> {
     const environment = core.getInput("environment", { required: true });
     const settingsPath = core.getInput("settings_path");
     const tfcOrg = core.getInput("tfc_org", { required: true });
-    const pfWorkspacePattern = core.getInput("project_factory_workspace");
     const targetWorkspacePattern = core.getInput("target_workspace");
     const bootstrapProjectId = core.getInput("bootstrap_project_id");
     const bootstrapProjectNumber = core.getInput("bootstrap_project_number", {
@@ -59,19 +57,19 @@ async function run(): Promise<void> {
     );
 
     // -----------------------------------------------------------------------
-    // 3. Fetch upstream project-factory outputs
+    // 3. Derive project_id / SA email from service + env key
+    //    (env key is the project_id suffix — e.g. "prd-001", "dev-002")
     // -----------------------------------------------------------------------
-    const pfWorkspaceName = expandWorkspaceName(pfWorkspacePattern, {
-      service,
-    });
-    core.info(`Fetching outputs from upstream workspace "${pfWorkspaceName}"`);
-    const pfOutputs = await getProjectFactoryOutputs(
-      tfcOrg,
-      pfWorkspaceName,
-      environment,
-      tfcToken,
-    );
-    core.info(`Upstream project_id: ${pfOutputs.project_id}`);
+    const projectId = `${service}-${environment}`;
+    const saId = `terraform-${service}-${environment}`;
+    if (saId.length > 30) {
+      throw new Error(
+        `service account id "${saId}" is ${saId.length} chars (GCP limit is 30). ` +
+          "Shorten the service name or env key.",
+      );
+    }
+    const saEmail = `${saId}@${bootstrapProjectId}.iam.gserviceaccount.com`;
+    core.info(`project_id=${projectId}, sa=${saEmail}`);
 
     // -----------------------------------------------------------------------
     // 4. Upsert target workspace
@@ -117,31 +115,14 @@ async function run(): Promise<void> {
     // -----------------------------------------------------------------------
     // 6. Sync Terraform Variables (feature flags)
     // -----------------------------------------------------------------------
-    const tfVars = buildTerraformVariables(
-      pfOutputs.project_id,
-      firebasePlatform,
-    );
+    const tfVars = buildTerraformVariables(projectId, firebasePlatform);
 
     // -----------------------------------------------------------------------
     // 7. Sync Environment Variables (Dynamic Credentials)
     // -----------------------------------------------------------------------
-    let saEmail = pfOutputs.terraform_service_account_email;
-    if (!saEmail) {
-      const saId = `terraform-${service}-${environment}`;
-      if (saId.length > 30) {
-        throw new Error(
-          `Fallback SA ID "${saId}" is ${saId.length} chars (GCP limit is 30). ` +
-            "Provide terraform_service_account_email in project-factory outputs.",
-        );
-      }
-      saEmail = `${saId}@${bootstrapProjectId}.iam.gserviceaccount.com`;
-      core.warning(
-        `terraform_service_account_email not found in project-factory outputs; using fallback "${saEmail}".`,
-      );
-    }
     const envVars = buildEnvVariables(
       saEmail,
-      pfOutputs.project_id,
+      projectId,
       bootstrapProjectNumber,
       poolId,
       providerId,

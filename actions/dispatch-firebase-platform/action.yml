@@ -1,9 +1,9 @@
 name: "dispatch-tfc-firebase-platform"
 description: >
   Dispatch a Terraform Cloud Run for the firebase-project-platform module.
-  Reads settings.yml + project-factory outputs, upserts a {service}-{env}
-  workspace, maps firebase_platform feature flags to Terraform variables,
-  syncs Dynamic Credentials, and starts a Run with env-based apply policy.
+  Reads settings.yml, upserts a {service}-{env} workspace, maps
+  firebase_platform feature flags to Terraform variables, syncs Dynamic
+  Credentials, and starts a Run with env-based apply policy.
 
 inputs:
   service:
@@ -18,11 +18,6 @@ inputs:
   tfc_org:
     description: "Terraform Cloud organization name"
     required: true
-  project_factory_workspace:
-    description: >
-      Upstream project-factory workspace name pattern.
-      Placeholder: {service}
-    default: "project-factory-{service}"
   target_workspace:
     description: >
       This stage's workspace name pattern.
@@ -46,7 +41,7 @@ inputs:
   apply_policy:
     description: >
       Run apply policy: auto | manual | env-based.
-      env-based (default): dev=auto, stg/prd=manual.
+      env-based (default): env keys starting with "dev" → auto, others → manual.
     default: "env-based"
   enable_webhook_notification:
     description: "If true, ensure TFC notification config exists for Phase 2"

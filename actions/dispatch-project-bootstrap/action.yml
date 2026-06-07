@@ -1,5 +1,5 @@
 name: "Dispatch TFC Project Bootstrap"
-description: "Read settings.yml, resolve billing, upsert TFC workspace, and trigger a project-bootstrap Run"
+description: "Read settings.yml, upsert TFC workspace, and trigger a project-bootstrap Run"
 author: "cilly-yllic"
 
 inputs:
@@ -36,18 +36,6 @@ inputs:
   workload_identity_provider_id:
     description: "Workload Identity Provider ID"
     default: "terraform-cloud"
-  billing_registry_repo:
-    description: "owner/repo of infra repo holding billing-accounts.yml"
-    required: true
-  billing_registry_path:
-    description: "path to billing-accounts.yml in the billing registry repo"
-    default: "configs/billing-accounts.yml"
-  github_app_id:
-    description: "GitHub App ID with read access to billing_registry_repo"
-    required: true
-  github_app_private_key:
-    description: "GitHub App private key (PEM)"
-    required: true
   tfc_token:
     description: "Terraform Cloud API token"
     required: true
