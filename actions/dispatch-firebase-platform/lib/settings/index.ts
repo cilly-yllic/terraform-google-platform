@@ -1,53 +1,41 @@
 import { readFile } from "node:fs/promises";
 import { parse as parseYaml } from "yaml";
+import { z } from "zod";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+const environmentSchema = z.object({
+  billing_account_id: z.string(),
+  firebase_platform: z.record(z.unknown()).optional(),
+});
 
-export interface FirebasePlatformConfig {
-  [key: string]: unknown;
-}
+const settingsSchema = z.object({
+  service: z.string(),
+  environments: z.record(z.string(), environmentSchema),
+});
 
-export interface EnvironmentEntry {
-  project_id?: string;
-  billing_account_key?: string;
-  firebase_platform?: FirebasePlatformConfig;
-  [key: string]: unknown;
-}
-
-export interface Settings {
-  service?: string;
-  environments?: Record<string, EnvironmentEntry>;
-  [key: string]: unknown;
-}
-
-// ---------------------------------------------------------------------------
-// Parser
-// ---------------------------------------------------------------------------
+export type Settings = z.infer<typeof settingsSchema>;
+export type EnvironmentEntry = z.infer<typeof environmentSchema>;
+export type FirebasePlatformConfig = Record<string, unknown>;
 
 export async function loadSettings(path: string): Promise<Settings> {
   const raw = await readFile(path, "utf-8");
-  const data = parseYaml(raw) as Settings;
-  if (!data || typeof data !== "object") {
-    throw new Error(`settings.yml at "${path}" is not a valid YAML object`);
-  }
-  return data;
+  // merge: true enables YAML "<<" merge keys for DRY-ing repeated env config.
+  const parsed: unknown = parseYaml(raw, { merge: true });
+  return settingsSchema.parse(parsed);
 }
 
 export function extractEnvironment(
   settings: Settings,
   env: string,
 ): EnvironmentEntry {
-  const envs = settings.environments;
-  if (!envs || !envs[env]) {
+  const envConfig = settings.environments[env];
+  if (!envConfig) {
     throw new Error(
       `Environment "${env}" not found in settings.yml. Available: ${
-        envs ? Object.keys(envs).join(", ") : "(none)"
+        Object.keys(settings.environments).join(", ") || "(none)"
       }`,
     );
   }
-  return envs[env];
+  return envConfig;
 }
 
 export function extractFirebasePlatform(

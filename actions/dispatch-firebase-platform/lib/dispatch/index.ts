@@ -30,7 +30,9 @@ export function resolveAutoApply(
     case "manual":
       return false;
     case "env-based":
-      return env === "dev";
+      // env key is the project_id suffix (e.g. "dev-001", "prd-001").
+      // Anything that starts with "dev" auto-applies.
+      return env.startsWith("dev");
     default:
       throw new Error(
         `Unknown apply_policy "${policy}". Must be "auto", "manual", or "env-based".`,

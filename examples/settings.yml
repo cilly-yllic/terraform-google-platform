@@ -1,0 +1,121 @@
+# =============================================================================
+# settings.yml — shared by Action A (dispatch-project-bootstrap) and
+#                                Action B (dispatch-firebase-platform).
+# Lives in the service's own repository as the single source of truth.
+# -----------------------------------------------------------------------------
+# Naming convention
+#   project_id    = "${service}-${env_key}"   (env_key IS the suffix)
+#   tfc workspace = "${service}-${env_key}"   (Action B's target workspace)
+#   sa id         = "terraform-${service}-${env_key}"   (≤ 30 chars, GCP limit)
+#
+# Field ownership
+#   service                                 → A & B   (naming root)
+#   environments.<env_key>                  → A & B   (env_key = project_id suffix)
+#   environments.<env_key>.billing_account_id → A    (B does not need it)
+#   environments.<env_key>.firebase_platform → B    (A passes through, ignores)
+# =============================================================================
+
+service: my-service
+
+# YAML anchors let you DRY-share firebase_platform config across multiple
+# dev-NNN environments. Drop the anchor block if you don't need it.
+_anchors:
+  dev_firebase: &dev_firebase
+    firebase: true
+    authentication: true
+    firestore:
+      location: asia-northeast1
+      type: FIRESTORE_NATIVE
+    storage: null
+    hosting: null
+    fcm: true
+    remote_config: true
+    crashlytics: true
+    analytics: true
+    secret_manager: true
+    cloud_run: true
+    cloud_functions: true
+    region: asia-northeast1
+
+environments:
+
+  # ---------------------------------------------------------------------------
+  # prd-001 — production. project_id = my-service-prd-001
+  # ---------------------------------------------------------------------------
+  prd-001:
+    billing_account_id: "AAAAAA-AAAAAA-AAAAAA"
+    firebase_platform:
+      firebase: true
+      authentication: true
+      firestore:
+        location: asia-northeast1
+        type: FIRESTORE_NATIVE
+      storage:
+        buckets:
+          - name: uploads
+      hosting:
+        site_id: my-service-prd-001-web
+      fcm: true
+      remote_config: true
+      app_check: true
+      crashlytics: true
+      performance: true
+      analytics: true
+      extensions: true
+      secret_manager: true
+      cloud_tasks:
+        location: asia-northeast1
+      cloud_scheduler:
+        location: asia-northeast1
+      pubsub: true
+      eventarc:
+        location: asia-northeast1
+      cloud_run: true
+      cloud_functions: true
+      region: asia-northeast1
+      ci_service_account:
+        account_id: ci-deploy
+        display_name: CI/CD Deployment (prd-001)
+
+  # ---------------------------------------------------------------------------
+  # stg-001 — staging. project_id = my-service-stg-001
+  # ---------------------------------------------------------------------------
+  stg-001:
+    billing_account_id: "AAAAAA-AAAAAA-AAAAAA"
+    firebase_platform:
+      firebase: true
+      authentication: true
+      firestore:
+        location: asia-northeast1
+        type: FIRESTORE_NATIVE
+        databases:
+          - database_id: analytics-db
+      hosting:
+        site_id: my-service-stg-001-web
+      fcm: true
+      remote_config: true
+      app_check: true
+      crashlytics: true
+      analytics: true
+      secret_manager: true
+      cloud_run: true
+      cloud_functions: true
+      region: asia-northeast1
+
+  # ---------------------------------------------------------------------------
+  # dev-001 / dev-002 — share the dev_firebase anchor.
+  # project_id = my-service-dev-001 / my-service-dev-002
+  # Add new dev-NNN entries here as the team grows.
+  # ---------------------------------------------------------------------------
+  dev-001:
+    billing_account_id: "BBBBBB-BBBBBB-BBBBBB"
+    firebase_platform: *dev_firebase
+
+  dev-002:
+    billing_account_id: "BBBBBB-BBBBBB-BBBBBB"
+    # Same base, override one nested field
+    firebase_platform:
+      <<: *dev_firebase
+      firestore:
+        location: us-central1
+        type: FIRESTORE_NATIVE
