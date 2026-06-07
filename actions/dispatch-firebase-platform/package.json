@@ -10,7 +10,8 @@
   "scripts": {
     "build": "ncc build src/index.ts -o dist --license licenses.txt",
     "lint": "tsc --noEmit",
-    "fmt": "prettier --write ."
+    "fmt": "prettier --write .",
+    "test": "vitest run"
   },
   "dependencies": {
     "@actions/core": "^1.11.1",
@@ -21,6 +22,7 @@
     "@types/node": "^22.0.0",
     "@vercel/ncc": "^0.38.3",
     "prettier": "^3.4.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.8"
   }
 }

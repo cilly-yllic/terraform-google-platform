@@ -7,7 +7,8 @@
   "scripts": {
     "build": "ncc build src/index.ts -o dist --source-map --license licenses.txt",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint 'src/**/*.ts' 'lib/**/*.ts'"
+    "lint": "eslint 'src/**/*.ts' 'lib/**/*.ts'",
+    "test": "vitest run"
   },
   "dependencies": {
     "@actions/core": "^1.11.1",
@@ -18,6 +19,7 @@
   "devDependencies": {
     "@types/node": "^22.15.0",
     "@vercel/ncc": "^0.38.3",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.8"
   }
 }
