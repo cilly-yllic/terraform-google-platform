@@ -81,12 +81,67 @@ environments:
   });
 });
 
+describe("status / labels defaults", () => {
+  it("defaults status to 'active' and labels to [] when omitted", () => {
+    const settings = parseSettings(
+      "service: svc\nenvironments:\n  dev-001:\n    billing_account_id: X\n",
+    );
+    expect(settings.environments["dev-001"].status).toBe("active");
+    expect(settings.environments["dev-001"].labels).toEqual([]);
+  });
+
+  it("accepts status: inactive", () => {
+    const settings = parseSettings(`service: svc
+environments:
+  prd-001:
+    status: inactive
+    billing_account_id: X
+`);
+    expect(settings.environments["prd-001"].status).toBe("inactive");
+  });
+
+  it("accepts labels as a string array", () => {
+    const settings = parseSettings(`service: svc
+environments:
+  dev-001:
+    labels: ["tier:dev", "region:apne1"]
+    billing_account_id: X
+`);
+    expect(settings.environments["dev-001"].labels).toEqual([
+      "tier:dev",
+      "region:apne1",
+    ]);
+  });
+
+  it("rejects status values outside the enum", () => {
+    expect(() =>
+      parseSettings(`service: svc
+environments:
+  dev-001:
+    status: paused
+    billing_account_id: X
+`),
+    ).toThrow();
+  });
+
+  it("rejects non-string label entries", () => {
+    expect(() =>
+      parseSettings(`service: svc
+environments:
+  dev-001:
+    labels: [1, 2]
+    billing_account_id: X
+`),
+    ).toThrow();
+  });
+});
+
 describe("extractEnvironment", () => {
   const settings = {
     service: "svc",
     environments: {
-      "dev-001": { billing_account_id: "X" },
-      "prd-001": { billing_account_id: "Y" },
+      "dev-001": { status: "active" as const, labels: [], billing_account_id: "X" },
+      "prd-001": { status: "active" as const, labels: [], billing_account_id: "Y" },
     },
   };
 

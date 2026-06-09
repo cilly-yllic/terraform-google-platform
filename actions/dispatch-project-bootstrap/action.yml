@@ -55,16 +55,29 @@ inputs:
       Leave empty to omit the version attribute and always use the latest.
     required: false
     default: ""
+  labels:
+    description: >
+      JSON array of JS RegExp pattern strings (e.g. '["^tier:dev$","^region:apne1$"]').
+      When set, the target environment's `labels` (from settings.yml) must match
+      ALL patterns (AND) — otherwise the Action skips with outputs.skipped=true.
+      Anchor patterns with ^...$ for exact match. Empty / omitted means
+      "no label gating".
+    required: false
+    default: ""
 
 outputs:
   run_id:
-    description: "Terraform Cloud Run ID"
+    description: "Terraform Cloud Run ID (empty when skipped)"
   run_url:
-    description: "URL to the Run in TFC UI"
+    description: "URL to the Run in TFC UI (empty when skipped)"
   workspace_id:
-    description: "Terraform Cloud Workspace ID"
+    description: "Terraform Cloud Workspace ID (empty when skipped)"
   workspace_name:
-    description: "Terraform Cloud Workspace name"
+    description: "Terraform Cloud Workspace name (empty when skipped)"
+  skipped:
+    description: "\"true\" if the env was skipped (inactive status or label mismatch), \"false\" otherwise"
+  skip_reason:
+    description: "Reason code when skipped=true: status_inactive | labels_mismatch (empty otherwise)"
 
 runs:
   using: "node20"

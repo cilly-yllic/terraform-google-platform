@@ -8,13 +8,19 @@ import {
   uploadConfigurationVersion,
   waitForConfigurationVersionUploaded,
 } from "../lib/tfc/index.js";
-import { loadSettings, extractFirebasePlatform } from "../lib/settings/index.js";
+import {
+  loadSettings,
+  extractEnvironment,
+  extractFirebasePlatform,
+} from "../lib/settings/index.js";
 import {
   expandWorkspaceName,
   resolveAutoApply,
   buildTerraformVariables,
   buildEnvVariables,
   buildRunMessage,
+  parseLabelsInput,
+  evaluateEnvironmentGate,
 } from "../lib/dispatch/index.js";
 import { buildTemplateFiles } from "../lib/templates/index.js";
 import { buildTarball } from "../lib/config-version/index.js";
@@ -42,15 +48,41 @@ async function run(): Promise<void> {
     const webhookUrl = core.getInput("cloud_run_webhook_url");
     const webhookSecret = core.getInput("cloud_run_webhook_secret");
     const moduleVersion = core.getInput("module_version");
+    const labelsInput = core.getInput("labels");
 
     core.setSecret(tfcToken);
     if (webhookSecret) core.setSecret(webhookSecret);
+
+    // Default the skip-related outputs so downstream `if:` checks are always
+    // safe to evaluate, even on early failure.
+    core.setOutput("skipped", "false");
+    core.setOutput("skip_reason", "");
 
     // -----------------------------------------------------------------------
     // 2. Parse settings.yml → firebase_platform section
     // -----------------------------------------------------------------------
     core.info(`Loading settings from ${settingsPath}`);
     const settings = await loadSettings(settingsPath);
+    const envEntry = extractEnvironment(settings, environment);
+
+    // -----------------------------------------------------------------------
+    // 2a. Gating: status + label regex AND match
+    // -----------------------------------------------------------------------
+    const inputLabelPatterns = parseLabelsInput(labelsInput);
+    const gate = evaluateEnvironmentGate({
+      status: envEntry.status,
+      envLabels: envEntry.labels,
+      inputLabelPatterns,
+    });
+    if (gate.skip) {
+      core.warning(
+        `Skipping env "${environment}": ${gate.detail ?? gate.reason ?? "filtered"}`,
+      );
+      core.setOutput("skipped", "true");
+      core.setOutput("skip_reason", gate.reason ?? "");
+      return;
+    }
+
     const firebasePlatform = extractFirebasePlatform(settings, environment);
     core.info(
       `Extracted firebase_platform for env "${environment}": ${Object.keys(firebasePlatform).join(", ")}`,
