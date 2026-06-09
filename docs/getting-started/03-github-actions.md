@@ -61,8 +61,11 @@ jobs:
 | `tfc_org` | Terraform Cloud Organization 名 |
 | `bootstrap_project_number` | Bootstrap Project の数値 ID（WIF リソース名に使用） |
 | `billing_registry_repo` | `billing-accounts.yml` を管理する `owner/repo` |
+| `labels` | (任意) JSON 配列の RegExp。env の `labels` が全パターンに AND 一致しない場合は success-skip |
 
 全 Inputs の詳細: [`actions/dispatch-project-bootstrap/README.md`](../../actions/dispatch-project-bootstrap/README.md)
+
+> **Tip — env のゲーティング**: settings.yml の `environments.<env>.status: inactive` を指定した env や、Action input `labels` の RegExp に一致しない env は `outputs.skipped="true"` で success-skip される。matrix で全 env をループしながら絞り込む用途に便利。詳細は [Environment gating](../../actions/dispatch-project-bootstrap/README.md#environment-gating)。
 
 ---
 
@@ -106,6 +109,10 @@ jobs:
 | `auto` | 全環境で auto-apply |
 | `manual` | 全環境で手動承認 |
 | `env-based` (default) | dev = auto-apply, stg/prd = 手動承認 |
+
+### Env のゲーティング
+
+Action A と同様、`environments.<env>.status: inactive` や Action input `labels` (JSON 配列の RegExp) によって env 単位で success-skip させられる。詳細は [Environment gating](../../actions/dispatch-firebase-platform/README.md#environment-gating)。
 
 全 Inputs の詳細: [`actions/dispatch-firebase-platform/README.md`](../../actions/dispatch-firebase-platform/README.md)
 
