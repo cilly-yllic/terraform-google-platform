@@ -11,8 +11,21 @@
 # Field ownership
 #   service                                 → A & B   (naming root)
 #   environments.<env_key>                  → A & B   (env_key = project_id suffix)
+#   environments.<env_key>.status             → A & B  (active|inactive, default active)
+#   environments.<env_key>.labels             → A & B  (string[], default [])
 #   environments.<env_key>.billing_account_id → A    (B does not need it)
 #   environments.<env_key>.firebase_platform → B    (A passes through, ignores)
+#
+# Per-environment gating
+#   status: inactive  → the Action skips this env (success-skip with warning).
+#                       Use it to keep config for an env that you don't yet want
+#                       to provision (cost control during early development).
+#   labels: [...]     → free-form tags. When the caller passes `labels:` input
+#                       to the Action (JSON array of regex patterns, e.g.
+#                       '["^tier:dev$","^region:apne1$"]'), the env must match
+#                       ALL patterns (AND) to run; otherwise the Action skips.
+#                       Patterns are JS RegExp — anchor with ^...$ for an
+#                       exact match.
 # =============================================================================
 
 service: my-service
@@ -43,6 +56,10 @@ environments:
   # prd-001 — production. project_id = my-service-prd-001
   # ---------------------------------------------------------------------------
   prd-001:
+    status: active
+    labels:
+      - tier:prd
+      - region:apne1
     billing_account_id: "AAAAAA-AAAAAA-AAAAAA"
     firebase_platform:
       firebase: true
@@ -79,8 +96,15 @@ environments:
 
   # ---------------------------------------------------------------------------
   # stg-001 — staging. project_id = my-service-stg-001
+  # status: inactive — config is kept in sync with prd, but no infra is
+  # provisioned yet. Flip to "active" (or omit, since active is the default)
+  # when the team is ready to bring staging up.
   # ---------------------------------------------------------------------------
   stg-001:
+    status: inactive
+    labels:
+      - tier:stg
+      - region:apne1
     billing_account_id: "AAAAAA-AAAAAA-AAAAAA"
     firebase_platform:
       firebase: true
@@ -108,10 +132,17 @@ environments:
   # Add new dev-NNN entries here as the team grows.
   # ---------------------------------------------------------------------------
   dev-001:
+    # status defaults to "active" when omitted.
+    labels:
+      - tier:dev
+      - region:apne1
     billing_account_id: "BBBBBB-BBBBBB-BBBBBB"
     firebase_platform: *dev_firebase
 
   dev-002:
+    labels:
+      - tier:dev
+      - region:usc1
     billing_account_id: "BBBBBB-BBBBBB-BBBBBB"
     # Same base, override one nested field
     firebase_platform:

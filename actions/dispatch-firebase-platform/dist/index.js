@@ -40476,6 +40476,8 @@ const NEVER = (/* unused pure expression or super */ null && (INVALID));
 
 
 const environmentSchema = objectType({
+    status: enumType(["active", "inactive"]).default("active"),
+    labels: arrayType(stringType()).default([]),
     billing_account_id: stringType(),
     firebase_platform: recordType(unknownType()).optional(),
 });
@@ -40690,6 +40692,60 @@ function buildEnvVariables(saEmail, targetProjectId, bootstrapProjectNumber, poo
 }
 function buildRunMessage(meta) {
     return JSON.stringify(meta);
+}
+function parseLabelsInput(raw) {
+    const trimmed = raw.trim();
+    if (trimmed === "")
+        return [];
+    let parsed;
+    try {
+        parsed = JSON.parse(trimmed);
+    }
+    catch (e) {
+        throw new Error(`Invalid labels input: expected a JSON array of strings (e.g. '["^tier:dev$","^region:apne1$"]'), got ${JSON.stringify(raw)} — ${e instanceof Error ? e.message : String(e)}`);
+    }
+    if (!Array.isArray(parsed)) {
+        throw new Error(`Invalid labels input: expected a JSON array of strings, got ${typeof parsed}`);
+    }
+    return parsed.map((v, i) => {
+        if (typeof v !== "string") {
+            throw new Error(`Invalid labels input: element [${i}] must be a string, got ${typeof v} (${JSON.stringify(v)})`);
+        }
+        return v;
+    });
+}
+function evaluateEnvironmentGate(args) {
+    if (args.status === "inactive") {
+        return {
+            skip: true,
+            reason: "status_inactive",
+            detail: 'environment status is "inactive"',
+        };
+    }
+    if (args.inputLabelPatterns.length === 0) {
+        return { skip: false };
+    }
+    const unmatched = [];
+    for (const pattern of args.inputLabelPatterns) {
+        let re;
+        try {
+            re = new RegExp(pattern);
+        }
+        catch (e) {
+            throw new Error(`Invalid regex in labels input: ${JSON.stringify(pattern)} — ${e instanceof Error ? e.message : String(e)}`);
+        }
+        if (!args.envLabels.some((l) => re.test(l))) {
+            unmatched.push(pattern);
+        }
+    }
+    if (unmatched.length > 0) {
+        return {
+            skip: true,
+            reason: "labels_mismatch",
+            detail: `env labels [${args.envLabels.join(", ")}] did not match required pattern(s): [${unmatched.join(", ")}]`,
+        };
+    }
+    return { skip: false };
 }
 
 ;// CONCATENATED MODULE: ./lib/templates/index.ts
@@ -40956,14 +41012,35 @@ async function run() {
         const webhookUrl = core.getInput("cloud_run_webhook_url");
         const webhookSecret = core.getInput("cloud_run_webhook_secret");
         const moduleVersion = core.getInput("module_version");
+        const labelsInput = core.getInput("labels");
         core.setSecret(tfcToken);
         if (webhookSecret)
             core.setSecret(webhookSecret);
+        // Default the skip-related outputs so downstream `if:` checks are always
+        // safe to evaluate, even on early failure.
+        core.setOutput("skipped", "false");
+        core.setOutput("skip_reason", "");
         // -----------------------------------------------------------------------
         // 2. Parse settings.yml → firebase_platform section
         // -----------------------------------------------------------------------
         core.info(`Loading settings from ${settingsPath}`);
         const settings = await loadSettings(settingsPath);
+        const envEntry = extractEnvironment(settings, environment);
+        // -----------------------------------------------------------------------
+        // 2a. Gating: status + label regex AND match
+        // -----------------------------------------------------------------------
+        const inputLabelPatterns = parseLabelsInput(labelsInput);
+        const gate = evaluateEnvironmentGate({
+            status: envEntry.status,
+            envLabels: envEntry.labels,
+            inputLabelPatterns,
+        });
+        if (gate.skip) {
+            core.warning(`Skipping env "${environment}": ${gate.detail ?? gate.reason ?? "filtered"}`);
+            core.setOutput("skipped", "true");
+            core.setOutput("skip_reason", gate.reason ?? "");
+            return;
+        }
         const firebasePlatform = extractFirebasePlatform(settings, environment);
         core.info(`Extracted firebase_platform for env "${environment}": ${Object.keys(firebasePlatform).join(", ")}`);
         // -----------------------------------------------------------------------

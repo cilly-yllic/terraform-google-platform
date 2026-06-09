@@ -41,15 +41,64 @@
 | `cloud_run_webhook_url` | no | — | Cloud Run router URL (required if webhook enabled) |
 | `cloud_run_webhook_secret` | no | — | HMAC secret for webhook |
 | `module_version` | no | — | Version constraint for the Registry module written into the uploaded main.tf (e.g. `1.2.3`, `~> 1.0`). Empty = no pin (always latest). |
+| `labels` | no | `""` | JSON array of JS RegExp pattern strings (例: `'["^tier:dev$","^region:apne1$"]'`)。指定時は settings.yml の env `labels` が全パターンに一致 (AND) しないと success-skip。詳細は [Environment gating](#environment-gating) |
 
 ## Outputs
 
 | Name | Description |
 |------|-------------|
-| `run_id` | Terraform Cloud Run ID |
-| `run_url` | URL to the Run in TFC UI |
-| `workspace_id` | Terraform Cloud Workspace ID |
-| `workspace_name` | Terraform Cloud Workspace name |
+| `run_id` | Terraform Cloud Run ID (empty when skipped) |
+| `run_url` | URL to the Run in TFC UI (empty when skipped) |
+| `workspace_id` | Terraform Cloud Workspace ID (empty when skipped) |
+| `workspace_name` | Terraform Cloud Workspace name (empty when skipped) |
+| `skipped` | `"true"` if the env was skipped (inactive status or labels mismatch), `"false"` otherwise |
+| `skip_reason` | When skipped: `status_inactive` / `labels_mismatch`. Empty otherwise |
+
+## Environment gating
+
+実行前に settings.yml の env と Action input を突き合わせ、以下のいずれかでマッチしない場合は **success-skip** (`core.warning` + `outputs.skipped="true"` + `outputs.skip_reason=<reason>`)。matrix ループはそのまま完走する。
+
+| Gate | 条件 | `skip_reason` |
+|------|------|----------------|
+| `status` | `environments.<env>.status: inactive` だと常に skip。設定だけ先行管理してインフラはまだ立てたくない env で使う (`status` 省略時は `active`) | `status_inactive` |
+| `labels` (AND) | Action input `labels` が JSON 配列の RegExp で、各パターンが env の `labels` のいずれかにマッチする必要がある。input が空ならゲート無効 | `labels_mismatch` |
+
+settings.yml 例:
+
+```yaml
+environments:
+  prd-001:
+    status: inactive   # 設定は保持しつつ provision は保留
+    labels:
+      - tier:prd
+      - region:apne1
+    billing_account_id: "AAAA-AAAA-AAAA"
+  dev-001:
+    labels:            # status 省略時は active
+      - tier:dev
+      - region:apne1
+    billing_account_id: "BBBB-BBBB-BBBB"
+```
+
+workflow 例 (matrix で全 env を走らせ、tier:dev だけ実行):
+
+```yaml
+strategy:
+  matrix:
+    env: [dev-001, dev-002, stg-001, prd-001]
+steps:
+  - uses: cilly-yllic/terraform-google-platform/actions/dispatch-project-bootstrap@main
+    id: pf
+    with:
+      service: my-service
+      environment: ${{ matrix.env }}
+      labels: '["^tier:dev$"]'
+      # ...
+  - if: steps.pf.outputs.skipped != 'true'
+    run: echo "ran: ${{ steps.pf.outputs.run_url }}"
+```
+
+`skipped` / `skip_reason` は早期失敗時にも `false` / 空文字で初期化されるので、後段 step の `if:` で安全に参照できる。パターンは `RegExp.test()` で評価され部分一致がデフォルト。完全一致したい場合は `^...$` で囲むこと。
 
 ## Notes
 
