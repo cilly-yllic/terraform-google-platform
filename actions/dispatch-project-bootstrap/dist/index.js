@@ -30076,6 +30076,8 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.expandWorkspaceName = expandWorkspaceName;
 exports.buildRunMessage = buildRunMessage;
 exports.mergeEnvironmentsMap = mergeEnvironmentsMap;
+exports.parseLabelsInput = parseLabelsInput;
+exports.evaluateEnvironmentGate = evaluateEnvironmentGate;
 function expandWorkspaceName(pattern, vars) {
     let result = pattern;
     for (const [key, value] of Object.entries(vars)) {
@@ -30088,6 +30090,60 @@ function buildRunMessage(metadata) {
 }
 function mergeEnvironmentsMap(existing, environment, entry) {
     return { ...existing, [environment]: entry };
+}
+function parseLabelsInput(raw) {
+    const trimmed = raw.trim();
+    if (trimmed === "")
+        return [];
+    let parsed;
+    try {
+        parsed = JSON.parse(trimmed);
+    }
+    catch (e) {
+        throw new Error(`Invalid labels input: expected a JSON array of strings (e.g. '["^tier:dev$","^region:apne1$"]'), got ${JSON.stringify(raw)} — ${e instanceof Error ? e.message : String(e)}`);
+    }
+    if (!Array.isArray(parsed)) {
+        throw new Error(`Invalid labels input: expected a JSON array of strings, got ${typeof parsed}`);
+    }
+    return parsed.map((v, i) => {
+        if (typeof v !== "string") {
+            throw new Error(`Invalid labels input: element [${i}] must be a string, got ${typeof v} (${JSON.stringify(v)})`);
+        }
+        return v;
+    });
+}
+function evaluateEnvironmentGate(args) {
+    if (args.status === "inactive") {
+        return {
+            skip: true,
+            reason: "status_inactive",
+            detail: 'environment status is "inactive"',
+        };
+    }
+    if (args.inputLabelPatterns.length === 0) {
+        return { skip: false };
+    }
+    const unmatched = [];
+    for (const pattern of args.inputLabelPatterns) {
+        let re;
+        try {
+            re = new RegExp(pattern);
+        }
+        catch (e) {
+            throw new Error(`Invalid regex in labels input: ${JSON.stringify(pattern)} — ${e instanceof Error ? e.message : String(e)}`);
+        }
+        if (!args.envLabels.some((l) => re.test(l))) {
+            unmatched.push(pattern);
+        }
+    }
+    if (unmatched.length > 0) {
+        return {
+            skip: true,
+            reason: "labels_mismatch",
+            detail: `env labels [${args.envLabels.join(", ")}] did not match required pattern(s): [${unmatched.join(", ")}]`,
+        };
+    }
+    return { skip: false };
 }
 
 
@@ -30104,6 +30160,8 @@ exports.extractEnvironment = extractEnvironment;
 const yaml_1 = __nccwpck_require__(8815);
 const zod_1 = __nccwpck_require__(924);
 const environmentSchema = zod_1.z.object({
+    status: zod_1.z.enum(["active", "inactive"]).default("active"),
+    labels: zod_1.z.array(zod_1.z.string()).default([]),
     billing_account_id: zod_1.z.string(),
     firebase_platform: zod_1.z.record(zod_1.z.unknown()).optional(),
 });
@@ -30581,10 +30639,15 @@ async function run() {
         const cloudRunWebhookUrl = core.getInput("cloud_run_webhook_url");
         const cloudRunWebhookSecret = core.getInput("cloud_run_webhook_secret");
         const moduleVersion = core.getInput("module_version");
+        const labelsInput = core.getInput("labels");
         // Mask sensitive values
         core.setSecret(tfcToken);
         if (cloudRunWebhookSecret)
             core.setSecret(cloudRunWebhookSecret);
+        // Default the skip-related outputs so downstream `if:` checks are always
+        // safe to evaluate, even on early failure.
+        core.setOutput("skipped", "false");
+        core.setOutput("skip_reason", "");
         // ---- 1. Read settings.yml ----
         core.info(`Reading settings from ${settingsPath}`);
         const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
@@ -30597,6 +30660,19 @@ async function run() {
         const envConfig = (0, settings_1.extractEnvironment)(settings, environment);
         const projectId = `${service}-${environment}`;
         core.info(`Environment "${environment}": project_id=${projectId}`);
+        // ---- 2a. Gating: status + label regex AND match ----
+        const inputLabelPatterns = (0, dispatch_1.parseLabelsInput)(labelsInput);
+        const gate = (0, dispatch_1.evaluateEnvironmentGate)({
+            status: envConfig.status,
+            envLabels: envConfig.labels,
+            inputLabelPatterns,
+        });
+        if (gate.skip) {
+            core.warning(`Skipping env "${environment}": ${gate.detail ?? gate.reason ?? "filtered"}`);
+            core.setOutput("skipped", "true");
+            core.setOutput("skip_reason", gate.reason ?? "");
+            return;
+        }
         core.setSecret(envConfig.billing_account_id);
         // ---- 5. Upsert TFC Workspace ----
         const tfc = new tfc_1.TfcClient({ token: tfcToken, org: tfcOrg });
