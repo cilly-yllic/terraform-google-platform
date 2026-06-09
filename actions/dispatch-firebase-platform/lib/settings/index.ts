@@ -3,6 +3,8 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
 const environmentSchema = z.object({
+  status: z.enum(["active", "inactive"]).default("active"),
+  labels: z.array(z.string()).default([]),
   billing_account_id: z.string(),
   firebase_platform: z.record(z.unknown()).optional(),
 });

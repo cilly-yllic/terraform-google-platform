@@ -5,7 +5,12 @@ import * as path from "path";
 
 import { TfcClient } from "../lib/tfc";
 import { parseSettings, extractEnvironment } from "../lib/settings";
-import { expandWorkspaceName, buildRunMessage } from "../lib/dispatch";
+import {
+  expandWorkspaceName,
+  buildRunMessage,
+  parseLabelsInput,
+  evaluateEnvironmentGate,
+} from "../lib/dispatch";
 import { buildTemplateFiles } from "../lib/templates";
 import { buildTarball } from "../lib/config-version";
 
@@ -31,10 +36,16 @@ async function run(): Promise<void> {
     const cloudRunWebhookUrl = core.getInput("cloud_run_webhook_url");
     const cloudRunWebhookSecret = core.getInput("cloud_run_webhook_secret");
     const moduleVersion = core.getInput("module_version");
+    const labelsInput = core.getInput("labels");
 
     // Mask sensitive values
     core.setSecret(tfcToken);
     if (cloudRunWebhookSecret) core.setSecret(cloudRunWebhookSecret);
+
+    // Default the skip-related outputs so downstream `if:` checks are always
+    // safe to evaluate, even on early failure.
+    core.setOutput("skipped", "false");
+    core.setOutput("skip_reason", "");
 
     // ---- 1. Read settings.yml ----
     core.info(`Reading settings from ${settingsPath}`);
@@ -51,6 +62,23 @@ async function run(): Promise<void> {
     core.info(
       `Environment "${environment}": project_id=${projectId}`,
     );
+
+    // ---- 2a. Gating: status + label regex AND match ----
+    const inputLabelPatterns = parseLabelsInput(labelsInput);
+    const gate = evaluateEnvironmentGate({
+      status: envConfig.status,
+      envLabels: envConfig.labels,
+      inputLabelPatterns,
+    });
+    if (gate.skip) {
+      core.warning(
+        `Skipping env "${environment}": ${gate.detail ?? gate.reason ?? "filtered"}`
+      );
+      core.setOutput("skipped", "true");
+      core.setOutput("skip_reason", gate.reason ?? "");
+      return;
+    }
+
     core.setSecret(envConfig.billing_account_id);
 
     // ---- 5. Upsert TFC Workspace ----

@@ -105,12 +105,72 @@ environments:
   });
 });
 
+describe("status / labels defaults", () => {
+  it("defaults status to 'active' and labels to [] when omitted", async () => {
+    const p = write(
+      `service: svc\nenvironments:\n  dev-001:\n    billing_account_id: X\n`,
+    );
+    const settings = await loadSettings(p);
+    expect(settings.environments["dev-001"].status).toBe("active");
+    expect(settings.environments["dev-001"].labels).toEqual([]);
+  });
+
+  it("accepts status: inactive", async () => {
+    const p = write(`
+service: svc
+environments:
+  prd-001:
+    status: inactive
+    billing_account_id: X
+`);
+    const settings = await loadSettings(p);
+    expect(settings.environments["prd-001"].status).toBe("inactive");
+  });
+
+  it("accepts labels as a string array", async () => {
+    const p = write(`
+service: svc
+environments:
+  dev-001:
+    labels: ["tier:dev", "region:apne1"]
+    billing_account_id: X
+`);
+    const settings = await loadSettings(p);
+    expect(settings.environments["dev-001"].labels).toEqual([
+      "tier:dev",
+      "region:apne1",
+    ]);
+  });
+
+  it("rejects status values outside the enum", async () => {
+    const p = write(`
+service: svc
+environments:
+  dev-001:
+    status: paused
+    billing_account_id: X
+`);
+    await expect(loadSettings(p)).rejects.toThrow();
+  });
+
+  it("rejects non-string label entries", async () => {
+    const p = write(`
+service: svc
+environments:
+  dev-001:
+    labels: [1, 2]
+    billing_account_id: X
+`);
+    await expect(loadSettings(p)).rejects.toThrow();
+  });
+});
+
 describe("extractEnvironment", () => {
   const settings = {
     service: "svc",
     environments: {
-      "dev-001": { billing_account_id: "X" },
-      "prd-001": { billing_account_id: "Y" },
+      "dev-001": { status: "active" as const, labels: [], billing_account_id: "X" },
+      "prd-001": { status: "active" as const, labels: [], billing_account_id: "Y" },
     },
   };
 
@@ -139,6 +199,8 @@ describe("extractFirebasePlatform", () => {
       service: "svc",
       environments: {
         "dev-001": {
+          status: "active" as const,
+          labels: [],
           billing_account_id: "X",
           firebase_platform: { firebase: true },
         },
@@ -152,7 +214,13 @@ describe("extractFirebasePlatform", () => {
   it("throws when firebase_platform is missing", () => {
     const settings = {
       service: "svc",
-      environments: { "dev-001": { billing_account_id: "X" } },
+      environments: {
+        "dev-001": {
+          status: "active" as const,
+          labels: [],
+          billing_account_id: "X",
+        },
+      },
     };
     expect(() => extractFirebasePlatform(settings, "dev-001")).toThrow(
       /firebase_platform section not found/,
