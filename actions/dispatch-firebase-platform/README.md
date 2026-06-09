@@ -46,6 +46,7 @@ Project Repository が `terraform/settings.yml` を起点に、project-factory w
 | `cloud_run_webhook_url` | Cloud Run router URL (required when webhook is on) | no | — |
 | `cloud_run_webhook_secret` | HMAC secret (shared with the Cloud Run router) | no | — |
 | `module_version` | Version constraint for the Registry module written into the uploaded main.tf (e.g. `1.2.3`, `~> 1.0`). Empty = no pin (always latest). | no | — |
+| `labels` | JSON array of JS RegExp pattern strings (e.g. `'["^tier:dev$","^region:apne1$"]'`). When set, the target env's `labels` from settings.yml must match ALL patterns (AND); otherwise the Action skips with `outputs.skipped=true`. See [Environment gating](#environment-gating). | no | `""` |
 
 <details><summary>Ja</summary>
 
@@ -65,6 +66,7 @@ Project Repository が `terraform/settings.yml` を起点に、project-factory w
 - `cloud_run_webhook_url`: Cloud Run router URL (webhook 有効時必須)
 - `cloud_run_webhook_secret`: HMAC secret (Cloud Run router と共有)
 - `module_version`: アップロードする main.tf 内の Registry module バージョン制約 (`1.2.3` や `~> 1.0`)。空の場合は version 属性を出力せず常に最新を使用
+- `labels`: JS RegExp パターンの JSON 配列文字列 (例: `'["^tier:dev$","^region:apne1$"]'`)。指定時は settings.yml の env `labels` が全パターンに一致 (AND) しないと success-skip。詳細は [Environment gating](#environment-gating)
 
 </details>
 
@@ -72,10 +74,12 @@ Project Repository が `terraform/settings.yml` を起点に、project-factory w
 
 | Name | Description |
 |------|-------------|
-| `run_id` | Terraform Cloud Run ID |
-| `run_url` | URL of the Run in the Terraform Cloud UI |
-| `workspace_id` | Terraform Cloud Workspace ID |
-| `workspace_name` | Terraform Cloud Workspace name |
+| `run_id` | Terraform Cloud Run ID (empty when skipped) |
+| `run_url` | URL of the Run in the Terraform Cloud UI (empty when skipped) |
+| `workspace_id` | Terraform Cloud Workspace ID (empty when skipped) |
+| `workspace_name` | Terraform Cloud Workspace name (empty when skipped) |
+| `skipped` | `"true"` if the env was skipped (inactive status or labels mismatch), `"false"` otherwise |
+| `skip_reason` | When skipped: `status_inactive` / `labels_mismatch`. Empty otherwise |
 
 ---
 
@@ -109,8 +113,12 @@ Example of the `firebase_platform` section the Action reads:
 service: my-app
 
 environments:
-  dev:
-    project_id: my-app-dev
+  dev-001:
+    # status defaults to "active" when omitted; labels defaults to [].
+    labels:
+      - tier:dev
+      - region:apne1
+    billing_account_id: "BBBB-BBBB-BBBB"
     firebase_platform:
       firebase: true
       firestore:
@@ -121,14 +129,23 @@ environments:
       secret_manager: true
       cloud_tasks:
         location: asia-northeast1
-  stg:
-    project_id: my-app-stg
+  stg-001:
+    # Keep the config in sync with prd, but don't provision infra yet.
+    status: inactive
+    labels:
+      - tier:stg
+      - region:apne1
+    billing_account_id: "AAAA-AAAA-AAAA"
     firebase_platform:
       firebase: true
       firestore: true
       hosting: true
-  prd:
-    project_id: my-app-prd
+  prd-001:
+    status: active
+    labels:
+      - tier:prd
+      - region:apne1
+    billing_account_id: "AAAA-AAAA-AAAA"
     firebase_platform:
       firebase: true
       firestore: true
@@ -136,13 +153,67 @@ environments:
       storage: true
 ```
 
-Each feature accepts `null` (omitted) / `true` / `{ ... }` (custom config).
+Each feature flag accepts `null` (omitted) / `true` / `{ ... }` (custom config). Each environment also supports the cross-Action fields:
+
+| Field | Type | Default | Purpose |
+|-------|------|---------|---------|
+| `status` | `"active" \| "inactive"` | `"active"` | `inactive` env はゲートで success-skip される |
+| `labels` | `string[]` | `[]` | Action input `labels` の RegExp と突き合わせる free-form タグ |
 
 <details><summary>Ja</summary>
 
-各機能は `null` (省略) / `true` / `{ ... }` (カスタム設定) で指定する。
+各機能 flag は `null` (省略) / `true` / `{ ... }` (カスタム設定) で指定する。各 env には `status` (default `active`) と `labels` (default `[]`) を指定でき、両 Action 共通のゲーティング ([Environment gating](#environment-gating)) に使われる。
 
 </details>
+
+---
+
+## Environment gating
+
+Both Actions evaluate two gates **before** any TFC work (workspace upsert, variable sync, run creation). If either gate trips, the Action emits `core.warning`, sets `outputs.skipped="true"` / `outputs.skip_reason=<reason>`, and exits with success — matrix loops keep going.
+
+### Gate 1: `status`
+
+`settings.yml` の `environments.<env>.status` が `inactive` だと **常に** skip。サービス開発中で設定だけ先に書きたいが、課金される実インフラはまだ立てたくない env で使う。
+
+```yaml
+environments:
+  prd-001:
+    status: inactive   # config 管理対象だが provision は保留
+    ...
+```
+
+→ `skip_reason: status_inactive`
+
+### Gate 2: `labels` (Action input × env labels, AND match)
+
+Action input `labels` は **JSON 配列の RegExp 文字列**。指定された全パターンが、env の `labels` 配列のいずれかにマッチする必要がある（AND）。input が空なら gate は無効。
+
+```yaml
+- uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
+  with:
+    service: my-app
+    environment: ${{ matrix.env }}
+    labels: '["^tier:dev$", "^region:apne1$"]'
+    # ...
+```
+
+env が `tier:dev` と `region:apne1` の両方にマッチする label を持つときだけ実行。マッチしなければ `skip_reason: labels_mismatch`。
+
+> **Tips**: パターンは `RegExp.test()` で評価され、デフォルトは部分一致。完全一致したい場合は `^...$` で囲む。
+
+### Downstream step での扱い
+
+```yaml
+- uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
+  id: dispatch
+  with: { ... }
+- if: steps.dispatch.outputs.skipped != 'true'
+  run: |
+    echo "ran: ${{ steps.dispatch.outputs.run_url }}"
+```
+
+`skipped` / `skip_reason` は早期失敗時にも `false` / 空文字で初期化されるので、後段 step の `if:` で安全に参照できる。
 
 ---
 
