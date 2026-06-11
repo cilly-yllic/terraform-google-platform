@@ -65,10 +65,26 @@ module "project_bootstrap" {
 
 ## GitHub Actions
 
-| Action | Path | Usage |
-|--------|------|-------|
-| dispatch-tfc-firebase-platform | `actions/dispatch-firebase-platform/` | `uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main` |
-| dispatch-tfc-project-bootstrap | `actions/dispatch-project-bootstrap/` | `uses: cilly-yllic/terraform-google-platform/actions/dispatch-project-bootstrap@main` |
+| Action | Path | 担当 | 主な機能 |
+|--------|------|------|------|
+| dispatch-tfc-project-bootstrap (A) | `actions/dispatch-project-bootstrap/` | GCP Project / SA / WIF の bootstrap | `environments` map に複数 env を蓄積し 1 Run で `for_each` 展開 |
+| dispatch-tfc-firebase-platform (B) | `actions/dispatch-firebase-platform/` | Firebase Platform リソースの構築 | env ごとに `{service}-{env}` workspace を作成し逐次 Run |
+
+両 Action は同一の `settings.yml` を読み、`environment` (単一指定) と `labels` (JSON 配列の RegExp) で対象 env を選別する。`labels` だけ指定すれば複数 env を一括処理可能。`settings.yml` 直下の `retained_envs` は廃止時の安全網で、`environments:` から消えた env でも `retained_envs` に書かれていれば GCP リソース / workspace を残す。
+
+```yaml
+# .github/workflows/bootstrap.yml
+- uses: cilly-yllic/terraform-google-platform/actions/dispatch-project-bootstrap@main
+  with:
+    service: my-service
+    labels: '["^tier:dev$"]'    # tier:dev の env を一括 bootstrap
+    tfc_org: my-tfc-org
+    bootstrap_project_number: "123456789012"
+    parent_organization_id: "999999999999"
+    tfc_token: ${{ secrets.TFC_TOKEN }}
+```
+
+詳細: [Action A README](./actions/dispatch-project-bootstrap/README.md) / [Action B README](./actions/dispatch-firebase-platform/README.md) / [Getting Started: GitHub Actions](./docs/getting-started/03-github-actions.md)
 
 ---
 
