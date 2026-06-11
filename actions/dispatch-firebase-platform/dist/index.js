@@ -40764,6 +40764,42 @@ function parseLabelsInput(raw) {
         return v;
     });
 }
+/**
+ * Parse the `environments` input — a JSON array string of env key names.
+ * Returns [] for empty / whitespace-only input. Throws on malformed JSON,
+ * non-array values, or non-string elements. Duplicate entries are deduped
+ * while preserving first-seen order.
+ */
+function parseEnvironmentsInput(raw) {
+    const trimmed = raw.trim();
+    if (trimmed === "")
+        return [];
+    let parsed;
+    try {
+        parsed = JSON.parse(trimmed);
+    }
+    catch (e) {
+        throw new Error(`Invalid environments input: expected a JSON array of env key strings (e.g. '["dev-001","dev-002"]'), got ${JSON.stringify(raw)} — ${e instanceof Error ? e.message : String(e)}`);
+    }
+    if (!Array.isArray(parsed)) {
+        throw new Error(`Invalid environments input: expected a JSON array of strings, got ${typeof parsed}`);
+    }
+    const seen = new Set();
+    const out = [];
+    parsed.forEach((v, i) => {
+        if (typeof v !== "string") {
+            throw new Error(`Invalid environments input: element [${i}] must be a string, got ${typeof v} (${JSON.stringify(v)})`);
+        }
+        if (v === "") {
+            throw new Error(`Invalid environments input: element [${i}] is an empty string`);
+        }
+        if (!seen.has(v)) {
+            seen.add(v);
+            out.push(v);
+        }
+    });
+    return out;
+}
 function evaluateEnvironmentGate(args) {
     if (args.status === "inactive") {
         return {
@@ -40800,8 +40836,8 @@ function evaluateEnvironmentGate(args) {
 /**
  * Decide which env keys are update targets for this Action invocation.
  *
- * - If environmentInput is set, candidates = [environmentInput] (must exist in
- *   settings.environments, otherwise throws).
+ * - If environmentsInput is non-empty, candidates = environmentsInput (every
+ *   key must exist in settings.environments, otherwise throws).
  * - Otherwise, candidates = all keys of settings.environments.
  * - Each candidate runs through evaluateEnvironmentGate (status + labels).
  * - Surviving candidates are returned as `targets`; the rest as `filtered`.
@@ -40809,11 +40845,12 @@ function evaluateEnvironmentGate(args) {
 function selectTargetEnvs(args) {
     const allKeys = Object.keys(args.settings.environments);
     let candidates;
-    if (args.environmentInput) {
-        if (!(args.environmentInput in args.settings.environments)) {
-            throw new Error(`Environment "${args.environmentInput}" not found in settings.yml. Available: ${allKeys.join(", ") || "(none)"}`);
+    if (args.environmentsInput.length > 0) {
+        const missing = args.environmentsInput.filter((env) => !(env in args.settings.environments));
+        if (missing.length > 0) {
+            throw new Error(`Environments not found in settings.yml: ${missing.join(", ")}. Available: ${allKeys.join(", ") || "(none)"}`);
         }
-        candidates = [args.environmentInput];
+        candidates = args.environmentsInput;
     }
     else {
         candidates = allKeys;
@@ -41123,7 +41160,7 @@ async function run() {
         // 1. Read inputs
         // -----------------------------------------------------------------------
         const service = core.getInput("service", { required: true });
-        const environment = core.getInput("environment");
+        const environmentsInputRaw = core.getInput("environments");
         const settingsPath = core.getInput("settings_path");
         const tfcOrg = core.getInput("tfc_org", { required: true });
         const targetWorkspacePattern = core.getInput("target_workspace");
@@ -41163,13 +41200,14 @@ async function run() {
         // -----------------------------------------------------------------------
         // 3. Validate input combination + select target envs
         // -----------------------------------------------------------------------
+        const environmentsInput = parseEnvironmentsInput(environmentsInputRaw);
         const inputLabelPatterns = parseLabelsInput(labelsInput);
-        if (!environment && inputLabelPatterns.length === 0) {
-            throw new Error("Either `environment` or `labels` input must be specified.");
+        if (environmentsInput.length === 0 && inputLabelPatterns.length === 0) {
+            throw new Error("Either `environments` or `labels` input must be non-empty.");
         }
         const { targets, filtered } = selectTargetEnvs({
             settings,
-            environmentInput: environment,
+            environmentsInput,
             inputLabelPatterns,
         });
         core.setOutput("filtered_envs", JSON.stringify(filtered));

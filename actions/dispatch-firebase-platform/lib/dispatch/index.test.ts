@@ -6,6 +6,7 @@ import {
   buildEnvVariables,
   buildRunMessage,
   parseLabelsInput,
+  parseEnvironmentsInput,
   evaluateEnvironmentGate,
   selectTargetEnvs,
   buildMarkerTag,
@@ -388,6 +389,55 @@ describe("evaluateEnvironmentGate", () => {
   });
 });
 
+describe("parseEnvironmentsInput", () => {
+  it("returns [] for empty / whitespace-only input", () => {
+    expect(parseEnvironmentsInput("")).toEqual([]);
+    expect(parseEnvironmentsInput("   \n  \n")).toEqual([]);
+  });
+
+  it("parses a JSON array of env keys", () => {
+    expect(parseEnvironmentsInput('["dev-001", "dev-002"]')).toEqual([
+      "dev-001",
+      "dev-002",
+    ]);
+  });
+
+  it("returns [] for a literal empty JSON array", () => {
+    expect(parseEnvironmentsInput("[]")).toEqual([]);
+  });
+
+  it("dedupes duplicate env keys while preserving first-seen order", () => {
+    expect(
+      parseEnvironmentsInput('["dev-001", "dev-002", "dev-001"]'),
+    ).toEqual(["dev-001", "dev-002"]);
+  });
+
+  it("throws on invalid JSON", () => {
+    expect(() => parseEnvironmentsInput("not json")).toThrow(
+      /Invalid environments input/,
+    );
+  });
+
+  it("throws when the JSON value is not an array", () => {
+    expect(() => parseEnvironmentsInput('"single"')).toThrow(
+      /expected a JSON array/,
+    );
+    expect(() => parseEnvironmentsInput("{}")).toThrow(/expected a JSON array/);
+  });
+
+  it("throws when an array element is not a string", () => {
+    expect(() => parseEnvironmentsInput('["ok", 42]')).toThrow(
+      /element \[1\] must be a string/,
+    );
+  });
+
+  it("throws when an array element is an empty string", () => {
+    expect(() => parseEnvironmentsInput('["dev-001", ""]')).toThrow(
+      /element \[1\] is an empty string/,
+    );
+  });
+});
+
 describe("selectTargetEnvs", () => {
   const settings = {
     service: "svc",
@@ -411,53 +461,74 @@ describe("selectTargetEnvs", () => {
     },
   };
 
-  it("picks just the named env when environmentInput is set and gate passes", () => {
+  it("picks the single named env when environmentsInput=[env] and gate passes", () => {
     const r = selectTargetEnvs({
       settings,
-      environmentInput: "prd-001",
+      environmentsInput: ["prd-001"],
       inputLabelPatterns: [],
     });
     expect(r.targets).toEqual(["prd-001"]);
     expect(r.filtered).toEqual([]);
   });
 
-  it("filters the named env out via labels mismatch", () => {
+  it("picks multiple envs in order when given an array", () => {
     const r = selectTargetEnvs({
       settings,
-      environmentInput: "prd-001",
+      environmentsInput: ["prd-001", "dev-001"],
+      inputLabelPatterns: [],
+    });
+    expect(r.targets).toEqual(["prd-001", "dev-001"]);
+    expect(r.filtered).toEqual([]);
+  });
+
+  it("filters one of the named envs via labels mismatch", () => {
+    const r = selectTargetEnvs({
+      settings,
+      environmentsInput: ["prd-001", "dev-001"],
       inputLabelPatterns: ["^tier:dev$"],
     });
-    expect(r.targets).toEqual([]);
+    expect(r.targets).toEqual(["dev-001"]);
     expect(r.filtered).toHaveLength(1);
     expect(r.filtered[0].env).toBe("prd-001");
     expect(r.filtered[0].reason).toBe("labels_mismatch");
   });
 
-  it("filters when status is inactive", () => {
+  it("filters when one of the named envs has status: inactive", () => {
     const r = selectTargetEnvs({
       settings,
-      environmentInput: "stg-001",
+      environmentsInput: ["stg-001", "dev-001"],
       inputLabelPatterns: [],
     });
-    expect(r.targets).toEqual([]);
+    expect(r.targets).toEqual(["dev-001"]);
     expect(r.filtered).toHaveLength(1);
+    expect(r.filtered[0].env).toBe("stg-001");
     expect(r.filtered[0].reason).toBe("status_inactive");
   });
 
-  it("throws with available keys when the named env does not exist", () => {
+  it("throws when ANY named env is missing from settings", () => {
     expect(() =>
       selectTargetEnvs({
         settings,
-        environmentInput: "missing",
+        environmentsInput: ["prd-001", "missing-001"],
         inputLabelPatterns: [],
       }),
-    ).toThrow(/Available: prd-001, stg-001, dev-001/);
+    ).toThrow(/Environments not found in settings\.yml: missing-001/);
   });
 
-  it("iterates all envs and applies labels when environmentInput is empty", () => {
+  it("error message lists every missing env and the available set", () => {
+    expect(() =>
+      selectTargetEnvs({
+        settings,
+        environmentsInput: ["missing-a", "missing-b"],
+        inputLabelPatterns: [],
+      }),
+    ).toThrow(/missing-a, missing-b.+Available: prd-001, stg-001, dev-001/s);
+  });
+
+  it("iterates all envs and applies labels when environmentsInput is empty", () => {
     const r = selectTargetEnvs({
       settings,
-      environmentInput: "",
+      environmentsInput: [],
       inputLabelPatterns: ["^tier:dev$"],
     });
     expect(r.targets).toEqual(["dev-001"]);
@@ -467,7 +538,7 @@ describe("selectTargetEnvs", () => {
   it("iterates all active envs when no input filters at all", () => {
     const r = selectTargetEnvs({
       settings,
-      environmentInput: "",
+      environmentsInput: [],
       inputLabelPatterns: [],
     });
     expect(r.targets.sort()).toEqual(["dev-001", "prd-001"]);
