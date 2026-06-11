@@ -129,6 +129,74 @@ export async function upsertWorkspace(
   return createWorkspace(org, attrs, token);
 }
 
+/**
+ * Additively attach tags to a workspace via the relationships endpoint
+ * (does NOT replace existing tags, unlike `tag-names` in workspace attrs).
+ *
+ * Used by the Action to mark workspaces it manages so they can later be
+ * reconciled against settings.yml.
+ */
+export async function addWorkspaceTags(
+  workspaceId: string,
+  tagNames: string[],
+  token: string,
+): Promise<void> {
+  if (tagNames.length === 0) return;
+  await api<unknown>(`/workspaces/${workspaceId}/relationships/tags`, {
+    method: "POST",
+    token,
+    body: {
+      data: tagNames.map((name) => ({
+        type: "tags",
+        attributes: { name },
+      })),
+    },
+  });
+}
+
+/**
+ * List all workspaces in the org that carry the given tag. Paginated.
+ */
+export async function listWorkspacesByTag(
+  org: string,
+  tag: string,
+  token: string,
+): Promise<WorkspaceData[]> {
+  const all: WorkspaceData[] = [];
+  let page = 1;
+  const encodedTag = encodeURIComponent(tag);
+  while (true) {
+    interface Resp {
+      data: WorkspaceData[];
+      meta?: { pagination?: { next_page?: number | null } };
+    }
+    const resp = await api<Resp>(
+      `/organizations/${encodeURIComponent(org)}/workspaces?search%5Btags%5D=${encodedTag}&page%5Bnumber%5D=${page}&page%5Bsize%5D=100`,
+      { token },
+    );
+    all.push(...resp.data);
+    const next = resp.meta?.pagination?.next_page;
+    if (!next) break;
+    page = next;
+  }
+  return all;
+}
+
+/**
+ * Force-delete a TFC workspace. Removes the workspace and its state entirely;
+ * does NOT destroy real infrastructure. The caller is responsible for any
+ * resource cleanup (e.g. having Action A destroy the underlying GCP project).
+ */
+export async function deleteWorkspace(
+  workspaceId: string,
+  token: string,
+): Promise<void> {
+  await api<unknown>(`/workspaces/${workspaceId}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Variables
 // ---------------------------------------------------------------------------

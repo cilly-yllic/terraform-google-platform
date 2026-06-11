@@ -5,6 +5,9 @@ import {
   mergeEnvironmentsMap,
   parseLabelsInput,
   evaluateEnvironmentGate,
+  selectTargetEnvs,
+  computeEnvDiff,
+  buildEnvEntry,
 } from "./index";
 
 describe("expandWorkspaceName", () => {
@@ -32,19 +35,29 @@ describe("expandWorkspaceName", () => {
 });
 
 describe("buildRunMessage", () => {
-  it("serializes the metadata as JSON", () => {
+  it("serializes the metadata as JSON with environments array", () => {
     const msg = buildRunMessage({
       service: "svc",
-      environment: "prd-001",
+      environments: ["prd-001", "dev-002"],
       source_repo: "o/r",
       sha: "deadbeef",
     });
     expect(JSON.parse(msg)).toEqual({
       service: "svc",
-      environment: "prd-001",
+      environments: ["prd-001", "dev-002"],
       source_repo: "o/r",
       sha: "deadbeef",
     });
+  });
+
+  it("handles an empty environments array (state-only / destroy diff)", () => {
+    const msg = buildRunMessage({
+      service: "svc",
+      environments: [],
+      source_repo: "o/r",
+      sha: "x",
+    });
+    expect(JSON.parse(msg).environments).toEqual([]);
   });
 });
 
@@ -201,5 +214,195 @@ describe("evaluateEnvironmentGate", () => {
         inputLabelPatterns: ["[unclosed"],
       }),
     ).toThrow(/Invalid regex in labels input/);
+  });
+});
+
+describe("selectTargetEnvs", () => {
+  const settings = {
+    service: "svc",
+    retained_envs: [] as string[],
+    environments: {
+      "prd-001": {
+        status: "active" as const,
+        labels: ["tier:prd", "region:apne1"],
+        billing_account_id: "A",
+      },
+      "stg-001": {
+        status: "inactive" as const,
+        labels: ["tier:stg"],
+        billing_account_id: "B",
+      },
+      "dev-001": {
+        status: "active" as const,
+        labels: ["tier:dev"],
+        billing_account_id: "C",
+      },
+    },
+  };
+
+  it("picks just the named env when environmentInput is set and gate passes", () => {
+    const r = selectTargetEnvs({
+      settings,
+      environmentInput: "prd-001",
+      inputLabelPatterns: [],
+    });
+    expect(r.targets).toEqual(["prd-001"]);
+    expect(r.filtered).toEqual([]);
+  });
+
+  it("filters the named env out via labels", () => {
+    const r = selectTargetEnvs({
+      settings,
+      environmentInput: "prd-001",
+      inputLabelPatterns: ["^tier:dev$"],
+    });
+    expect(r.targets).toEqual([]);
+    expect(r.filtered).toHaveLength(1);
+    expect(r.filtered[0].env).toBe("prd-001");
+    expect(r.filtered[0].reason).toBe("labels_mismatch");
+  });
+
+  it("filters the named env out when status is inactive", () => {
+    const r = selectTargetEnvs({
+      settings,
+      environmentInput: "stg-001",
+      inputLabelPatterns: [],
+    });
+    expect(r.targets).toEqual([]);
+    expect(r.filtered).toHaveLength(1);
+    expect(r.filtered[0].reason).toBe("status_inactive");
+  });
+
+  it("throws with available keys when the named env does not exist", () => {
+    expect(() =>
+      selectTargetEnvs({
+        settings,
+        environmentInput: "missing",
+        inputLabelPatterns: [],
+      }),
+    ).toThrow(/Available: prd-001, stg-001, dev-001/);
+  });
+
+  it("iterates all envs when environmentInput is empty and applies label filter", () => {
+    const r = selectTargetEnvs({
+      settings,
+      environmentInput: "",
+      inputLabelPatterns: ["^tier:dev$"],
+    });
+    expect(r.targets).toEqual(["dev-001"]);
+    // prd-001: labels mismatch, stg-001: inactive
+    expect(r.filtered.map((f) => f.env).sort()).toEqual(["prd-001", "stg-001"]);
+  });
+
+  it("iterates all active envs when no environmentInput and no labels", () => {
+    // (input combo validation lives in the caller; this just tests behaviour.)
+    const r = selectTargetEnvs({
+      settings,
+      environmentInput: "",
+      inputLabelPatterns: [],
+    });
+    expect(r.targets.sort()).toEqual(["dev-001", "prd-001"]);
+    expect(r.filtered.map((f) => f.env)).toEqual(["stg-001"]);
+  });
+});
+
+describe("computeEnvDiff", () => {
+  it("returns empty diff when prev keys are all present in settings", () => {
+    expect(
+      computeEnvDiff({
+        prevKeys: ["a", "b"],
+        settingsKeys: ["a", "b"],
+        retainedKeys: [],
+      }),
+    ).toEqual({ stateRemoveKeys: [], destroyKeys: [] });
+  });
+
+  it("destroys envs removed from settings when not retained", () => {
+    expect(
+      computeEnvDiff({
+        prevKeys: ["a", "b", "old-1"],
+        settingsKeys: ["a", "b"],
+        retainedKeys: [],
+      }),
+    ).toEqual({ stateRemoveKeys: [], destroyKeys: ["old-1"] });
+  });
+
+  it("state-removes envs that were removed from settings but listed in retained", () => {
+    expect(
+      computeEnvDiff({
+        prevKeys: ["a", "b", "old-1"],
+        settingsKeys: ["a", "b"],
+        retainedKeys: ["old-1"],
+      }),
+    ).toEqual({ stateRemoveKeys: ["old-1"], destroyKeys: [] });
+  });
+
+  it("separates state-only from destroy when both occur", () => {
+    expect(
+      computeEnvDiff({
+        prevKeys: ["a", "old-1", "old-2"],
+        settingsKeys: ["a"],
+        retainedKeys: ["old-1"],
+      }),
+    ).toEqual({ stateRemoveKeys: ["old-1"], destroyKeys: ["old-2"] });
+  });
+
+  it("ignores retained entries that are still in settings (safety net is dormant)", () => {
+    expect(
+      computeEnvDiff({
+        prevKeys: ["a", "b"],
+        settingsKeys: ["a", "b"],
+        retainedKeys: ["a"],
+      }),
+    ).toEqual({ stateRemoveKeys: [], destroyKeys: [] });
+  });
+
+  it("ignores retained entries that were never in prev map", () => {
+    expect(
+      computeEnvDiff({
+        prevKeys: [],
+        settingsKeys: [],
+        retainedKeys: ["a"],
+      }),
+    ).toEqual({ stateRemoveKeys: [], destroyKeys: [] });
+  });
+});
+
+describe("buildEnvEntry", () => {
+  const envConfig = {
+    status: "active" as const,
+    labels: [],
+    billing_account_id: "AAAA",
+  };
+
+  it("builds project_id / sa id / workspace name from service + env", () => {
+    expect(
+      buildEnvEntry({ service: "svc", env: "prd-001", envConfig }),
+    ).toEqual({
+      project_id: "svc-prd-001",
+      billing_account_id: "AAAA",
+      terraform_service_account_id: "terraform-svc-prd-001",
+      tfc_workspace_name: "svc-prd-001",
+    });
+  });
+
+  it("throws when terraform SA id would exceed 30 chars", () => {
+    expect(() =>
+      buildEnvEntry({
+        service: "a-really-long-service-name",
+        env: "prd-001",
+        envConfig,
+      }),
+    ).toThrow(/GCP limit is 30/);
+  });
+
+  it("error message names the offending env", () => {
+    expect(() =>
+      buildEnvEntry({
+        service: "long-service-name-here",
+        env: "some-env",
+        envConfig,
+      }),
+    ).toThrow(/env "some-env"/);
   });
 });

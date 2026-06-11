@@ -10,8 +10,12 @@ inputs:
     description: "Service name (e.g. my-app)"
     required: true
   environment:
-    description: "Target environment (dev / stg / prd)"
-    required: true
+    description: >
+      Target environment key (e.g. "prd-001"). Optional — when omitted, the
+      Action iterates over every entry in settings.environments and selects
+      targets via `labels`. At least one of `environment` / `labels` must be set.
+    required: false
+    default: ""
   settings_path:
     description: "Path to settings.yml within the calling repo"
     default: "terraform/settings.yml"
@@ -62,26 +66,43 @@ inputs:
   labels:
     description: >
       JSON array of JS RegExp pattern strings (e.g. '["^tier:dev$","^region:apne1$"]').
-      When set, the target environment's `labels` (from settings.yml) must match
-      ALL patterns (AND) — otherwise the Action skips with outputs.skipped=true.
-      Anchor patterns with ^...$ for exact match. Empty / omitted means
-      "no label gating".
+      Each candidate env's `labels` (from settings.yml) must match ALL patterns
+      (AND) — otherwise the env is filtered out. Anchor patterns with ^...$ for
+      exact match. Empty / omitted means "no label gating" (then `environment`
+      input is required).
     required: false
     default: ""
 
 outputs:
-  run_id:
-    description: "Terraform Cloud Run ID (empty when skipped)"
-  run_url:
-    description: "URL to the Run in Terraform Cloud UI (empty when skipped)"
-  workspace_id:
-    description: "Terraform Cloud Workspace ID (empty when skipped)"
-  workspace_name:
-    description: "Terraform Cloud Workspace name (empty when skipped)"
+  applied_envs:
+    description: 'JSON array of env keys that were successfully dispatched (e.g. ["prd-001","dev-002"])'
+  filtered_envs:
+    description: >
+      JSON array of {env, reason, detail} entries describing envs filtered out
+      by status or labels gating.
+  failed_envs:
+    description: 'JSON array of {env, error} entries describing per-env failures during the loop'
+  destroyed_envs:
+    description: >
+      JSON array of env keys whose TFC workspaces were force-deleted because
+      they appear in neither settings.environments nor settings.retained_envs.
+      GCP resources are NOT destroyed by this Action (that is Action A's job).
+  retained_envs:
+    description: >
+      JSON array of env keys whose workspaces are kept untouched because they
+      appear in settings.retained_envs (safety net for accidental deletion).
+  run_ids:
+    description: 'JSON object mapping env → TFC Run ID for successfully dispatched envs'
+  run_urls:
+    description: 'JSON object mapping env → TFC Run URL'
+  workspace_ids:
+    description: 'JSON object mapping env → TFC Workspace ID'
+  workspace_names:
+    description: 'JSON object mapping env → TFC Workspace name'
   skipped:
-    description: "\"true\" if the env was skipped (inactive status or label mismatch), \"false\" otherwise"
+    description: '"true" when no env was dispatched and no workspace was deleted, "false" otherwise'
   skip_reason:
-    description: "Reason code when skipped=true: status_inactive | labels_mismatch (empty otherwise)"
+    description: "Reason code when skipped=true: no_changes (empty otherwise)"
 
 runs:
   using: "node20"
