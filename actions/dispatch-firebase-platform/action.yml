@@ -9,11 +9,14 @@ inputs:
   service:
     description: "Service name (e.g. my-app)"
     required: true
-  environment:
+  environments:
     description: >
-      Target environment key (e.g. "prd-001"). Optional — when omitted, the
+      JSON array of target env keys (e.g. '["prd-001","dev-002"]'). Each key
+      must exist in settings.environments (the Action throws with the
+      available list otherwise). Optional — when omitted (`""` or `[]`), the
       Action iterates over every entry in settings.environments and selects
-      targets via `labels`. At least one of `environment` / `labels` must be set.
+      targets via `labels`. At least one of `environments` / `labels` must be
+      non-empty.
     required: false
     default: ""
   settings_path:
@@ -68,7 +71,7 @@ inputs:
       JSON array of JS RegExp pattern strings (e.g. '["^tier:dev$","^region:apne1$"]').
       Each candidate env's `labels` (from settings.yml) must match ALL patterns
       (AND) — otherwise the env is filtered out. Anchor patterns with ^...$ for
-      exact match. Empty / omitted means "no label gating" (then `environment`
+      exact match. Empty / omitted means "no label gating" (then `environments`
       input is required).
     required: false
     default: ""
