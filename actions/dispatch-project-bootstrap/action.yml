@@ -7,8 +7,12 @@ inputs:
     description: "service name"
     required: true
   environment:
-    description: "target environment (dev/stg/prd)"
-    required: true
+    description: >
+      target environment key (e.g. "prd-001"). Optional — when omitted, the
+      Action iterates over every entry in settings.environments and selects
+      targets via `labels`. At least one of `environment` / `labels` must be set.
+    required: false
+    default: ""
   settings_path:
     description: "path to settings.yml within the calling repo"
     default: "terraform/settings.yml"
@@ -58,10 +62,10 @@ inputs:
   labels:
     description: >
       JSON array of JS RegExp pattern strings (e.g. '["^tier:dev$","^region:apne1$"]').
-      When set, the target environment's `labels` (from settings.yml) must match
-      ALL patterns (AND) — otherwise the Action skips with outputs.skipped=true.
-      Anchor patterns with ^...$ for exact match. Empty / omitted means
-      "no label gating".
+      Each candidate env's `labels` (from settings.yml) must match ALL patterns
+      (AND) — otherwise the env is filtered out. Anchor patterns with ^...$ for
+      exact match. Empty / omitted means "no label gating" (then `environment`
+      input is required).
     required: false
     default: ""
 
@@ -74,10 +78,25 @@ outputs:
     description: "Terraform Cloud Workspace ID (empty when skipped)"
   workspace_name:
     description: "Terraform Cloud Workspace name (empty when skipped)"
+  applied_envs:
+    description: 'JSON array of env keys updated by this Run (e.g. ["prd-001","dev-002"])'
+  state_removed_envs:
+    description: >
+      JSON array of env keys dropped from Terraform state without destroy
+      (matched settings.retained_envs but absent from settings.environments).
+      GCP resources for these envs remain — delete from the GCP console.
+  destroyed_envs:
+    description: >
+      JSON array of env keys queued for destroy (absent from both
+      settings.environments and settings.retained_envs).
+  filtered_envs:
+    description: >
+      JSON array of {env, reason, detail} entries describing envs that were
+      filtered out by status or labels gating.
   skipped:
-    description: "\"true\" if the env was skipped (inactive status or label mismatch), \"false\" otherwise"
+    description: "\"true\" when no Run was created (no env changes), \"false\" otherwise"
   skip_reason:
-    description: "Reason code when skipped=true: status_inactive | labels_mismatch (empty otherwise)"
+    description: "Reason code when skipped=true: no_changes (empty otherwise)"
 
 runs:
   using: "node20"

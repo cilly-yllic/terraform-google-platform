@@ -1,5 +1,5 @@
 import type { VariableSpec } from "../tfc/index.js";
-import type { FirebasePlatformConfig } from "../settings/index.js";
+import type { FirebasePlatformConfig, Settings } from "../settings/index.js";
 
 // ---------------------------------------------------------------------------
 // Workspace name expansion
@@ -222,7 +222,7 @@ export function buildEnvVariables(
 
 export interface RunMessageMeta {
   service: string;
-  environment: string;
+  environments: string[];
   source_repo: string;
   sha: string;
 }
@@ -310,4 +310,111 @@ export function evaluateEnvironmentGate(args: {
     };
   }
   return { skip: false };
+}
+
+// ---------------------------------------------------------------------------
+// Multi-env target selection
+// ---------------------------------------------------------------------------
+
+export interface FilteredEnv {
+  env: string;
+  reason: SkipReason;
+  detail: string;
+}
+
+export interface TargetSelection {
+  targets: string[];
+  filtered: FilteredEnv[];
+}
+
+/**
+ * Decide which env keys are update targets for this Action invocation.
+ *
+ * - If environmentInput is set, candidates = [environmentInput] (must exist in
+ *   settings.environments, otherwise throws).
+ * - Otherwise, candidates = all keys of settings.environments.
+ * - Each candidate runs through evaluateEnvironmentGate (status + labels).
+ * - Surviving candidates are returned as `targets`; the rest as `filtered`.
+ */
+export function selectTargetEnvs(args: {
+  settings: Settings;
+  environmentInput: string;
+  inputLabelPatterns: string[];
+}): TargetSelection {
+  const allKeys = Object.keys(args.settings.environments);
+  let candidates: string[];
+
+  if (args.environmentInput) {
+    if (!(args.environmentInput in args.settings.environments)) {
+      throw new Error(
+        `Environment "${args.environmentInput}" not found in settings.yml. Available: ${
+          allKeys.join(", ") || "(none)"
+        }`,
+      );
+    }
+    candidates = [args.environmentInput];
+  } else {
+    candidates = allKeys;
+  }
+
+  const targets: string[] = [];
+  const filtered: FilteredEnv[] = [];
+
+  for (const env of candidates) {
+    const cfg = args.settings.environments[env];
+    const decision = evaluateEnvironmentGate({
+      status: cfg.status,
+      envLabels: cfg.labels,
+      inputLabelPatterns: args.inputLabelPatterns,
+    });
+    if (decision.skip) {
+      filtered.push({
+        env,
+        reason: decision.reason ?? "labels_mismatch",
+        detail: decision.detail ?? "filtered",
+      });
+    } else {
+      targets.push(env);
+    }
+  }
+
+  return { targets, filtered };
+}
+
+// ---------------------------------------------------------------------------
+// Workspace name <-> env reverse mapping
+// ---------------------------------------------------------------------------
+
+/**
+ * Reverse the workspace-name pattern to extract the env key from a workspace
+ * name. Returns null if the name doesn't match the pattern's expected shape.
+ *
+ * Example: pattern "{service}-{environment}", service "svc", name "svc-dev-001"
+ *   → "dev-001"
+ */
+export function deriveEnvFromWorkspaceName(
+  workspaceName: string,
+  pattern: string,
+  service: string,
+): string | null {
+  const patternWithService = pattern.replace(/\{service\}/g, service);
+  const placeholder = "{environment}";
+  const idx = patternWithService.indexOf(placeholder);
+  if (idx < 0) return null;
+  const prefix = patternWithService.slice(0, idx);
+  const suffix = patternWithService.slice(idx + placeholder.length);
+  if (!workspaceName.startsWith(prefix)) return null;
+  if (suffix && !workspaceName.endsWith(suffix)) return null;
+  const start = prefix.length;
+  const end = workspaceName.length - suffix.length;
+  if (end <= start) return null;
+  return workspaceName.slice(start, end);
+}
+
+// ---------------------------------------------------------------------------
+// Marker tag (used to find workspaces created by this Action for a service)
+// ---------------------------------------------------------------------------
+
+export function buildMarkerTag(service: string): string {
+  return `firebase-platform-${service}`;
 }

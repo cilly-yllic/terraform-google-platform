@@ -165,9 +165,43 @@ environments:
   });
 });
 
+describe("retained_envs", () => {
+  it("defaults to [] when omitted", async () => {
+    const p = write(
+      `service: svc\nenvironments:\n  dev-001:\n    billing_account_id: X\n`,
+    );
+    const settings = await loadSettings(p);
+    expect(settings.retained_envs).toEqual([]);
+  });
+
+  it("accepts a string array", async () => {
+    const p = write(`service: svc
+retained_envs:
+  - prd-001
+  - stg-001
+environments:
+  prd-001:
+    billing_account_id: X
+`);
+    const settings = await loadSettings(p);
+    expect(settings.retained_envs).toEqual(["prd-001", "stg-001"]);
+  });
+
+  it("rejects non-string entries", async () => {
+    const p = write(`service: svc
+retained_envs: [1, 2]
+environments:
+  dev-001:
+    billing_account_id: X
+`);
+    await expect(loadSettings(p)).rejects.toThrow();
+  });
+});
+
 describe("extractEnvironment", () => {
   const settings = {
     service: "svc",
+    retained_envs: [] as string[],
     environments: {
       "dev-001": { status: "active" as const, labels: [], billing_account_id: "X" },
       "prd-001": { status: "active" as const, labels: [], billing_account_id: "Y" },
@@ -188,7 +222,10 @@ describe("extractEnvironment", () => {
 
   it("reports (none) when environments map is empty", () => {
     expect(() =>
-      extractEnvironment({ service: "svc", environments: {} }, "dev-001"),
+      extractEnvironment(
+        { service: "svc", retained_envs: [], environments: {} },
+        "dev-001",
+      ),
     ).toThrow(/Available: \(none\)/);
   });
 });
@@ -197,6 +234,7 @@ describe("extractFirebasePlatform", () => {
   it("returns the firebase_platform object", () => {
     const settings = {
       service: "svc",
+      retained_envs: [] as string[],
       environments: {
         "dev-001": {
           status: "active" as const,
@@ -214,6 +252,7 @@ describe("extractFirebasePlatform", () => {
   it("throws when firebase_platform is missing", () => {
     const settings = {
       service: "svc",
+      retained_envs: [] as string[],
       environments: {
         "dev-001": {
           status: "active" as const,

@@ -4,12 +4,13 @@ import * as fs from "fs";
 import * as path from "path";
 
 import { TfcClient } from "../lib/tfc";
-import { parseSettings, extractEnvironment } from "../lib/settings";
+import { parseSettings } from "../lib/settings";
 import {
   expandWorkspaceName,
   buildRunMessage,
   parseLabelsInput,
-  evaluateEnvironmentGate,
+  selectTargetEnvs,
+  buildEnvEntry,
 } from "../lib/dispatch";
 import { buildTemplateFiles } from "../lib/templates";
 import { buildTarball } from "../lib/config-version";
@@ -18,7 +19,7 @@ async function run(): Promise<void> {
   try {
     // ---- Read inputs ----
     const service = core.getInput("service", { required: true });
-    const environment = core.getInput("environment", { required: true });
+    const environment = core.getInput("environment");
     const settingsPath = core.getInput("settings_path");
     const tfcOrg = core.getInput("tfc_org", { required: true });
     const tfcWorkspacePattern = core.getInput("tfc_workspace_name");
@@ -42,10 +43,13 @@ async function run(): Promise<void> {
     core.setSecret(tfcToken);
     if (cloudRunWebhookSecret) core.setSecret(cloudRunWebhookSecret);
 
-    // Default the skip-related outputs so downstream `if:` checks are always
-    // safe to evaluate, even on early failure.
+    // Default outputs so downstream `if:` checks are always safe to evaluate.
     core.setOutput("skipped", "false");
     core.setOutput("skip_reason", "");
+    core.setOutput("applied_envs", "[]");
+    core.setOutput("state_removed_envs", "[]");
+    core.setOutput("destroyed_envs", "[]");
+    core.setOutput("filtered_envs", "[]");
 
     // ---- 1. Read settings.yml ----
     core.info(`Reading settings from ${settingsPath}`);
@@ -55,31 +59,38 @@ async function run(): Promise<void> {
     const settings = parseSettings(settingsRaw);
     core.info(`Parsed settings for service: ${settings.service}`);
 
-    // ---- 2. Extract environment config ----
-    // env key (e.g. "prd-001", "dev-002") is the project_id suffix.
-    const envConfig = extractEnvironment(settings, environment);
-    const projectId = `${service}-${environment}`;
-    core.info(
-      `Environment "${environment}": project_id=${projectId}`,
-    );
-
-    // ---- 2a. Gating: status + label regex AND match ----
+    // ---- 2. Validate input combination ----
     const inputLabelPatterns = parseLabelsInput(labelsInput);
-    const gate = evaluateEnvironmentGate({
-      status: envConfig.status,
-      envLabels: envConfig.labels,
-      inputLabelPatterns,
-    });
-    if (gate.skip) {
-      core.warning(
-        `Skipping env "${environment}": ${gate.detail ?? gate.reason ?? "filtered"}`
+    if (!environment && inputLabelPatterns.length === 0) {
+      throw new Error(
+        "Either `environment` or `labels` input must be specified."
       );
-      core.setOutput("skipped", "true");
-      core.setOutput("skip_reason", gate.reason ?? "");
-      return;
     }
 
-    core.setSecret(envConfig.billing_account_id);
+    // ---- 3. Select target envs (status + labels) ----
+    const { targets, filtered } = selectTargetEnvs({
+      settings,
+      environmentInput: environment,
+      inputLabelPatterns,
+    });
+    core.setOutput("filtered_envs", JSON.stringify(filtered));
+    for (const f of filtered) {
+      core.info(`Filtered out env "${f.env}": ${f.detail}`);
+    }
+    if (targets.length > 0) {
+      core.info(`Target envs: ${targets.join(", ")}`);
+    } else {
+      core.info("No envs matched the filters — only retained/destroy diffs may apply.");
+    }
+
+    // ---- 4. Build per-env entries (validates SA ID length per env) ----
+    const targetEntries: Record<string, Record<string, unknown>> = {};
+    for (const env of targets) {
+      const envConfig = settings.environments[env];
+      core.setSecret(envConfig.billing_account_id);
+      const entry = buildEnvEntry({ service, env, envConfig });
+      targetEntries[env] = entry as unknown as Record<string, unknown>;
+    }
 
     // ---- 5. Upsert TFC Workspace ----
     const tfc = new TfcClient({ token: tfcToken, org: tfcOrg });
@@ -92,7 +103,7 @@ async function run(): Promise<void> {
     });
     core.info(`Workspace ready: id=${ws.id}`);
 
-    // ---- 6. (Phase 2) Notification config upsert ----
+    // ---- 6. Notification config ----
     if (enableWebhook) {
       if (!cloudRunWebhookUrl) {
         throw new Error(
@@ -108,29 +119,43 @@ async function run(): Promise<void> {
       });
     }
 
-    // ---- 7-9. Read-modify-write environments variable ----
-    core.info("Updating environments variable (read-modify-write with etag)");
-    const terraformSaId = `terraform-${service}-${environment}`;
-    if (terraformSaId.length > 30) {
-      throw new Error(
-        `terraform_service_account_id "${terraformSaId}" is ${terraformSaId.length} chars (GCP limit is 30). ` +
-          `Shorten the service name or env key.`,
+    // ---- 7. Upsert environments variable (batch) ----
+    core.info("Updating environments variable (batch read-modify-write with etag)");
+    const settingsKeys = Object.keys(settings.environments);
+    const retainedKeys = settings.retained_envs;
+    const diff = await tfc.upsertEnvironmentsBatch(ws.id, {
+      targetEntries,
+      settingsKeys,
+      retainedKeys,
+    });
+    core.setOutput("applied_envs", JSON.stringify(targets));
+    core.setOutput("state_removed_envs", JSON.stringify(diff.stateRemoveKeys));
+    core.setOutput("destroyed_envs", JSON.stringify(diff.destroyKeys));
+
+    if (diff.stateRemoveKeys.length > 0) {
+      core.info(
+        `State-only removal queued for: ${diff.stateRemoveKeys.join(", ")} (GCP resources retained)`
       );
     }
-    const envEntry: Record<string, string> = {
-      project_id: projectId,
-      billing_account_id: envConfig.billing_account_id,
-      terraform_service_account_id: terraformSaId,
-      tfc_workspace_name: `${service}-${environment}`,
-    };
-    await tfc.readModifyWriteEnvironments(
-      ws.id,
-      environment,
-      envEntry
-    );
-    core.info("environments variable updated successfully");
+    if (diff.destroyKeys.length > 0) {
+      core.warning(
+        `Destroy queued for: ${diff.destroyKeys.join(", ")} (env absent from both environments: and retained_envs:)`
+      );
+    }
 
-    // ---- 10. Sync Environment Variables (TFC Dynamic Credentials) ----
+    // ---- 8. Skip Run if nothing changed ----
+    if (
+      targets.length === 0 &&
+      diff.stateRemoveKeys.length === 0 &&
+      diff.destroyKeys.length === 0
+    ) {
+      core.info("No env changes — skipping Run creation");
+      core.setOutput("skipped", "true");
+      core.setOutput("skip_reason", "no_changes");
+      return;
+    }
+
+    // ---- 9. Sync Environment Variables (TFC Dynamic Credentials) ----
     core.info("Syncing environment variables for TFC Dynamic Credentials");
     const envVars: Array<{ key: string; value: string; sensitive: boolean }> = [
       {
@@ -166,9 +191,9 @@ async function run(): Promise<void> {
     );
     core.info("Environment variables synced");
 
-    // ---- Sync Terraform Variables ----
-    // NOTE: `parent` and `environments` are stored as JSON strings (hcl: false).
-    // The consuming Terraform workspace is expected to use jsondecode().
+    // ---- 10. Sync Terraform Variables ----
+    // NOTE: `parent` is stored as a JSON string (hcl: false). The consuming
+    // Terraform workspace is expected to use jsondecode().
     core.info("Syncing terraform variables");
     const tfVarAttrs: Array<{
       key: string;
@@ -223,10 +248,15 @@ async function run(): Promise<void> {
     // ---- 11. Upload Configuration Version (main.tf template) ----
     core.info(
       moduleVersion
-        ? `Building configuration tarball (module version pinned to ${moduleVersion})`
-        : "Building configuration tarball (module version unpinned)"
+        ? `Building configuration tarball (module version pinned to ${moduleVersion}, removed-blocks=${diff.stateRemoveKeys.length})`
+        : `Building configuration tarball (module version unpinned, removed-blocks=${diff.stateRemoveKeys.length})`
     );
-    const tarball = buildTarball(buildTemplateFiles(moduleVersion || undefined));
+    const tarball = buildTarball(
+      buildTemplateFiles({
+        moduleVersion: moduleVersion || undefined,
+        stateRemoveKeys: diff.stateRemoveKeys,
+      })
+    );
 
     core.info("Creating configuration version");
     const cv = await tfc.createConfigurationVersion(ws.id, {
@@ -250,7 +280,7 @@ async function run(): Promise<void> {
     const context = github.context;
     const runMessage = buildRunMessage({
       service,
-      environment,
+      environments: targets,
       source_repo: `${context.repo.owner}/${context.repo.repo}`,
       sha: context.sha,
     });

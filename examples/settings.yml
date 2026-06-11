@@ -26,9 +26,28 @@
 #                       ALL patterns (AND) to run; otherwise the Action skips.
 #                       Patterns are JS RegExp — anchor with ^...$ for an
 #                       exact match.
+#
+# Top-level retained_envs
+#   string[]; lists env keys that must NEVER be destroyed by Terraform even
+#   if removed from `environments:`. When such an env disappears from
+#   `environments:` but appears in `retained_envs`, the Action emits a
+#   `removed { lifecycle { destroy = false } }` block so the env is dropped
+#   from Terraform state but the underlying GCP project survives (delete
+#   it later from the GCP console). Envs that are absent from BOTH
+#   `environments:` AND `retained_envs` are fully destroyed on the next
+#   Run — the intended flow for dev environments that are casually created
+#   and torn down. Recommendation: add production envs to `retained_envs`
+#   the moment they're provisioned, as a safety net against accidental
+#   removal from `environments:`.
 # =============================================================================
 
 service: my-service
+
+# Envs listed here are protected from `terraform destroy` even if they are
+# removed from `environments:` below — the Action drops them from state
+# only, leaving the GCP project intact for manual cleanup.
+retained_envs:
+  - prd-001
 
 # YAML anchors let you DRY-share firebase_platform config across multiple
 # dev-NNN environments. Drop the anchor block if you don't need it.
