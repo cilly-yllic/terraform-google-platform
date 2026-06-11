@@ -212,11 +212,13 @@ jobs:
 
 ### Phase 2 (Project Repo の workflow から repository_dispatch トリガー)
 
+Cloud Run Router からの `client_payload` は **hybrid shape** (`environments` + `labels` の両方)。caller workflow は labels をそのまま B に渡す方法と、environments を matrix で fan-out する方法のどちらでも消費できる。詳細は [cloud-run-router/README.md](../../cloud-run-router/README.md#dispatch-payload-shape)。
+
 ```yaml
 name: Firebase Platform Trigger
 on:
   repository_dispatch:
-    types: [firebase-platform-trigger]
+    types: [firebase_platform_requested]
 
 jobs:
   dispatch:
@@ -226,14 +228,32 @@ jobs:
       - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
         with:
           service: ${{ github.event.client_payload.service }}
-          environment: ${{ github.event.client_payload.environment }}
+          # labels を中継すれば B 自身が settings.yml を読み直して env を再解決
+          labels: ${{ toJSON(github.event.client_payload.labels) }}
           tfc_org: my-tfc-org
           bootstrap_project_number: ${{ secrets.BOOTSTRAP_PROJECT_NUMBER }}
           tfc_token: ${{ secrets.TFC_TOKEN }}
           apply_policy: env-based
-          enable_webhook_notification: "true"
-          cloud_run_webhook_url: ${{ secrets.WEBHOOK_URL }}
-          cloud_run_webhook_secret: ${{ secrets.WEBHOOK_SECRET }}
+```
+
+A が解決済みの env リストを faithfull に再現したい場合は matrix:
+
+```yaml
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env: ${{ fromJSON(github.event.client_payload.environments) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
+        with:
+          service: ${{ github.event.client_payload.service }}
+          environment: ${{ matrix.env }}
+          tfc_org: my-tfc-org
+          bootstrap_project_number: ${{ secrets.BOOTSTRAP_PROJECT_NUMBER }}
+          tfc_token: ${{ secrets.TFC_TOKEN }}
 ```
 
 ### labels で dev だけまとめて再 apply

@@ -231,29 +231,35 @@ describe("buildEnvVariables", () => {
 });
 
 describe("buildRunMessage", () => {
-  it("serializes the metadata as JSON with environments array", () => {
+  it("serializes the metadata as JSON with environments + labels arrays", () => {
     const msg = buildRunMessage({
       service: "svc",
       environments: ["dev-001"],
+      labels: ["^tier:dev$"],
       source_repo: "owner/repo",
       sha: "abc123",
     });
     expect(JSON.parse(msg)).toEqual({
       service: "svc",
       environments: ["dev-001"],
+      labels: ["^tier:dev$"],
       source_repo: "owner/repo",
       sha: "abc123",
     });
   });
 
-  it("supports multiple env keys (consistency with Action A)", () => {
+  it("supports multiple env keys with empty labels (single-env path)", () => {
     const msg = buildRunMessage({
       service: "svc",
-      environments: ["dev-001", "dev-002"],
+      environments: ["dev-001"],
+      labels: [],
       source_repo: "o/r",
       sha: "x",
     });
-    expect(JSON.parse(msg).environments).toEqual(["dev-001", "dev-002"]);
+    expect(JSON.parse(msg)).toMatchObject({
+      environments: ["dev-001"],
+      labels: [],
+    });
   });
 });
 

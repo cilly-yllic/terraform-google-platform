@@ -281,6 +281,7 @@ async function run(): Promise<void> {
     const runMessage = buildRunMessage({
       service,
       environments: targets,
+      labels: inputLabelPatterns,
       source_repo: `${context.repo.owner}/${context.repo.repo}`,
       sha: context.sha,
     });

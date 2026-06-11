@@ -223,6 +223,7 @@ export function buildEnvVariables(
 export interface RunMessageMeta {
   service: string;
   environments: string[];
+  labels: string[];
   source_repo: string;
   sha: string;
 }

@@ -30968,6 +30968,7 @@ async function run() {
         const runMessage = (0, dispatch_1.buildRunMessage)({
             service,
             environments: targets,
+            labels: inputLabelPatterns,
             source_repo: `${context.repo.owner}/${context.repo.repo}`,
             sha: context.sha,
         });

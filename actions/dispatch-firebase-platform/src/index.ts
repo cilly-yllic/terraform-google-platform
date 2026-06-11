@@ -214,6 +214,7 @@ async function run(): Promise<void> {
         const message = buildRunMessage({
           service,
           environments: [env],
+          labels: inputLabelPatterns,
           source_repo: sourceRepo,
           sha,
         });
