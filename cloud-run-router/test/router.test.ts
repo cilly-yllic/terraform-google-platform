@@ -33,7 +33,8 @@ function makeNotification(
     notification_configuration_id: "nc-123",
     run_url: "https://app.terraform.io/runs/run-abc",
     run_id: "run-abc",
-    run_message: '{"service":"my-svc","env":"dev","source_repo":"owner/repo"}',
+    run_message:
+      '{"service":"my-svc","environments":["dev-001"],"labels":["^tier:dev$"],"source_repo":"owner/repo","sha":"abc"}',
     run_created_at: "2025-01-01T00:00:00Z",
     run_created_by: "user",
     workspace_id: "ws-123",
@@ -104,7 +105,7 @@ describe("handleNotification", () => {
     vi.mocked(repositoryDispatch).mockClear();
   });
 
-  it("dispatches on project_factory applied with run_message metadata", async () => {
+  it("dispatches on project_factory applied with hybrid run_message metadata", async () => {
     const config = makeConfig();
     const notification = makeNotification();
 
@@ -114,7 +115,8 @@ describe("handleNotification", () => {
     expect(result.details).toMatchObject({
       target_repo: "owner/repo",
       service: "my-svc",
-      env: "dev",
+      environments: ["dev-001"],
+      labels: ["^tier:dev$"],
     });
     expect(repositoryDispatch).toHaveBeenCalledWith(
       "12345",
@@ -123,10 +125,56 @@ describe("handleNotification", () => {
       "firebase_platform_requested",
       expect.objectContaining({
         service: "my-svc",
-        environment: "dev",
+        environments: ["dev-001"],
+        labels: ["^tier:dev$"],
         run_id: "run-abc",
         workspace_name: "project-factory-my-svc",
         source_repo: "owner/repo",
+      }),
+    );
+  });
+
+  it("dispatches with empty labels when A was invoked with a single environment input", async () => {
+    const config = makeConfig();
+    const notification = makeNotification({
+      run_message:
+        '{"service":"my-svc","environments":["prd-001"],"labels":[],"source_repo":"owner/repo","sha":"abc"}',
+    });
+
+    const result = await handleNotification(notification, config);
+
+    expect(result.action).toBe("dispatched");
+    expect(repositoryDispatch).toHaveBeenCalledWith(
+      "12345",
+      "fake-pem",
+      "owner/repo",
+      "firebase_platform_requested",
+      expect.objectContaining({
+        service: "my-svc",
+        environments: ["prd-001"],
+        labels: [],
+      }),
+    );
+  });
+
+  it("dispatches with multiple environments when A processed a batch", async () => {
+    const config = makeConfig();
+    const notification = makeNotification({
+      run_message:
+        '{"service":"my-svc","environments":["dev-001","dev-002"],"labels":["^tier:dev$"],"source_repo":"owner/repo","sha":"abc"}',
+    });
+
+    const result = await handleNotification(notification, config);
+
+    expect(result.action).toBe("dispatched");
+    expect(repositoryDispatch).toHaveBeenCalledWith(
+      "12345",
+      "fake-pem",
+      "owner/repo",
+      "firebase_platform_requested",
+      expect.objectContaining({
+        environments: ["dev-001", "dev-002"],
+        labels: ["^tier:dev$"],
       }),
     );
   });

@@ -223,6 +223,7 @@ export function buildEnvVariables(
 export interface RunMessageMeta {
   service: string;
   environments: string[];
+  labels: string[];
   source_repo: string;
   sha: string;
 }
@@ -269,6 +270,51 @@ export function parseLabelsInput(raw: string): string[] {
     }
     return v;
   });
+}
+
+/**
+ * Parse the `environments` input — a JSON array string of env key names.
+ * Returns [] for empty / whitespace-only input. Throws on malformed JSON,
+ * non-array values, or non-string elements. Duplicate entries are deduped
+ * while preserving first-seen order.
+ */
+export function parseEnvironmentsInput(raw: string): string[] {
+  const trimmed = raw.trim();
+  if (trimmed === "") return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (e) {
+    throw new Error(
+      `Invalid environments input: expected a JSON array of env key strings (e.g. '["dev-001","dev-002"]'), got ${JSON.stringify(raw)} — ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    );
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(
+      `Invalid environments input: expected a JSON array of strings, got ${typeof parsed}`,
+    );
+  }
+  const seen = new Set<string>();
+  const out: string[] = [];
+  parsed.forEach((v, i) => {
+    if (typeof v !== "string") {
+      throw new Error(
+        `Invalid environments input: element [${i}] must be a string, got ${typeof v} (${JSON.stringify(v)})`,
+      );
+    }
+    if (v === "") {
+      throw new Error(
+        `Invalid environments input: element [${i}] is an empty string`,
+      );
+    }
+    if (!seen.has(v)) {
+      seen.add(v);
+      out.push(v);
+    }
+  });
+  return out;
 }
 
 export function evaluateEnvironmentGate(args: {
@@ -330,29 +376,32 @@ export interface TargetSelection {
 /**
  * Decide which env keys are update targets for this Action invocation.
  *
- * - If environmentInput is set, candidates = [environmentInput] (must exist in
- *   settings.environments, otherwise throws).
+ * - If environmentsInput is non-empty, candidates = environmentsInput (every
+ *   key must exist in settings.environments, otherwise throws).
  * - Otherwise, candidates = all keys of settings.environments.
  * - Each candidate runs through evaluateEnvironmentGate (status + labels).
  * - Surviving candidates are returned as `targets`; the rest as `filtered`.
  */
 export function selectTargetEnvs(args: {
   settings: Settings;
-  environmentInput: string;
+  environmentsInput: string[];
   inputLabelPatterns: string[];
 }): TargetSelection {
   const allKeys = Object.keys(args.settings.environments);
   let candidates: string[];
 
-  if (args.environmentInput) {
-    if (!(args.environmentInput in args.settings.environments)) {
+  if (args.environmentsInput.length > 0) {
+    const missing = args.environmentsInput.filter(
+      (env) => !(env in args.settings.environments),
+    );
+    if (missing.length > 0) {
       throw new Error(
-        `Environment "${args.environmentInput}" not found in settings.yml. Available: ${
+        `Environments not found in settings.yml: ${missing.join(", ")}. Available: ${
           allKeys.join(", ") || "(none)"
         }`,
       );
     }
-    candidates = [args.environmentInput];
+    candidates = args.environmentsInput;
   } else {
     candidates = allKeys;
   }

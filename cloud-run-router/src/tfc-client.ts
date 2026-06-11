@@ -3,7 +3,15 @@ const MAX_ERROR_BODY_LENGTH = 200;
 
 export interface TfcRunMeta {
   service: string;
-  env: string;
+  /** Env keys that Action A resolved as targets for this Run. */
+  environments: string[];
+  /**
+   * Original `labels` input passed to Action A (JS RegExp pattern strings).
+   * Forwarded to caller workflows so Action B can re-resolve using its own
+   * settings.yml view when desired. Empty array when A was invoked with a
+   * single `environment` input (no labels).
+   */
+  labels: string[];
   source_repo: string;
 }
 
@@ -95,44 +103,83 @@ export async function fetchRunMetadata(
 
   const service =
     varMap.get("TF_VAR_service") ?? varMap.get("METADATA_SERVICE") ?? "";
-  const env =
-    varMap.get("TF_VAR_environment") ?? varMap.get("METADATA_ENV") ?? "";
   const sourceRepo =
     varMap.get("TF_VAR_source_repo") ??
     varMap.get("METADATA_SOURCE_REPO") ??
     "";
 
-  if (!service || !env || !sourceRepo) {
+  // Action A's per-service workspace keeps an `environments` JSON-string TFC
+  // variable mapping env_key → entry. Use its keys as the env list. Note this
+  // returns ALL envs managed by the workspace, not just the ones the latest
+  // Run targeted — for an accurate per-Run list, prefer metadata_source
+  // "run_message".
+  let environments: string[] = [];
+  const envsVar = varMap.get("environments");
+  if (envsVar) {
+    try {
+      const parsed = JSON.parse(envsVar) as Record<string, unknown>;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        environments = Object.keys(parsed);
+      }
+    } catch {
+      // ignore malformed JSON; environments stays []
+    }
+  }
+
+  if (!service || environments.length === 0 || !sourceRepo) {
     throw new Error(
-      `Missing metadata in workspace variables: service=${service}, env=${env}, source_repo=${sourceRepo}`,
+      `Missing metadata in workspace variables: service=${service}, environments=[${environments.join(",")}], source_repo=${sourceRepo}`,
     );
   }
 
-  return { service, env, source_repo: sourceRepo };
+  return { service, environments, labels: [], source_repo: sourceRepo };
 }
 
 /**
  * Parse metadata embedded in `run_message` as JSON (Option B).
  *
- * Expected format: `{"service":"X","env":"Y","source_repo":"owner/name"}`
+ * Expected shape (current — emitted by dispatch-project-bootstrap / dispatch-firebase-platform):
+ *   {
+ *     "service": "X",
+ *     "environments": ["dev-001", ...],
+ *     "labels": ["^tier:dev$", ...],
+ *     "source_repo": "owner/name",
+ *     "sha": "..."
+ *   }
+ *
+ * `labels` defaults to [] when absent (forward-compat with older Run messages
+ * that didn't carry labels yet — older messages emitted by the platform never
+ * had `environments` either, so they're already rejected below).
  */
 export function parseRunMessage(runMessage: string): TfcRunMeta | null {
   try {
     const parsed = JSON.parse(runMessage) as Record<string, unknown>;
     const service = parsed["service"];
-    const env = parsed["env"];
+    const environments = parsed["environments"];
+    const labelsRaw = parsed["labels"];
     const sourceRepo = parsed["source_repo"];
     if (
-      typeof service === "string" &&
-      typeof env === "string" &&
-      typeof sourceRepo === "string" &&
-      service &&
-      env &&
-      sourceRepo
+      typeof service !== "string" ||
+      !service ||
+      typeof sourceRepo !== "string" ||
+      !sourceRepo ||
+      !Array.isArray(environments) ||
+      environments.length === 0 ||
+      !environments.every((v) => typeof v === "string" && v.length > 0)
     ) {
-      return { service, env, source_repo: sourceRepo };
+      return null;
     }
-    return null;
+    let labels: string[] = [];
+    if (Array.isArray(labelsRaw)) {
+      if (!labelsRaw.every((v) => typeof v === "string")) return null;
+      labels = labelsRaw as string[];
+    }
+    return {
+      service,
+      environments: environments as string[],
+      labels,
+      source_repo: sourceRepo,
+    };
   } catch {
     return null;
   }
