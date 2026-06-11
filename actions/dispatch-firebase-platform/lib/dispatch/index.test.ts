@@ -7,6 +7,9 @@ import {
   buildRunMessage,
   parseLabelsInput,
   evaluateEnvironmentGate,
+  selectTargetEnvs,
+  buildMarkerTag,
+  deriveEnvFromWorkspaceName,
 } from "./index.js";
 
 describe("expandWorkspaceName", () => {
@@ -228,19 +231,29 @@ describe("buildEnvVariables", () => {
 });
 
 describe("buildRunMessage", () => {
-  it("serializes the metadata as JSON", () => {
+  it("serializes the metadata as JSON with environments array", () => {
     const msg = buildRunMessage({
       service: "svc",
-      environment: "dev-001",
+      environments: ["dev-001"],
       source_repo: "owner/repo",
       sha: "abc123",
     });
     expect(JSON.parse(msg)).toEqual({
       service: "svc",
-      environment: "dev-001",
+      environments: ["dev-001"],
       source_repo: "owner/repo",
       sha: "abc123",
     });
+  });
+
+  it("supports multiple env keys (consistency with Action A)", () => {
+    const msg = buildRunMessage({
+      service: "svc",
+      environments: ["dev-001", "dev-002"],
+      source_repo: "o/r",
+      sha: "x",
+    });
+    expect(JSON.parse(msg).environments).toEqual(["dev-001", "dev-002"]);
   });
 });
 
@@ -366,5 +379,142 @@ describe("evaluateEnvironmentGate", () => {
         inputLabelPatterns: ["[unclosed"],
       }),
     ).toThrow(/Invalid regex in labels input/);
+  });
+});
+
+describe("selectTargetEnvs", () => {
+  const settings = {
+    service: "svc",
+    retained_envs: [] as string[],
+    environments: {
+      "prd-001": {
+        status: "active" as const,
+        labels: ["tier:prd", "region:apne1"],
+        billing_account_id: "A",
+      },
+      "stg-001": {
+        status: "inactive" as const,
+        labels: ["tier:stg"],
+        billing_account_id: "B",
+      },
+      "dev-001": {
+        status: "active" as const,
+        labels: ["tier:dev"],
+        billing_account_id: "C",
+      },
+    },
+  };
+
+  it("picks just the named env when environmentInput is set and gate passes", () => {
+    const r = selectTargetEnvs({
+      settings,
+      environmentInput: "prd-001",
+      inputLabelPatterns: [],
+    });
+    expect(r.targets).toEqual(["prd-001"]);
+    expect(r.filtered).toEqual([]);
+  });
+
+  it("filters the named env out via labels mismatch", () => {
+    const r = selectTargetEnvs({
+      settings,
+      environmentInput: "prd-001",
+      inputLabelPatterns: ["^tier:dev$"],
+    });
+    expect(r.targets).toEqual([]);
+    expect(r.filtered).toHaveLength(1);
+    expect(r.filtered[0].env).toBe("prd-001");
+    expect(r.filtered[0].reason).toBe("labels_mismatch");
+  });
+
+  it("filters when status is inactive", () => {
+    const r = selectTargetEnvs({
+      settings,
+      environmentInput: "stg-001",
+      inputLabelPatterns: [],
+    });
+    expect(r.targets).toEqual([]);
+    expect(r.filtered).toHaveLength(1);
+    expect(r.filtered[0].reason).toBe("status_inactive");
+  });
+
+  it("throws with available keys when the named env does not exist", () => {
+    expect(() =>
+      selectTargetEnvs({
+        settings,
+        environmentInput: "missing",
+        inputLabelPatterns: [],
+      }),
+    ).toThrow(/Available: prd-001, stg-001, dev-001/);
+  });
+
+  it("iterates all envs and applies labels when environmentInput is empty", () => {
+    const r = selectTargetEnvs({
+      settings,
+      environmentInput: "",
+      inputLabelPatterns: ["^tier:dev$"],
+    });
+    expect(r.targets).toEqual(["dev-001"]);
+    expect(r.filtered.map((f) => f.env).sort()).toEqual(["prd-001", "stg-001"]);
+  });
+
+  it("iterates all active envs when no input filters at all", () => {
+    const r = selectTargetEnvs({
+      settings,
+      environmentInput: "",
+      inputLabelPatterns: [],
+    });
+    expect(r.targets.sort()).toEqual(["dev-001", "prd-001"]);
+    expect(r.filtered.map((f) => f.env)).toEqual(["stg-001"]);
+  });
+});
+
+describe("buildMarkerTag", () => {
+  it("encodes the service into a tag string", () => {
+    expect(buildMarkerTag("my-svc")).toBe("firebase-platform-my-svc");
+  });
+});
+
+describe("deriveEnvFromWorkspaceName", () => {
+  it("extracts env from default {service}-{environment} pattern", () => {
+    expect(
+      deriveEnvFromWorkspaceName("svc-dev-001", "{service}-{environment}", "svc"),
+    ).toBe("dev-001");
+  });
+
+  it("extracts env when service contains hyphens", () => {
+    expect(
+      deriveEnvFromWorkspaceName(
+        "my-svc-prd-001",
+        "{service}-{environment}",
+        "my-svc",
+      ),
+    ).toBe("prd-001");
+  });
+
+  it("returns null when name doesn't match the pattern prefix", () => {
+    expect(
+      deriveEnvFromWorkspaceName(
+        "other-prd-001",
+        "{service}-{environment}",
+        "svc",
+      ),
+    ).toBeNull();
+  });
+
+  it("handles patterns with a suffix segment", () => {
+    expect(
+      deriveEnvFromWorkspaceName(
+        "svc-prd-001-fb",
+        "{service}-{environment}-fb",
+        "svc",
+      ),
+    ).toBe("prd-001");
+  });
+
+  it("returns null when pattern lacks the {environment} placeholder", () => {
+    expect(
+      deriveEnvFromWorkspaceName("svc-anything", "{service}-static", "svc"),
+    ).toBeNull();
   });
 });
