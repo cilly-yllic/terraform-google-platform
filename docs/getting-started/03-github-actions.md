@@ -132,16 +132,17 @@ jobs:
 
 Action A が用意したインフラの上に Firebase Platform リソースを構築します。env ごとに `{service}-{env}` workspace を作るので、複数 env を扱う場合は **Action 内で逐次ループ**します。
 
-### Workflow 例: Phase 1 (Polling) / 単一 env
+### Workflow 例: Phase 1 (Polling)
 
 ```yaml
 name: Firebase Platform
 on:
   workflow_dispatch:
     inputs:
-      environment:
+      environments:
         required: true
         type: string
+        description: JSON 配列 (e.g. '["dev-001"]' or '["dev-001","dev-002"]')
 
 jobs:
   firebase:
@@ -151,7 +152,7 @@ jobs:
       - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
         with:
           service: my-service
-          environment: ${{ inputs.environment }}
+          environments: ${{ inputs.environments }}
           tfc_org: my-tfc-org
           bootstrap_project_number: "123456789012"
           tfc_token: ${{ secrets.TFC_TOKEN }}
@@ -172,9 +173,9 @@ Cloud Run Router からの `client_payload` は **hybrid shape**:
 }
 ```
 
-caller workflow は 2 通りで消費できる。
+Action B が `environments` (JSON 配列) と `labels` の両方を input として受けるので、**matrix なしの 1 invocation** で消費できる。
 
-**(a) labels を B に中継** (1 invocation で複数 env、B 自身が enumerate+filter):
+**(a) environments を直接 B に渡す** (A が解決した env リストをそのまま使う):
 
 ```yaml
 name: Firebase Platform Trigger
@@ -187,6 +188,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
+        with:
+          service: ${{ github.event.client_payload.service }}
+          environments: ${{ toJSON(github.event.client_payload.environments) }}
+          tfc_org: my-tfc-org
+          bootstrap_project_number: ${{ secrets.BOOTSTRAP_PROJECT_NUMBER }}
+          tfc_token: ${{ secrets.TFC_TOKEN }}
+```
+
+**(b) labels を B に渡す** (B 自身に settings.yml で再解決させる、drift 許容):
+
+```yaml
       - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
         with:
           service: ${{ github.event.client_payload.service }}
@@ -196,32 +209,7 @@ jobs:
           tfc_token: ${{ secrets.TFC_TOKEN }}
 ```
 
-**(b) environments を matrix で fan-out** (A が解決した env をそのまま使う):
-
-```yaml
-name: Firebase Platform Trigger
-on:
-  repository_dispatch:
-    types: [firebase_platform_requested]
-
-jobs:
-  firebase:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        env: ${{ fromJSON(github.event.client_payload.environments) }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
-        with:
-          service: ${{ github.event.client_payload.service }}
-          environment: ${{ matrix.env }}
-          tfc_org: my-tfc-org
-          bootstrap_project_number: ${{ secrets.BOOTSTRAP_PROJECT_NUMBER }}
-          tfc_token: ${{ secrets.TFC_TOKEN }}
-```
-
-`labels` が空（A が `environment` 単数指定で呼ばれた場合）は (a) の候補がゼロになる可能性があるので (b) を選ぶ。詳細は [cloud-run-router/README.md](../../cloud-run-router/README.md#dispatch-payload-shape)。
+`labels` が空（A が `environments` 単数指定で呼ばれた場合）は (b) が候補ゼロになる可能性があるので (a) を選ぶ。詳細は [cloud-run-router/README.md](../../cloud-run-router/README.md#dispatch-payload-shape)。
 
 ### Workflow 例: labels で複数 env をまとめて再 apply
 

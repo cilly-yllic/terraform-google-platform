@@ -206,9 +206,9 @@ Router は GitHub `repository_dispatch` の `client_payload` に以下の shape 
 }
 ```
 
-caller workflow は **2 通り**の消費方法を選べる:
+caller workflow は **2 通り**の消費方法を選べる。Action B が `environments` (JSON 配列) と `labels` の両方を input として受けるので、matrix を組まずに 1 invocation で済む。
 
-### (a) labels を Action B にそのまま渡す（1 invocation で複数 env）
+### (a) environments を直接 B に渡す（A が解決した env リストをそのまま使う）
 
 ```yaml
 on:
@@ -219,6 +219,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
+        with:
+          service: ${{ github.event.client_payload.service }}
+          environments: ${{ toJSON(github.event.client_payload.environments) }}
+          tfc_org: my-tfc-org
+          bootstrap_project_number: ${{ secrets.BOOTSTRAP_PROJECT_NUMBER }}
+          tfc_token: ${{ secrets.TFC_TOKEN }}
+```
+
+A の Run 時点での解決結果をそのまま使うので settings.yml drift を許容しない（A と B で settings.yml が一致している前提）。
+
+### (b) labels を B に渡す（B 自身に再解決させる）
+
+```yaml
       - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
         with:
           service: ${{ github.event.client_payload.service }}
@@ -228,34 +242,9 @@ jobs:
           tfc_token: ${{ secrets.TFC_TOKEN }}
 ```
 
-Action B 自身が settings.yml を読み直して enumerate + filter する。`environments` 入力ミスや settings.yml ドリフトに対しても自己整合。
+B が settings.yml を読み直して enumerate + filter する。`environments` 入力ミスや settings.yml drift があっても自己整合。
 
-### (b) environments を matrix で fan-out（1 dispatch で per-env 並列）
-
-```yaml
-on:
-  repository_dispatch:
-    types: [firebase_platform_requested]
-jobs:
-  dispatch:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        env: ${{ fromJSON(github.event.client_payload.environments) }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
-        with:
-          service: ${{ github.event.client_payload.service }}
-          environment: ${{ matrix.env }}
-          tfc_org: my-tfc-org
-          bootstrap_project_number: ${{ secrets.BOOTSTRAP_PROJECT_NUMBER }}
-          tfc_token: ${{ secrets.TFC_TOKEN }}
-```
-
-A が解決した env リストを faithfull に再現したい場合（settings.yml drift を許容しない）はこちら。
-
-`labels` が空（A が単数 `environment` で呼ばれていた場合）は (a) が候補ゼロになる可能性があるので (b) を選ぶ。
+`labels` が空（A が単数 `environments: '["X"]'` で呼ばれていた場合）は (b) が候補ゼロになる可能性があるので (a) を選ぶ。
 
 ---
 
