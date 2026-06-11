@@ -109,7 +109,15 @@ async function getInstallationToken(
 
 export interface DispatchPayload {
   service: string;
-  environment: string;
+  /** Env keys that Action A resolved as targets for this Run. */
+  environments: string[];
+  /**
+   * Original `labels` input passed to Action A. Empty when A was invoked
+   * with a single `environment` input. Caller workflows can relay this
+   * straight to Action B's `labels` input, or use `environments` with a
+   * matrix block to fan out per-env.
+   */
+  labels: string[];
   run_id: string;
   workspace_name: string;
   source_repo: string;

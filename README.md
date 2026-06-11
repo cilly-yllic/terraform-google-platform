@@ -70,17 +70,33 @@ module "project_bootstrap" {
 | dispatch-tfc-project-bootstrap (A) | `actions/dispatch-project-bootstrap/` | GCP Project / SA / WIF の bootstrap | `environments` map に複数 env を蓄積し 1 Run で `for_each` 展開 |
 | dispatch-tfc-firebase-platform (B) | `actions/dispatch-firebase-platform/` | Firebase Platform リソースの構築 | env ごとに `{service}-{env}` workspace を作成し逐次 Run |
 
-両 Action は同一の `settings.yml` を読み、`environment` (単一指定) と `labels` (JSON 配列の RegExp) で対象 env を選別する。`labels` だけ指定すれば複数 env を一括処理可能。`settings.yml` 直下の `retained_envs` は廃止時の安全網で、`environments:` から消えた env でも `retained_envs` に書かれていれば GCP リソース / workspace を残す。
+両 Action は同一の `settings.yml` を読み、env 選別ロジックも共通（status / labels gate）。input shape は用途に合わせて異なる:
+
+| Action | env 入力 | labels 入力 |
+|---|---|---|
+| A | `environment: prd-001` (単数文字列、optional) | `labels: '["^tier:dev$"]'` (JSON 配列、optional) |
+| B | `environments: '["prd-001","dev-002"]'` (JSON 配列、optional) | `labels: '["^tier:dev$"]'` (JSON 配列、optional) |
+
+どちらの Action も「`environment`/`environments` か `labels` の少なくとも一方」を必須とする。`settings.yml` 直下の `retained_envs` は廃止時の安全網で、`environments:` から消えた env でも `retained_envs` に書かれていれば GCP リソース (A) / TFC workspace (B) を残す。
 
 ```yaml
-# .github/workflows/bootstrap.yml
+# .github/workflows/bootstrap.yml — labels で複数 env を一括 bootstrap
 - uses: cilly-yllic/terraform-google-platform/actions/dispatch-project-bootstrap@main
   with:
     service: my-service
-    labels: '["^tier:dev$"]'    # tier:dev の env を一括 bootstrap
+    labels: '["^tier:dev$"]'    # tier:dev の env を 1 Run でまとめて
     tfc_org: my-tfc-org
     bootstrap_project_number: "123456789012"
     parent_organization_id: "999999999999"
+    tfc_token: ${{ secrets.TFC_TOKEN }}
+
+# Action B も Cloud Run Router の environments 出力をそのまま渡せる
+- uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
+  with:
+    service: ${{ github.event.client_payload.service }}
+    environments: ${{ toJSON(github.event.client_payload.environments) }}
+    tfc_org: my-tfc-org
+    bootstrap_project_number: ${{ secrets.BOOTSTRAP_PROJECT_NUMBER }}
     tfc_token: ${{ secrets.TFC_TOKEN }}
 ```
 

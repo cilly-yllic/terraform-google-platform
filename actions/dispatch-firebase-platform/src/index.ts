@@ -23,6 +23,7 @@ import {
   buildEnvVariables,
   buildRunMessage,
   parseLabelsInput,
+  parseEnvironmentsInput,
   selectTargetEnvs,
   buildMarkerTag,
   deriveEnvFromWorkspaceName,
@@ -36,7 +37,7 @@ async function run(): Promise<void> {
     // 1. Read inputs
     // -----------------------------------------------------------------------
     const service = core.getInput("service", { required: true });
-    const environment = core.getInput("environment");
+    const environmentsInputRaw = core.getInput("environments");
     const settingsPath = core.getInput("settings_path");
     const tfcOrg = core.getInput("tfc_org", { required: true });
     const targetWorkspacePattern = core.getInput("target_workspace");
@@ -80,15 +81,16 @@ async function run(): Promise<void> {
     // -----------------------------------------------------------------------
     // 3. Validate input combination + select target envs
     // -----------------------------------------------------------------------
+    const environmentsInput = parseEnvironmentsInput(environmentsInputRaw);
     const inputLabelPatterns = parseLabelsInput(labelsInput);
-    if (!environment && inputLabelPatterns.length === 0) {
+    if (environmentsInput.length === 0 && inputLabelPatterns.length === 0) {
       throw new Error(
-        "Either `environment` or `labels` input must be specified.",
+        "Either `environments` or `labels` input must be non-empty.",
       );
     }
     const { targets, filtered } = selectTargetEnvs({
       settings,
-      environmentInput: environment,
+      environmentsInput,
       inputLabelPatterns,
     });
     core.setOutput("filtered_envs", JSON.stringify(filtered));
@@ -214,6 +216,7 @@ async function run(): Promise<void> {
         const message = buildRunMessage({
           service,
           environments: [env],
+          labels: inputLabelPatterns,
           source_repo: sourceRepo,
           sha,
         });

@@ -17,3 +17,6 @@
 
 # Node.js (actions / cloud-run-router)
 node_modules/
+
+# Cloud Run router build artifacts (built by Cloud Build on deploy)
+/cloud-run-router/dist/

@@ -12,39 +12,53 @@ This corresponds to **Action B** (`dispatch-tfc-firebase-platform`). Action A (`
 
 ## Usage
 
-### 単一 env を指定する場合
+### env キーを直接指定する場合
 
 ```yaml
 - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
   with:
     service: my-app
-    environment: dev-001
+    environments: '["dev-001"]'             # 単一でも JSON 配列で指定
     tfc_org: my-tfc-org
     bootstrap_project_number: "123456789012"
     tfc_token: ${{ secrets.TFC_TOKEN }}
 ```
 
-### labels で複数 env を順次 dispatch する場合
+複数 env も同じ shape で:
 
 ```yaml
 - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
   with:
     service: my-app
-    # environment 未指定 → settings.environments 全件が候補
+    environments: '["dev-001","dev-002"]'
+    tfc_org: my-tfc-org
+    bootstrap_project_number: "123456789012"
+    tfc_token: ${{ secrets.TFC_TOKEN }}
+```
+
+### labels で複数 env を選別する場合
+
+```yaml
+- uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
+  with:
+    service: my-app
+    # environments 未指定 → settings.environments 全件が候補
     labels: '["^tier:dev$"]'
     tfc_org: my-tfc-org
     bootstrap_project_number: "123456789012"
     tfc_token: ${{ secrets.TFC_TOKEN }}
 ```
 
-`environment` と `labels` の **少なくとも一方**は必須。両方未指定の場合は error 終了する。
+`environments` (1 件以上) と `labels` (1 件以上) の **少なくとも一方**は必須。両方未指定/空配列の場合は error 終了する。
+
+`environments` で指定したキーが `settings.environments` に存在しない場合は available 一覧と共に error 終了する（drift やタイポを即検出）。
 
 ## Inputs
 
 | Name | Required | Default | Description |
 |------|:--------:|---------|-------------|
 | `service` | yes | — | Service name |
-| `environment` | no | `""` | 対象 env キー。未指定なら `settings.environments` 全件が候補。`labels` と AND 評価される |
+| `environments` | no | `""` | 対象 env キーの JSON 配列文字列 (`'["dev-001","dev-002"]'`)。各キーは `settings.environments` に存在する必要あり (なければ error)。空 / 未指定なら `settings.environments` 全件が候補。`labels` と AND 評価される |
 | `settings_path` | no | `terraform/settings.yml` | Path to settings.yml |
 | `tfc_org` | yes | — | Terraform Cloud organization name |
 | `target_workspace` | no | `{service}-{environment}` | 作成する workspace 名パターン (`{service}`, `{environment}` placeholder) |
@@ -203,7 +217,7 @@ jobs:
         uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
         with:
           service: my-app
-          environment: dev-001
+          environments: '["dev-001"]'
           tfc_org: my-tfc-org
           bootstrap_project_number: "123456789012"
           tfc_token: ${{ secrets.TFC_TOKEN }}
@@ -212,11 +226,13 @@ jobs:
 
 ### Phase 2 (Project Repo の workflow から repository_dispatch トリガー)
 
+Cloud Run Router の `client_payload.environments` (JSON 配列) を **そのまま `environments` input に渡せる** ので、matrix なしの 1 invocation で複数 env を処理できる。
+
 ```yaml
 name: Firebase Platform Trigger
 on:
   repository_dispatch:
-    types: [firebase-platform-trigger]
+    types: [firebase_platform_requested]
 
 jobs:
   dispatch:
@@ -226,15 +242,26 @@ jobs:
       - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
         with:
           service: ${{ github.event.client_payload.service }}
-          environment: ${{ github.event.client_payload.environment }}
+          environments: ${{ toJSON(github.event.client_payload.environments) }}
           tfc_org: my-tfc-org
           bootstrap_project_number: ${{ secrets.BOOTSTRAP_PROJECT_NUMBER }}
           tfc_token: ${{ secrets.TFC_TOKEN }}
           apply_policy: env-based
-          enable_webhook_notification: "true"
-          cloud_run_webhook_url: ${{ secrets.WEBHOOK_URL }}
-          cloud_run_webhook_secret: ${{ secrets.WEBHOOK_SECRET }}
 ```
+
+代わりに B 自身に settings.yml で再解決させたい（drift 許容）場合は labels を中継:
+
+```yaml
+      - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
+        with:
+          service: ${{ github.event.client_payload.service }}
+          labels: ${{ toJSON(github.event.client_payload.labels) }}
+          tfc_org: my-tfc-org
+          bootstrap_project_number: ${{ secrets.BOOTSTRAP_PROJECT_NUMBER }}
+          tfc_token: ${{ secrets.TFC_TOKEN }}
+```
+
+`environments` と `labels` を同時指定した場合: candidates = `environments` で絞り、それを `labels` でさらに AND filter。
 
 ### labels で dev だけまとめて再 apply
 
@@ -254,7 +281,7 @@ jobs:
 
 ## Processing flow
 
-1. `settings.yml` を読み込み、`selectTargetEnvs` で `environment` + `labels` で対象 env を選別
+1. `settings.yml` を読み込み、`selectTargetEnvs` で `environments` (JSON 配列) と `labels` (RegExp 配列) から対象 env を選別
 2. 対象 env を**逐次**ループ:
    1. `{service}-{env}` workspace を upsert (存在すれば update、なければ create) + `firebase-platform-{service}` タグを付与
    2. (webhook 有効時) notification config を upsert
