@@ -1,3 +1,5 @@
+import type { EnvironmentConfig, Settings } from "../settings";
+
 export function expandWorkspaceName(
   pattern: string,
   vars: Record<string, string>
@@ -11,7 +13,7 @@ export function expandWorkspaceName(
 
 export function buildRunMessage(metadata: {
   service: string;
-  environment: string;
+  environments: string[];
   source_repo: string;
   sha: string;
 }): string {
@@ -105,4 +107,148 @@ export function evaluateEnvironmentGate(args: {
     };
   }
   return { skip: false };
+}
+
+// ---------------------------------------------------------------------------
+// Multi-env target selection
+// ---------------------------------------------------------------------------
+
+export interface FilteredEnv {
+  env: string;
+  reason: SkipReason;
+  detail: string;
+}
+
+export interface TargetSelection {
+  targets: string[];
+  filtered: FilteredEnv[];
+}
+
+/**
+ * Decides which env keys are update targets for this Action invocation.
+ *
+ * - If environmentInput is set, candidates = [environmentInput] (must exist in
+ *   settings.environments, otherwise throws).
+ * - Otherwise, candidates = all keys of settings.environments.
+ * - Each candidate runs through evaluateEnvironmentGate (status + labels).
+ * - Surviving candidates are returned as `targets`; the rest as `filtered`
+ *   with the reason for traceability.
+ */
+export function selectTargetEnvs(args: {
+  settings: Settings;
+  environmentInput: string;
+  inputLabelPatterns: string[];
+}): TargetSelection {
+  const allKeys = Object.keys(args.settings.environments);
+  let candidates: string[];
+
+  if (args.environmentInput) {
+    if (!(args.environmentInput in args.settings.environments)) {
+      throw new Error(
+        `Environment "${args.environmentInput}" not found in settings.yml. Available: ${allKeys.join(", ")}`
+      );
+    }
+    candidates = [args.environmentInput];
+  } else {
+    candidates = allKeys;
+  }
+
+  const targets: string[] = [];
+  const filtered: FilteredEnv[] = [];
+
+  for (const env of candidates) {
+    const cfg = args.settings.environments[env];
+    const decision = evaluateEnvironmentGate({
+      status: cfg.status,
+      envLabels: cfg.labels,
+      inputLabelPatterns: args.inputLabelPatterns,
+    });
+    if (decision.skip) {
+      filtered.push({
+        env,
+        reason: decision.reason ?? "labels_mismatch",
+        detail: decision.detail ?? "filtered",
+      });
+    } else {
+      targets.push(env);
+    }
+  }
+
+  return { targets, filtered };
+}
+
+// ---------------------------------------------------------------------------
+// Map diff (state-only removal vs destroy)
+// ---------------------------------------------------------------------------
+
+export interface EnvDiff {
+  stateRemoveKeys: string[];
+  destroyKeys: string[];
+}
+
+/**
+ * Given the previous map keys (what's currently in TFC), the keys present in
+ * settings.environments, and settings.retained_envs, decide which keys should
+ * be removed from Terraform state without destroy (state-only) vs which should
+ * be left to Terraform's for_each diff to destroy.
+ *
+ * - state-only: in prev map ∩ retained list, not in environments
+ * - destroy:    in prev map, not in environments, not in retained list
+ */
+export function computeEnvDiff(args: {
+  prevKeys: string[];
+  settingsKeys: string[];
+  retainedKeys: string[];
+}): EnvDiff {
+  const settings = new Set(args.settingsKeys);
+  const retained = new Set(args.retainedKeys);
+
+  const stateRemoveKeys: string[] = [];
+  const destroyKeys: string[] = [];
+
+  for (const key of args.prevKeys) {
+    if (settings.has(key)) continue;
+    if (retained.has(key)) {
+      stateRemoveKeys.push(key);
+    } else {
+      destroyKeys.push(key);
+    }
+  }
+
+  return { stateRemoveKeys, destroyKeys };
+}
+
+// ---------------------------------------------------------------------------
+// environments map entry builder
+// ---------------------------------------------------------------------------
+
+export interface EnvEntry {
+  project_id: string;
+  billing_account_id: string;
+  terraform_service_account_id: string;
+  tfc_workspace_name: string;
+}
+
+/**
+ * Build the per-env entry that goes into the `environments` map. Also
+ * validates the derived GCP service account ID against the 30-char limit.
+ */
+export function buildEnvEntry(args: {
+  service: string;
+  env: string;
+  envConfig: EnvironmentConfig;
+}): EnvEntry {
+  const project_id = `${args.service}-${args.env}`;
+  const terraform_service_account_id = `terraform-${args.service}-${args.env}`;
+  if (terraform_service_account_id.length > 30) {
+    throw new Error(
+      `terraform_service_account_id "${terraform_service_account_id}" is ${terraform_service_account_id.length} chars for env "${args.env}" (GCP limit is 30). Shorten the service name or env key.`
+    );
+  }
+  return {
+    project_id,
+    billing_account_id: args.envConfig.billing_account_id,
+    terraform_service_account_id,
+    tfc_workspace_name: `${args.service}-${args.env}`,
+  };
 }
