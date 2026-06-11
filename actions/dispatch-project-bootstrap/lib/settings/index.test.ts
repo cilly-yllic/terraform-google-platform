@@ -136,9 +136,42 @@ environments:
   });
 });
 
+describe("retained_envs", () => {
+  it("defaults to [] when omitted", () => {
+    const settings = parseSettings(
+      "service: svc\nenvironments:\n  dev-001:\n    billing_account_id: X\n",
+    );
+    expect(settings.retained_envs).toEqual([]);
+  });
+
+  it("accepts a string array", () => {
+    const settings = parseSettings(`service: svc
+retained_envs:
+  - prd-001
+  - stg-001
+environments:
+  prd-001:
+    billing_account_id: X
+`);
+    expect(settings.retained_envs).toEqual(["prd-001", "stg-001"]);
+  });
+
+  it("rejects non-string entries", () => {
+    expect(() =>
+      parseSettings(`service: svc
+retained_envs: [1, 2]
+environments:
+  dev-001:
+    billing_account_id: X
+`),
+    ).toThrow();
+  });
+});
+
 describe("extractEnvironment", () => {
   const settings = {
     service: "svc",
+    retained_envs: [] as string[],
     environments: {
       "dev-001": { status: "active" as const, labels: [], billing_account_id: "X" },
       "prd-001": { status: "active" as const, labels: [], billing_account_id: "Y" },

@@ -272,15 +272,35 @@ export class TfcClient {
   }
 
   /**
-   * Read-modify-write the `environments` variable with etag-based
-   * optimistic concurrency. Retries on 409/412/422 conflict.
+   * Read-modify-write the `environments` variable for a batch of envs with
+   * etag-based optimistic concurrency. Retries on 409/412/422 conflict.
+   *
+   * Semantics:
+   *   newMap = (existingMap − stateRemoveKeys − destroyKeys) merged with targetEntries
+   * where
+   *   stateRemoveKeys = existing ∩ retainedKeys − settingsKeys
+   *   destroyKeys     = existing − settingsKeys − retainedKeys
+   *
+   * Returns the keys observed in the *final* existing map (post any retry)
+   * along with the computed stateRemoveKeys / destroyKeys, so the caller can
+   * surface them as Action outputs.
    */
-  async readModifyWriteEnvironments(
+  async upsertEnvironmentsBatch(
     workspaceId: string,
-    environment: string,
-    entry: Record<string, unknown>,
+    args: {
+      targetEntries: Record<string, Record<string, unknown>>;
+      settingsKeys: string[];
+      retainedKeys: string[];
+    },
     maxRetries = 3
-  ): Promise<TfcVariable> {
+  ): Promise<{
+    prevKeys: string[];
+    stateRemoveKeys: string[];
+    destroyKeys: string[];
+  }> {
+    const settingsSet = new Set(args.settingsKeys);
+    const retainedSet = new Set(args.retainedKeys);
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       const vars = await this.listVariables(workspaceId);
       const envVarRef = vars.find(
@@ -306,25 +326,31 @@ export class TfcClient {
         }
       }
 
-      const newMap = { ...existingMap, [environment]: entry };
+      const prevKeys = Object.keys(existingMap);
+      const stateRemoveKeys: string[] = [];
+      const destroyKeys: string[] = [];
+      for (const k of prevKeys) {
+        if (settingsSet.has(k)) continue;
+        if (retainedSet.has(k)) stateRemoveKeys.push(k);
+        else destroyKeys.push(k);
+      }
+
+      const carry: Record<string, unknown> = {};
+      for (const k of prevKeys) {
+        if (settingsSet.has(k)) carry[k] = existingMap[k];
+      }
+      const newMap = { ...carry, ...args.targetEntries };
       const newValue = JSON.stringify(newMap);
 
-      if (envVarRef) {
-        try {
-          return await this.updateVariable(
+      try {
+        if (envVarRef) {
+          await this.updateVariable(
             envVarRef.id,
             { value: newValue, hcl: false },
             etag ?? undefined
           );
-        } catch (e: unknown) {
-          if (e instanceof TfcApiError && isConflict(e) && attempt < maxRetries) {
-            continue;
-          }
-          throw e;
-        }
-      } else {
-        try {
-          return await this.createVariable(workspaceId, {
+        } else {
+          await this.createVariable(workspaceId, {
             key: "environments",
             value: newValue,
             category: "terraform",
@@ -332,12 +358,13 @@ export class TfcClient {
             sensitive: false,
             description: "Map of environments managed by project-factory",
           });
-        } catch (e: unknown) {
-          if (e instanceof TfcApiError && isConflict(e) && attempt < maxRetries) {
-            continue;
-          }
-          throw e;
         }
+        return { prevKeys, stateRemoveKeys, destroyKeys };
+      } catch (e: unknown) {
+        if (e instanceof TfcApiError && isConflict(e) && attempt < maxRetries) {
+          continue;
+        }
+        throw e;
       }
     }
     throw new Error(

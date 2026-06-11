@@ -48,7 +48,7 @@ variable "workload_identity_provider_id" {
 `;
 
 const VERSIONS_TF = `terraform {
-  required_version = ">= 1.3"
+  required_version = ">= 1.7"
 
   required_providers {
     google = {
@@ -59,12 +59,38 @@ const VERSIONS_TF = `terraform {
 }
 `;
 
+// removed blocks (Terraform 1.7+) are emitted for envs that were dropped from
+// settings.environments but are listed in settings.retained_envs — drop them
+// from state without destroying the underlying GCP resources.
+function buildRemovedBlock(envKey: string): string {
+  return `removed {
+  from = module.project_factory["${envKey}"]
+  lifecycle {
+    destroy = false
+  }
+}
+`;
+}
+
+export interface TemplateInput {
+  moduleVersion?: string;
+  stateRemoveKeys?: string[];
+}
+
 export function buildTemplateFiles(
-  moduleVersion: string | undefined
+  input: TemplateInput = {}
 ): Record<string, string> {
-  const versionLine = moduleVersion ? `  version = ${JSON.stringify(moduleVersion)}` : "";
+  const versionLine = input.moduleVersion
+    ? `  version = ${JSON.stringify(input.moduleVersion)}`
+    : "";
+  const removedBlocks = (input.stateRemoveKeys ?? [])
+    .map((k) => buildRemovedBlock(k))
+    .join("\n");
+  const mainTf =
+    MAIN_TF.replace(VERSION_PLACEHOLDER, versionLine) +
+    (removedBlocks ? `\n${removedBlocks}` : "");
   return {
-    "main.tf": MAIN_TF.replace(VERSION_PLACEHOLDER, versionLine),
+    "main.tf": mainTf,
     "versions.tf": VERSIONS_TF,
   };
 }
