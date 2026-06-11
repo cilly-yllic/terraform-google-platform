@@ -35,16 +35,18 @@ describe("expandWorkspaceName", () => {
 });
 
 describe("buildRunMessage", () => {
-  it("serializes the metadata as JSON with environments array", () => {
+  it("serializes the metadata as JSON with environments + labels arrays", () => {
     const msg = buildRunMessage({
       service: "svc",
       environments: ["prd-001", "dev-002"],
+      labels: ["^tier:prd$"],
       source_repo: "o/r",
       sha: "deadbeef",
     });
     expect(JSON.parse(msg)).toEqual({
       service: "svc",
       environments: ["prd-001", "dev-002"],
+      labels: ["^tier:prd$"],
       source_repo: "o/r",
       sha: "deadbeef",
     });
@@ -54,10 +56,26 @@ describe("buildRunMessage", () => {
     const msg = buildRunMessage({
       service: "svc",
       environments: [],
+      labels: [],
       source_repo: "o/r",
       sha: "x",
     });
     expect(JSON.parse(msg).environments).toEqual([]);
+    expect(JSON.parse(msg).labels).toEqual([]);
+  });
+
+  it("carries labels even when only a single env was targeted by name", () => {
+    const msg = buildRunMessage({
+      service: "svc",
+      environments: ["prd-001"],
+      labels: [],
+      source_repo: "o/r",
+      sha: "x",
+    });
+    expect(JSON.parse(msg)).toMatchObject({
+      environments: ["prd-001"],
+      labels: [],
+    });
   });
 });
 

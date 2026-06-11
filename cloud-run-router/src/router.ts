@@ -151,7 +151,8 @@ export async function handleNotification(
         message: "Dispatching firebase_platform_requested",
         target_repo: meta.source_repo,
         service: meta.service,
-        env: meta.env,
+        environments: meta.environments,
+        labels: meta.labels,
         ...logBase,
       }),
     );
@@ -163,7 +164,8 @@ export async function handleNotification(
       config.dispatchEventType,
       {
         service: meta.service,
-        environment: meta.env,
+        environments: meta.environments,
+        labels: meta.labels,
         run_id: notification.run_id,
         workspace_name: notification.workspace_name,
         source_repo: meta.source_repo,
@@ -184,7 +186,8 @@ export async function handleNotification(
       details: {
         target_repo: meta.source_repo,
         service: meta.service,
-        env: meta.env,
+        environments: meta.environments,
+        labels: meta.labels,
         ...logBase,
       },
     };
