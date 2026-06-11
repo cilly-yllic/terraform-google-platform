@@ -281,7 +281,7 @@ jobs:
 
 ## Processing flow
 
-1. `settings.yml` を読み込み、`selectTargetEnvs` で `environment` + `labels` で対象 env を選別
+1. `settings.yml` を読み込み、`selectTargetEnvs` で `environments` (JSON 配列) と `labels` (RegExp 配列) から対象 env を選別
 2. 対象 env を**逐次**ループ:
    1. `{service}-{env}` workspace を upsert (存在すれば update、なければ create) + `firebase-platform-{service}` タグを付与
    2. (webhook 有効時) notification config を upsert

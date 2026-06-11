@@ -173,7 +173,7 @@ Action A / B が emit する `run_message` の shape は **hybrid**:
 ```
 
 - `environments`: 今回 Run で処理した env キー（解決済みリスト）
-- `labels`: A 起動時の input labels。単数指定時は空配列
+- `labels`: A 起動時の input labels。A が `environment` (単数) だけで呼ばれた場合は空配列
 
 #### Option B: `run_message` (推奨)
 
