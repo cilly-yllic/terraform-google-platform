@@ -14,6 +14,7 @@ export function expandWorkspaceName(
 export function buildRunMessage(metadata: {
   service: string;
   environments: string[];
+  labels: string[];
   source_repo: string;
   sha: string;
 }): string {
