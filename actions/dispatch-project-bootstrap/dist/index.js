@@ -30078,6 +30078,9 @@ exports.buildRunMessage = buildRunMessage;
 exports.mergeEnvironmentsMap = mergeEnvironmentsMap;
 exports.parseLabelsInput = parseLabelsInput;
 exports.evaluateEnvironmentGate = evaluateEnvironmentGate;
+exports.selectTargetEnvs = selectTargetEnvs;
+exports.computeEnvDiff = computeEnvDiff;
+exports.buildEnvEntry = buildEnvEntry;
 function expandWorkspaceName(pattern, vars) {
     let result = pattern;
     for (const [key, value] of Object.entries(vars)) {
@@ -30145,6 +30148,93 @@ function evaluateEnvironmentGate(args) {
     }
     return { skip: false };
 }
+/**
+ * Decides which env keys are update targets for this Action invocation.
+ *
+ * - If environmentInput is set, candidates = [environmentInput] (must exist in
+ *   settings.environments, otherwise throws).
+ * - Otherwise, candidates = all keys of settings.environments.
+ * - Each candidate runs through evaluateEnvironmentGate (status + labels).
+ * - Surviving candidates are returned as `targets`; the rest as `filtered`
+ *   with the reason for traceability.
+ */
+function selectTargetEnvs(args) {
+    const allKeys = Object.keys(args.settings.environments);
+    let candidates;
+    if (args.environmentInput) {
+        if (!(args.environmentInput in args.settings.environments)) {
+            throw new Error(`Environment "${args.environmentInput}" not found in settings.yml. Available: ${allKeys.join(", ")}`);
+        }
+        candidates = [args.environmentInput];
+    }
+    else {
+        candidates = allKeys;
+    }
+    const targets = [];
+    const filtered = [];
+    for (const env of candidates) {
+        const cfg = args.settings.environments[env];
+        const decision = evaluateEnvironmentGate({
+            status: cfg.status,
+            envLabels: cfg.labels,
+            inputLabelPatterns: args.inputLabelPatterns,
+        });
+        if (decision.skip) {
+            filtered.push({
+                env,
+                reason: decision.reason ?? "labels_mismatch",
+                detail: decision.detail ?? "filtered",
+            });
+        }
+        else {
+            targets.push(env);
+        }
+    }
+    return { targets, filtered };
+}
+/**
+ * Given the previous map keys (what's currently in TFC), the keys present in
+ * settings.environments, and settings.retained_envs, decide which keys should
+ * be removed from Terraform state without destroy (state-only) vs which should
+ * be left to Terraform's for_each diff to destroy.
+ *
+ * - state-only: in prev map ∩ retained list, not in environments
+ * - destroy:    in prev map, not in environments, not in retained list
+ */
+function computeEnvDiff(args) {
+    const settings = new Set(args.settingsKeys);
+    const retained = new Set(args.retainedKeys);
+    const stateRemoveKeys = [];
+    const destroyKeys = [];
+    for (const key of args.prevKeys) {
+        if (settings.has(key))
+            continue;
+        if (retained.has(key)) {
+            stateRemoveKeys.push(key);
+        }
+        else {
+            destroyKeys.push(key);
+        }
+    }
+    return { stateRemoveKeys, destroyKeys };
+}
+/**
+ * Build the per-env entry that goes into the `environments` map. Also
+ * validates the derived GCP service account ID against the 30-char limit.
+ */
+function buildEnvEntry(args) {
+    const project_id = `${args.service}-${args.env}`;
+    const terraform_service_account_id = `terraform-${args.service}-${args.env}`;
+    if (terraform_service_account_id.length > 30) {
+        throw new Error(`terraform_service_account_id "${terraform_service_account_id}" is ${terraform_service_account_id.length} chars for env "${args.env}" (GCP limit is 30). Shorten the service name or env key.`);
+    }
+    return {
+        project_id,
+        billing_account_id: args.envConfig.billing_account_id,
+        terraform_service_account_id,
+        tfc_workspace_name: `${args.service}-${args.env}`,
+    };
+}
 
 
 /***/ }),
@@ -30168,6 +30258,7 @@ const environmentSchema = zod_1.z.object({
 const settingsSchema = zod_1.z.object({
     service: zod_1.z.string(),
     environments: zod_1.z.record(zod_1.z.string(), environmentSchema),
+    retained_envs: zod_1.z.array(zod_1.z.string()).default([]),
 });
 function parseSettings(raw) {
     // merge: true enables YAML "<<" merge keys for DRY-ing repeated env config.
@@ -30240,7 +30331,7 @@ variable "workload_identity_provider_id" {
 }
 `;
 const VERSIONS_TF = `terraform {
-  required_version = ">= 1.3"
+  required_version = ">= 1.7"
 
   required_providers {
     google = {
@@ -30250,10 +30341,29 @@ const VERSIONS_TF = `terraform {
   }
 }
 `;
-function buildTemplateFiles(moduleVersion) {
-    const versionLine = moduleVersion ? `  version = ${JSON.stringify(moduleVersion)}` : "";
+// removed blocks (Terraform 1.7+) are emitted for envs that were dropped from
+// settings.environments but are listed in settings.retained_envs — drop them
+// from state without destroying the underlying GCP resources.
+function buildRemovedBlock(envKey) {
+    return `removed {
+  from = module.project_factory["${envKey}"]
+  lifecycle {
+    destroy = false
+  }
+}
+`;
+}
+function buildTemplateFiles(input = {}) {
+    const versionLine = input.moduleVersion
+        ? `  version = ${JSON.stringify(input.moduleVersion)}`
+        : "";
+    const removedBlocks = (input.stateRemoveKeys ?? [])
+        .map((k) => buildRemovedBlock(k))
+        .join("\n");
+    const mainTf = MAIN_TF.replace(VERSION_PLACEHOLDER, versionLine) +
+        (removedBlocks ? `\n${removedBlocks}` : "");
     return {
-        "main.tf": MAIN_TF.replace(VERSION_PLACEHOLDER, versionLine),
+        "main.tf": mainTf,
         "versions.tf": VERSIONS_TF,
     };
 }
@@ -30409,10 +30519,22 @@ class TfcClient {
         return results;
     }
     /**
-     * Read-modify-write the `environments` variable with etag-based
-     * optimistic concurrency. Retries on 409/412/422 conflict.
+     * Read-modify-write the `environments` variable for a batch of envs with
+     * etag-based optimistic concurrency. Retries on 409/412/422 conflict.
+     *
+     * Semantics:
+     *   newMap = (existingMap − stateRemoveKeys − destroyKeys) merged with targetEntries
+     * where
+     *   stateRemoveKeys = existing ∩ retainedKeys − settingsKeys
+     *   destroyKeys     = existing − settingsKeys − retainedKeys
+     *
+     * Returns the keys observed in the *final* existing map (post any retry)
+     * along with the computed stateRemoveKeys / destroyKeys, so the caller can
+     * surface them as Action outputs.
      */
-    async readModifyWriteEnvironments(workspaceId, environment, entry, maxRetries = 3) {
+    async upsertEnvironmentsBatch(workspaceId, args, maxRetries = 3) {
+        const settingsSet = new Set(args.settingsKeys);
+        const retainedSet = new Set(args.retainedKeys);
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
             const vars = await this.listVariables(workspaceId);
             const envVarRef = vars.find((v) => v.attributes.key === "environments" &&
@@ -30431,22 +30553,30 @@ class TfcClient {
                     }
                 }
             }
-            const newMap = { ...existingMap, [environment]: entry };
-            const newValue = JSON.stringify(newMap);
-            if (envVarRef) {
-                try {
-                    return await this.updateVariable(envVarRef.id, { value: newValue, hcl: false }, etag ?? undefined);
-                }
-                catch (e) {
-                    if (e instanceof TfcApiError && isConflict(e) && attempt < maxRetries) {
-                        continue;
-                    }
-                    throw e;
-                }
+            const prevKeys = Object.keys(existingMap);
+            const stateRemoveKeys = [];
+            const destroyKeys = [];
+            for (const k of prevKeys) {
+                if (settingsSet.has(k))
+                    continue;
+                if (retainedSet.has(k))
+                    stateRemoveKeys.push(k);
+                else
+                    destroyKeys.push(k);
             }
-            else {
-                try {
-                    return await this.createVariable(workspaceId, {
+            const carry = {};
+            for (const k of prevKeys) {
+                if (settingsSet.has(k))
+                    carry[k] = existingMap[k];
+            }
+            const newMap = { ...carry, ...args.targetEntries };
+            const newValue = JSON.stringify(newMap);
+            try {
+                if (envVarRef) {
+                    await this.updateVariable(envVarRef.id, { value: newValue, hcl: false }, etag ?? undefined);
+                }
+                else {
+                    await this.createVariable(workspaceId, {
                         key: "environments",
                         value: newValue,
                         category: "terraform",
@@ -30455,12 +30585,13 @@ class TfcClient {
                         description: "Map of environments managed by project-factory",
                     });
                 }
-                catch (e) {
-                    if (e instanceof TfcApiError && isConflict(e) && attempt < maxRetries) {
-                        continue;
-                    }
-                    throw e;
+                return { prevKeys, stateRemoveKeys, destroyKeys };
+            }
+            catch (e) {
+                if (e instanceof TfcApiError && isConflict(e) && attempt < maxRetries) {
+                    continue;
                 }
+                throw e;
             }
         }
         throw new Error("Failed to update environments variable after max retries (etag conflict)");
@@ -30622,7 +30753,7 @@ async function run() {
     try {
         // ---- Read inputs ----
         const service = core.getInput("service", { required: true });
-        const environment = core.getInput("environment", { required: true });
+        const environment = core.getInput("environment");
         const settingsPath = core.getInput("settings_path");
         const tfcOrg = core.getInput("tfc_org", { required: true });
         const tfcWorkspacePattern = core.getInput("tfc_workspace_name");
@@ -30644,10 +30775,13 @@ async function run() {
         core.setSecret(tfcToken);
         if (cloudRunWebhookSecret)
             core.setSecret(cloudRunWebhookSecret);
-        // Default the skip-related outputs so downstream `if:` checks are always
-        // safe to evaluate, even on early failure.
+        // Default outputs so downstream `if:` checks are always safe to evaluate.
         core.setOutput("skipped", "false");
         core.setOutput("skip_reason", "");
+        core.setOutput("applied_envs", "[]");
+        core.setOutput("state_removed_envs", "[]");
+        core.setOutput("destroyed_envs", "[]");
+        core.setOutput("filtered_envs", "[]");
         // ---- 1. Read settings.yml ----
         core.info(`Reading settings from ${settingsPath}`);
         const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
@@ -30655,25 +30789,35 @@ async function run() {
         const settingsRaw = fs.readFileSync(settingsFullPath, "utf-8");
         const settings = (0, settings_1.parseSettings)(settingsRaw);
         core.info(`Parsed settings for service: ${settings.service}`);
-        // ---- 2. Extract environment config ----
-        // env key (e.g. "prd-001", "dev-002") is the project_id suffix.
-        const envConfig = (0, settings_1.extractEnvironment)(settings, environment);
-        const projectId = `${service}-${environment}`;
-        core.info(`Environment "${environment}": project_id=${projectId}`);
-        // ---- 2a. Gating: status + label regex AND match ----
+        // ---- 2. Validate input combination ----
         const inputLabelPatterns = (0, dispatch_1.parseLabelsInput)(labelsInput);
-        const gate = (0, dispatch_1.evaluateEnvironmentGate)({
-            status: envConfig.status,
-            envLabels: envConfig.labels,
+        if (!environment && inputLabelPatterns.length === 0) {
+            throw new Error("Either `environment` or `labels` input must be specified.");
+        }
+        // ---- 3. Select target envs (status + labels) ----
+        const { targets, filtered } = (0, dispatch_1.selectTargetEnvs)({
+            settings,
+            environmentInput: environment,
             inputLabelPatterns,
         });
-        if (gate.skip) {
-            core.warning(`Skipping env "${environment}": ${gate.detail ?? gate.reason ?? "filtered"}`);
-            core.setOutput("skipped", "true");
-            core.setOutput("skip_reason", gate.reason ?? "");
-            return;
+        core.setOutput("filtered_envs", JSON.stringify(filtered));
+        for (const f of filtered) {
+            core.info(`Filtered out env "${f.env}": ${f.detail}`);
         }
-        core.setSecret(envConfig.billing_account_id);
+        if (targets.length > 0) {
+            core.info(`Target envs: ${targets.join(", ")}`);
+        }
+        else {
+            core.info("No envs matched the filters — only retained/destroy diffs may apply.");
+        }
+        // ---- 4. Build per-env entries (validates SA ID length per env) ----
+        const targetEntries = {};
+        for (const env of targets) {
+            const envConfig = settings.environments[env];
+            core.setSecret(envConfig.billing_account_id);
+            const entry = (0, dispatch_1.buildEnvEntry)({ service, env, envConfig });
+            targetEntries[env] = entry;
+        }
         // ---- 5. Upsert TFC Workspace ----
         const tfc = new tfc_1.TfcClient({ token: tfcToken, org: tfcOrg });
         const workspaceName = (0, dispatch_1.expandWorkspaceName)(tfcWorkspacePattern, { service });
@@ -30683,7 +30827,7 @@ async function run() {
             "execution-mode": "remote",
         });
         core.info(`Workspace ready: id=${ws.id}`);
-        // ---- 6. (Phase 2) Notification config upsert ----
+        // ---- 6. Notification config ----
         if (enableWebhook) {
             if (!cloudRunWebhookUrl) {
                 throw new Error("cloud_run_webhook_url is required when enable_webhook_notification=true");
@@ -30696,22 +30840,34 @@ async function run() {
                 triggers: ["run:completed", "run:errored"],
             });
         }
-        // ---- 7-9. Read-modify-write environments variable ----
-        core.info("Updating environments variable (read-modify-write with etag)");
-        const terraformSaId = `terraform-${service}-${environment}`;
-        if (terraformSaId.length > 30) {
-            throw new Error(`terraform_service_account_id "${terraformSaId}" is ${terraformSaId.length} chars (GCP limit is 30). ` +
-                `Shorten the service name or env key.`);
+        // ---- 7. Upsert environments variable (batch) ----
+        core.info("Updating environments variable (batch read-modify-write with etag)");
+        const settingsKeys = Object.keys(settings.environments);
+        const retainedKeys = settings.retained_envs;
+        const diff = await tfc.upsertEnvironmentsBatch(ws.id, {
+            targetEntries,
+            settingsKeys,
+            retainedKeys,
+        });
+        core.setOutput("applied_envs", JSON.stringify(targets));
+        core.setOutput("state_removed_envs", JSON.stringify(diff.stateRemoveKeys));
+        core.setOutput("destroyed_envs", JSON.stringify(diff.destroyKeys));
+        if (diff.stateRemoveKeys.length > 0) {
+            core.info(`State-only removal queued for: ${diff.stateRemoveKeys.join(", ")} (GCP resources retained)`);
         }
-        const envEntry = {
-            project_id: projectId,
-            billing_account_id: envConfig.billing_account_id,
-            terraform_service_account_id: terraformSaId,
-            tfc_workspace_name: `${service}-${environment}`,
-        };
-        await tfc.readModifyWriteEnvironments(ws.id, environment, envEntry);
-        core.info("environments variable updated successfully");
-        // ---- 10. Sync Environment Variables (TFC Dynamic Credentials) ----
+        if (diff.destroyKeys.length > 0) {
+            core.warning(`Destroy queued for: ${diff.destroyKeys.join(", ")} (env absent from both environments: and retained_envs:)`);
+        }
+        // ---- 8. Skip Run if nothing changed ----
+        if (targets.length === 0 &&
+            diff.stateRemoveKeys.length === 0 &&
+            diff.destroyKeys.length === 0) {
+            core.info("No env changes — skipping Run creation");
+            core.setOutput("skipped", "true");
+            core.setOutput("skip_reason", "no_changes");
+            return;
+        }
+        // ---- 9. Sync Environment Variables (TFC Dynamic Credentials) ----
         core.info("Syncing environment variables for TFC Dynamic Credentials");
         const envVars = [
             {
@@ -30742,9 +30898,9 @@ async function run() {
             sensitive: ev.sensitive,
         })));
         core.info("Environment variables synced");
-        // ---- Sync Terraform Variables ----
-        // NOTE: `parent` and `environments` are stored as JSON strings (hcl: false).
-        // The consuming Terraform workspace is expected to use jsondecode().
+        // ---- 10. Sync Terraform Variables ----
+        // NOTE: `parent` is stored as a JSON string (hcl: false). The consuming
+        // Terraform workspace is expected to use jsondecode().
         core.info("Syncing terraform variables");
         const tfVarAttrs = [
             { key: "service", value: service, hcl: false },
@@ -30788,9 +30944,12 @@ async function run() {
         core.info("Terraform variables synced");
         // ---- 11. Upload Configuration Version (main.tf template) ----
         core.info(moduleVersion
-            ? `Building configuration tarball (module version pinned to ${moduleVersion})`
-            : "Building configuration tarball (module version unpinned)");
-        const tarball = (0, config_version_1.buildTarball)((0, templates_1.buildTemplateFiles)(moduleVersion || undefined));
+            ? `Building configuration tarball (module version pinned to ${moduleVersion}, removed-blocks=${diff.stateRemoveKeys.length})`
+            : `Building configuration tarball (module version unpinned, removed-blocks=${diff.stateRemoveKeys.length})`);
+        const tarball = (0, config_version_1.buildTarball)((0, templates_1.buildTemplateFiles)({
+            moduleVersion: moduleVersion || undefined,
+            stateRemoveKeys: diff.stateRemoveKeys,
+        }));
         core.info("Creating configuration version");
         const cv = await tfc.createConfigurationVersion(ws.id, {
             autoQueueRuns: false,
@@ -30808,7 +30967,7 @@ async function run() {
         const context = github.context;
         const runMessage = (0, dispatch_1.buildRunMessage)({
             service,
-            environment,
+            environments: targets,
             source_repo: `${context.repo.owner}/${context.repo.repo}`,
             sha: context.sha,
         });

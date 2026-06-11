@@ -11,6 +11,7 @@ const environmentSchema = z.object({
 const settingsSchema = z.object({
   service: z.string(),
   environments: z.record(z.string(), environmentSchema),
+  retained_envs: z.array(z.string()).default([]),
 });
 
 export type Settings = z.infer<typeof settingsSchema>;
