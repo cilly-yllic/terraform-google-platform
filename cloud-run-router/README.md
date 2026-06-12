@@ -333,12 +333,15 @@ CMD ["node", "dist/index.js"]
 
 `make bootstrap-print-env` の出力を **GitHub repo の Settings → Secrets and variables → Actions → Variables** に登録 (Secrets ではなく Variables で OK; 値自体は秘匿情報ではない):
 
-| Variable | 値の例 |
-|----------|-------|
-| `GCP_PROJECT_ID` | `infra-bootstrap` |
-| `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/{number}/locations/global/workloadIdentityPools/terraform-cloud/providers/github-actions` |
-| `GCP_DEPLOY_SERVICE_ACCOUNT` | `cloud-run-router-deploy@infra-bootstrap.iam.gserviceaccount.com` |
-| `GCP_RUNTIME_SERVICE_ACCOUNT` | `cloud-run-router-runtime@infra-bootstrap.iam.gserviceaccount.com` |
+| Variable | 値の例 | 取得元 |
+|----------|-------|-------|
+| `GCP_PROJECT_ID` | `infra-bootstrap` | `make bootstrap-print-env` |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/{number}/locations/global/workloadIdentityPools/terraform-cloud/providers/github-actions` | `make bootstrap-print-env` |
+| `GCP_DEPLOY_SERVICE_ACCOUNT` | `cloud-run-router-deploy@infra-bootstrap.iam.gserviceaccount.com` | `make bootstrap-print-env` |
+| `GCP_RUNTIME_SERVICE_ACCOUNT` | `cloud-run-router-runtime@infra-bootstrap.iam.gserviceaccount.com` | `make bootstrap-print-env` |
+| `GH_APP_ID` | `123456` (数値) | GitHub App 設定画面の **About → App ID** |
+
+> **注意**: GitHub Actions の Variable / Secret 名は `GITHUB_` prefix が予約されており作成できないため、GitHub App ID は `GH_APP_ID` という名前で登録します。workflow 内で Cloud Run service に渡す際に `GITHUB_APP_ID=${{ vars.GH_APP_ID }}` のように env 名を `GITHUB_APP_ID` にリマップしてください (cloud-run-router の runtime は `GITHUB_APP_ID` という env 名を読みます)。
 
 workflow の最小サンプル (`.github/workflows/deploy-cloud-run-router.yml`):
 
@@ -386,7 +389,7 @@ jobs:
             --platform=managed \
             --service-account="${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}" \
             --set-secrets="TFC_NOTIFICATION_SECRET=tfc-notification-secret:latest,GITHUB_APP_PRIVATE_KEY=github-app-private-key:latest" \
-            --set-env-vars="GITHUB_APP_ID=${{ vars.GITHUB_APP_ID }},DISPATCH_EVENT_TYPE=firebase_platform_requested" \
+            --set-env-vars="GITHUB_APP_ID=${{ vars.GH_APP_ID }},DISPATCH_EVENT_TYPE=firebase_platform_requested" \
             --allow-unauthenticated
 ```
 
