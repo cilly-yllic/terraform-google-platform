@@ -43,31 +43,21 @@ describe("parseRunMessage", () => {
 
   it("returns null when service is an empty string", () => {
     expect(
-      parseRunMessage(
-        '{"service":"","environments":["dev-001"],"source_repo":"o/r"}',
-      ),
+      parseRunMessage('{"service":"","environments":["dev-001"],"source_repo":"o/r"}'),
     ).toBeNull();
   });
 
   it("returns null when environments is missing", () => {
-    expect(
-      parseRunMessage('{"service":"svc","source_repo":"o/r"}'),
-    ).toBeNull();
+    expect(parseRunMessage('{"service":"svc","source_repo":"o/r"}')).toBeNull();
   });
 
   it("returns null when environments is an empty array", () => {
-    expect(
-      parseRunMessage(
-        '{"service":"svc","environments":[],"source_repo":"o/r"}',
-      ),
-    ).toBeNull();
+    expect(parseRunMessage('{"service":"svc","environments":[],"source_repo":"o/r"}')).toBeNull();
   });
 
   it("returns null when environments contains non-string entries", () => {
     expect(
-      parseRunMessage(
-        '{"service":"svc","environments":["dev-001",42],"source_repo":"o/r"}',
-      ),
+      parseRunMessage('{"service":"svc","environments":["dev-001",42],"source_repo":"o/r"}'),
     ).toBeNull();
   });
 
@@ -86,10 +76,6 @@ describe("parseRunMessage", () => {
   it("returns null for the legacy singular env shape", () => {
     // Run messages emitted before PR #10 used `env: string`. Those are
     // intentionally rejected — Phase 2 was broken with the old shape anyway.
-    expect(
-      parseRunMessage(
-        '{"service":"svc","env":"dev-001","source_repo":"o/r"}',
-      ),
-    ).toBeNull();
+    expect(parseRunMessage('{"service":"svc","env":"dev-001","source_repo":"o/r"}')).toBeNull();
   });
 });

@@ -25,9 +25,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
   };
 }
 
-function makeNotification(
-  overrides: Partial<TfcNotification> = {},
-): TfcNotification {
+function makeNotification(overrides: Partial<TfcNotification> = {}): TfcNotification {
   return {
     payload_version: 1,
     notification_configuration_id: "nc-123",
@@ -80,10 +78,7 @@ describe("classifyWorkspace", () => {
   });
 
   it("handles multi-segment service names", () => {
-    const result = classifyWorkspace(
-      "project-factory-my-cool-service",
-      config,
-    );
+    const result = classifyWorkspace("project-factory-my-cool-service", config);
     expect(result).toEqual({
       stage: "project_factory",
       service: "my-cool-service",
@@ -216,10 +211,7 @@ describe("handleNotification", () => {
     });
     const result = await handleNotification(notification, config);
     expect(result.action).toBe("ignored");
-    expect(result.details).toHaveProperty(
-      "reason",
-      "unknown_workspace_pattern",
-    );
+    expect(result.details).toHaveProperty("reason", "unknown_workspace_pattern");
   });
 
   it("returns ignored when notifications array is empty", async () => {
@@ -247,8 +239,8 @@ describe("parseRunMessage (via handleNotification)", () => {
   it("throws when run_message is invalid and source is run_message only", async () => {
     const config = makeConfig({ metadataSource: "run_message" });
     const notification = makeNotification({ run_message: "not json" });
-    await expect(
-      handleNotification(notification, config),
-    ).rejects.toThrow("run_message does not contain valid metadata JSON");
+    await expect(handleNotification(notification, config)).rejects.toThrow(
+      "run_message does not contain valid metadata JSON",
+    );
   });
 });
