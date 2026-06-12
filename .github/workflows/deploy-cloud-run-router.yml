@@ -15,7 +15,10 @@ name: Deploy cloud-run-router
 #        - GCP_WORKLOAD_IDENTITY_PROVIDER
 #        - GCP_DEPLOY_SERVICE_ACCOUNT
 #        - GCP_RUNTIME_SERVICE_ACCOUNT
-#        - GITHUB_APP_ID            ← GitHub App ID (Secret ではなく Variable で可)
+#        - GH_APP_ID                ← GitHub App ID (Secret ではなく Variable で可)
+#                                     GitHub の予約により `GITHUB_` prefix の
+#                                     Variable / Secret 名は作成不可なので
+#                                     `GH_` prefix を使用
 #   3. Secret Manager に runtime 用 secret を作成:
 #        gcloud secrets create tfc-notification-secret \
 #          --data-file=<(printf '%s' "$TFC_HMAC_SECRET") \
@@ -103,7 +106,7 @@ jobs:
             --platform=managed \
             --service-account="${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}" \
             --set-secrets="TFC_NOTIFICATION_SECRET=tfc-notification-secret:latest,GITHUB_APP_PRIVATE_KEY=github-app-private-key:latest" \
-            --set-env-vars="GITHUB_APP_ID=${{ vars.GITHUB_APP_ID }},METADATA_SOURCE=run_message,DISPATCH_EVENT_TYPE=firebase_platform_requested" \
+            --set-env-vars="GITHUB_APP_ID=${{ vars.GH_APP_ID }},METADATA_SOURCE=run_message,DISPATCH_EVENT_TYPE=firebase_platform_requested" \
             --allow-unauthenticated
 
       - name: Capture deployed metadata
