@@ -1,8 +1,33 @@
 name: Deploy cloud-run-router
 
+# ============================================================================
+# ⚠️ これは **reference workflow** です。
+#
+# 本ファイルは `examples/` 配下に置かれており、GitHub Actions には自動拾い
+# 上げ**されません**。本リポジトリで実 deploy 用途には使われません。
+#
+# 推奨の利用方法:
+#   1. このファイルを fork ユーザーの **private な deploy 用 repo** にコピー
+#      (例: <your-org>/infrastructure 等)
+#   2. 配置先: `.github/workflows/deploy-cloud-run-router.yml`
+#   3. 必要に応じて `SOURCE_REPO` / region / service 名等を調整
+#   4. `scripts/bootstrap.sh` の opt-in セットアップで作成した WIF Provider の
+#      `attribute.repository == "<your-org>/<your-deploy-repo>"` を、
+#      **deploy 用 private repo に向けて**おくこと
+#   5. private repo 側の Variables / Secrets を設定:
+#      - Variables: GCP_PROJECT_ID / GCP_WORKLOAD_IDENTITY_PROVIDER /
+#                   GCP_DEPLOY_SERVICE_ACCOUNT / GCP_RUNTIME_SERVICE_ACCOUNT /
+#                   GH_APP_ID
+#      - Secrets:   DEPLOY_WEBHOOK (Slack incoming webhook URL)
+#
+# 詳細: examples/cloud-run-router-deploy/README.md
+# ============================================================================
+#
 # 運用方針:
-#   - main で `cloud-run-router-v<semver>` 形式のタグを切る (例: cloud-run-router-v1.0.0)
-#   - この workflow を Actions 画面から `workflow_dispatch` で起動
+#   - source repo (cilly-yllic/terraform-google-platform) で
+#     `cloud-run-router-v<semver>` 形式のタグを切る (例: cloud-run-router-v1.0.0)
+#   - private deploy repo にコピーした本 workflow を Actions 画面から
+#     `workflow_dispatch` で起動
 #   - 入力欄にタグ名を指定
 #   - main の祖先に含まれる commit のタグかを検証してから build / deploy
 #
@@ -45,6 +70,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  # ↓ private deploy repo にコピーした場合、ここを自リポジトリの source repo に
+  #    変更してください (本リポジトリを fork している場合は <your-org>/<fork-name>)。
+  SOURCE_REPO: cilly-yllic/terraform-google-platform
   SERVICE_NAME: cloud-run-router
   REGION: asia-northeast1
   IMAGE_REPO: gcr.io   # gcr.io alias 経由で Artifact Registry に push される
@@ -55,26 +83,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout at tag
+      - name: Checkout source repo at tag
+        # SOURCE_REPO の指定 tag を fetch-depth=0 で取得 (祖先チェックのため履歴必要)。
+        # source repo が public なら token 不要。private の場合は token を追加する。
         uses: actions/checkout@v4
         with:
+          repository: ${{ env.SOURCE_REPO }}
           ref: ${{ inputs.tag }}
-          # main 祖先チェック用に main も取りに行くので fetch-depth: 0
           fetch-depth: 0
 
-      - name: Validate tag is reachable from main
-        # tag を勝手にどこにでも切れる状況を防ぐ。
-        # tag の commit が main の祖先でない場合は明示的に失敗させる。
+      - name: Validate tag is reachable from source main
+        # 別ブランチに切られたタグからの deploy を防ぐ。
+        # actions/checkout@v4 の origin = SOURCE_REPO になっているので、
+        # origin/main = SOURCE_REPO の main を指す。
         run: |
           set -euo pipefail
           git fetch origin main --depth=1
           MAIN_SHA=$(git rev-parse FETCH_HEAD)
           TAG_SHA=$(git rev-parse "${{ inputs.tag }}^{commit}")
           if ! git merge-base --is-ancestor "${TAG_SHA}" "${MAIN_SHA}"; then
-            echo "::error::Tag ${{ inputs.tag }} (${TAG_SHA}) is not reachable from main (${MAIN_SHA})."
+            echo "::error::Tag ${{ inputs.tag }} (${TAG_SHA}) is not reachable from ${{ env.SOURCE_REPO }} main (${MAIN_SHA})."
             exit 1
           fi
-          echo "Tag ${{ inputs.tag }} confirmed on main (commit ${TAG_SHA})."
+          echo "Tag ${{ inputs.tag }} confirmed on ${{ env.SOURCE_REPO }} main (commit ${TAG_SHA})."
 
       - name: Authenticate to GCP via Workload Identity Federation
         uses: google-github-actions/auth@v2
