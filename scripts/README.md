@@ -172,6 +172,95 @@ scripts/bootstrap.sh --init=envrc
 | `WORKLOAD_IDENTITY_PROVIDER_DISPLAY_NAME` | `Terraform Cloud` | Provider の表示名 |
 | `CONFIRM_BEFORE_APPLY` | `true` | `apply` 実行前に確認プロンプトを表示するか |
 
+### オプション (Budget)
+
+`BUDGET_AMOUNT` を設定した場合のみ Budget が作成されます。
+
+| 変数名 | デフォルト | 説明 |
+|--------|-----------|------|
+| `BUDGET_AMOUNT` | — | 月次予算額 (例 `1000`)。未設定なら Budget は作成しない |
+| `BUDGET_CURRENCY` | `USD` | 通貨 |
+| `BUDGET_DISPLAY_NAME` | `${BOOTSTRAP_PROJECT_NAME} Budget` | Budget の表示名 |
+| `BUDGET_SCOPE` | `project` | `project` (Bootstrap Project のみ監視) / `billing-account` (Billing Account 全体) |
+| `BUDGET_THRESHOLDS` | `0.1,0.3,0.5,0.9,1.0` | アラート閾値 (カンマ区切り、0.0〜1.0) |
+
+### オプション (Cloud Run router deploy 拡張)
+
+`ENABLE_CLOUD_RUN_DEPLOY_SETUP="true"` を設定した場合のみ、cloud-run-router を GitHub Actions から Cloud Run にデプロイするための SA / WIF Provider を追加作成します。
+詳細は [Cloud Run router deploy 拡張](#cloud-run-router-deploy-拡張-opt-in) セクション参照。
+
+| 変数名 | デフォルト | 説明 |
+|--------|-----------|------|
+| `ENABLE_CLOUD_RUN_DEPLOY_SETUP` | `false` | `true` で拡張機能を有効化 (opt-in) |
+| `GITHUB_REPOSITORY` | — | `owner/repo`。WIF Provider の attribute condition で deploy を許可する repo (拡張機能有効時は必須) |
+| `CLOUD_RUN_DEPLOY_SA_ID` | `cloud-run-router-deploy` | deploy SA ID |
+| `CLOUD_RUN_DEPLOY_SA_DISPLAY_NAME` | `Cloud Run Router Deploy` | deploy SA 表示名 |
+| `CLOUD_RUN_RUNTIME_SA_ID` | `cloud-run-router-runtime` | runtime SA ID (Cloud Run service の実行 identity) |
+| `CLOUD_RUN_RUNTIME_SA_DISPLAY_NAME` | `Cloud Run Router Runtime` | runtime SA 表示名 |
+| `GITHUB_WIF_PROVIDER_ID` | `github-actions` | GitHub OIDC Provider ID (既存 Pool 内) |
+| `GITHUB_WIF_PROVIDER_DISPLAY_NAME` | `GitHub Actions` | GitHub Provider 表示名 |
+
+---
+
+## Cloud Run router deploy 拡張 (opt-in)
+
+`scripts/bootstrap.sh` は、デフォルトでは Terraform Cloud → GCP 用の WIF / SA だけを構成します。`.env` で以下 2 行を有効化することで、**cloud-run-router を GitHub Actions から Cloud Run にデプロイするための追加リソース**も同時に provision できます。
+
+```bash
+ENABLE_CLOUD_RUN_DEPLOY_SETUP="true"
+GITHUB_REPOSITORY="owner/repo"
+```
+
+### 何が追加で作られるか
+
+| リソース | 内容 |
+|---------|------|
+| API enable | `run.googleapis.com` / `artifactregistry.googleapis.com` / `cloudbuild.googleapis.com` / `secretmanager.googleapis.com` |
+| **runtime SA** (`cloud-run-router-runtime`) | Cloud Run service の実行 identity。`roles/secretmanager.secretAccessor` のみ付与 (TFC_NOTIFICATION_SECRET 等を読む) |
+| **deploy SA** (`cloud-run-router-deploy`) | GitHub Actions が impersonate する identity。`roles/run.developer` / `roles/artifactregistry.writer` / `roles/cloudbuild.builds.editor` / `roles/storage.admin` / `roles/iam.serviceAccountTokenCreator` を project 全体に付与、加えて runtime SA に対して `roles/iam.serviceAccountUser` (Cloud Run の `--service-account=<runtime>` 用) |
+| **GitHub WIF Provider** | 既存 WIF Pool に追加。issuer = `https://token.actions.githubusercontent.com`、attribute condition = `assertion.repository == "${GITHUB_REPOSITORY}"` で 1 つの repo に厳格に絞る |
+| **WIF binding** | GitHub principalSet → deploy SA への `roles/iam.workloadIdentityUser` |
+
+### deploy SA と runtime SA を分ける理由
+
+最小権限の原則に基づき、**deploy 時に必要な権限** (image push / service deploy 等) と **service の runtime に必要な権限** (Secret 読み取り) を別 SA に分離。`--service-account=<runtime SA>` で deploy することで、Cloud Run service は runtime SA の権限だけで動き、deploy SA の強い権限は service の runtime には残らない。
+
+### セットアップフロー
+
+```bash
+# 1. .env に opt-in 設定を追加
+echo 'ENABLE_CLOUD_RUN_DEPLOY_SETUP="true"' >> .env
+echo 'GITHUB_REPOSITORY="owner/repo"' >> .env
+
+# 2. 事前確認 (新リソースが "does not exist" 表示になるはず)
+make bootstrap-check
+
+# 3. 再 apply (既存リソースは skip、新リソースだけ作成される)
+make bootstrap
+
+# 4. GitHub Actions に設定すべき値を出力
+make bootstrap-print-env
+```
+
+`make bootstrap-print-env` の出力には、Terraform Cloud 用の値に加えて GitHub Repository Variables 用の値も含まれます:
+
+```text
+============================================
+ GitHub Actions Repository Variables / Secrets
+============================================
+
+GCP_PROJECT_ID=infra-bootstrap
+GCP_WORKLOAD_IDENTITY_PROVIDER=projects/{number}/locations/global/workloadIdentityPools/terraform-cloud/providers/github-actions
+GCP_DEPLOY_SERVICE_ACCOUNT=cloud-run-router-deploy@infra-bootstrap.iam.gserviceaccount.com
+GCP_RUNTIME_SERVICE_ACCOUNT=cloud-run-router-runtime@infra-bootstrap.iam.gserviceaccount.com
+```
+
+これらを GitHub repository の **Settings → Secrets and variables → Actions → Variables** に登録すれば、`google-github-actions/auth@v2` で WIF 認証して `gcloud run deploy` する workflow が組めます (workflow 自体は [cloud-run-router/README.md](../cloud-run-router/README.md) 参照)。
+
+### 既存プロジェクトに後から追加する場合
+
+`bootstrap.sh` は **完全冪等** (全リソースで check-then-skip パターン)。既に `make bootstrap` で TFC 用 WIF / SA を作成済みの環境でも、`.env` に上記 2 行を追加して `make bootstrap` を再実行するだけで、既存リソースは触らず Cloud Run deploy 用リソースだけが追加されます。
+
 ---
 
 ## `.env` と `.envrc` の使い分け

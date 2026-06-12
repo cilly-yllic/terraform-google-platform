@@ -275,13 +275,37 @@ npm start
 
 ## Deployment
 
-The `deploy/` directory is `.gitignore`d; users configure it for their own organization.
+`deploy/` ディレクトリは `.gitignore` 対象で、利用者が自組織に合わせて構成する。**推奨デプロイ経路は GitHub Actions + Workload Identity Federation** (下記 0 番) で、`gcloud` での手動 deploy は緊急時 fallback / ローカル検証 / reference として残してある。
 
-<details><summary>Ja</summary>
+<details><summary>En</summary>
 
-`deploy/` ディレクトリは `.gitignore` で除外されており、利用者が自組織に合わせて構成する。
+The `deploy/` directory is `.gitignore`d; users configure it for their own organization. **The recommended deploy path is GitHub Actions + Workload Identity Federation** (section 0 below); manual `gcloud` deploy remains as a fallback / local testing path / reference.
 
 </details>
+
+### 0. Authentication / IAM setup (one-time, via bootstrap script)
+
+GitHub Actions から Cloud Run にデプロイする場合、リポジトリルートの [`scripts/bootstrap.sh`](../scripts/bootstrap.sh) を **opt-in モード**で実行することで、必要な SA / WIF Provider が一括で provision される。
+
+```bash
+# 既存の .env に追記
+ENABLE_CLOUD_RUN_DEPLOY_SETUP="true"
+GITHUB_REPOSITORY="owner/repo"      # この repo からのみ deploy を許可
+
+# 再実行 (既存リソースは skip、新リソースだけ作られる)
+make bootstrap
+
+# GitHub repo に登録すべき Variables を出力
+make bootstrap-print-env
+```
+
+作成されるもの:
+
+- runtime SA (`cloud-run-router-runtime`): Cloud Run service の実行 identity (`secretmanager.secretAccessor` のみ)
+- deploy SA (`cloud-run-router-deploy`): GitHub Actions が impersonate する identity (`run.developer` / `artifactregistry.writer` / `iam.serviceAccountTokenCreator` 等)
+- GitHub WIF Provider: 既存 WIF Pool に追加。`assertion.repository == "${GITHUB_REPOSITORY}"` で 1 repo に厳格に絞る
+
+詳細: [`scripts/README.md` — Cloud Run router deploy 拡張](../scripts/README.md#cloud-run-router-deploy-拡張-opt-in)
 
 ### 1. Dockerfile (example)
 
@@ -298,29 +322,100 @@ FROM node:20-slim
 WORKDIR /app
 COPY --from=builder /app/dist dist/
 COPY --from=builder /app/package*.json ./
-# No runtime dependencies — only Node.js built-ins are used
+# Install runtime deps only (hono / @hono/node-server)
+RUN npm ci --omit=dev
 ENV NODE_ENV=production
 EXPOSE 8080
 CMD ["node", "dist/index.js"]
 ```
 
-### 2. Cloud Run deploy (gcloud)
+### 2. Deploy via GitHub Actions (推奨)
+
+`make bootstrap-print-env` の出力を **GitHub repo の Settings → Secrets and variables → Actions → Variables** に登録 (Secrets ではなく Variables で OK; 値自体は秘匿情報ではない):
+
+| Variable | 値の例 |
+|----------|-------|
+| `GCP_PROJECT_ID` | `infra-bootstrap` |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/{number}/locations/global/workloadIdentityPools/terraform-cloud/providers/github-actions` |
+| `GCP_DEPLOY_SERVICE_ACCOUNT` | `cloud-run-router-deploy@infra-bootstrap.iam.gserviceaccount.com` |
+| `GCP_RUNTIME_SERVICE_ACCOUNT` | `cloud-run-router-runtime@infra-bootstrap.iam.gserviceaccount.com` |
+
+workflow の最小サンプル (`.github/workflows/deploy-cloud-run-router.yml`):
+
+```yaml
+name: Deploy cloud-run-router
+
+on:
+  push:
+    branches: [main]
+    paths: ["cloud-run-router/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write   # WIF 用 OIDC token を発行するために必須
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloud-run-router
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build & push container image
+        run: |
+          gcloud builds submit \
+            --tag "gcr.io/${{ vars.GCP_PROJECT_ID }}/cloud-run-router:${{ github.sha }}" \
+            --project="${{ vars.GCP_PROJECT_ID }}"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy cloud-run-router \
+            --image "gcr.io/${{ vars.GCP_PROJECT_ID }}/cloud-run-router:${{ github.sha }}" \
+            --project="${{ vars.GCP_PROJECT_ID }}" \
+            --region=asia-northeast1 \
+            --platform=managed \
+            --service-account="${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}" \
+            --set-secrets="TFC_NOTIFICATION_SECRET=tfc-notification-secret:latest,GITHUB_APP_PRIVATE_KEY=github-app-private-key:latest" \
+            --set-env-vars="GITHUB_APP_ID=${{ vars.GITHUB_APP_ID }},DISPATCH_EVENT_TYPE=firebase_platform_requested" \
+            --allow-unauthenticated
+```
+
+ポイント:
+
+- `--service-account=` で **runtime SA** を指定 (deploy SA ではない)。これにより Cloud Run service の実行権限は runtime SA に絞られる
+- secrets は Secret Manager から `--set-secrets` で env として渡す (workflow に値を埋め込まない)
+- `paths: ["cloud-run-router/**"]` で router のコード変更時のみデプロイが走るよう絞っている
+
+### 3. Cloud Run deploy (gcloud, 手動 fallback)
+
+ローカルから手動で deploy するケース (緊急 hotfix / 初回検証 / GitHub Actions 経路が使えない場合) の参考:
 
 ```bash
 # build & push
 gcloud builds submit --tag gcr.io/${PROJECT_ID}/cloud-run-router
 
-# deploy
+# deploy (runtime SA を明示指定すれば opt-in セットアップ後の SA を流用できる)
 gcloud run deploy cloud-run-router \
   --image gcr.io/${PROJECT_ID}/cloud-run-router \
   --region asia-northeast1 \
   --platform managed \
   --allow-unauthenticated \
+  --service-account "cloud-run-router-runtime@${PROJECT_ID}.iam.gserviceaccount.com" \
   --set-secrets "TFC_NOTIFICATION_SECRET=tfc-notification-secret:latest,GITHUB_APP_PRIVATE_KEY=github-app-private-key:latest" \
   --set-env-vars "GITHUB_APP_ID=${GITHUB_APP_ID},DISPATCH_EVENT_TYPE=firebase_platform_requested"
 ```
 
-### 3. TFC notification setup
+### 4. TFC notification setup
 
 Add a Notification to each `project-factory-{service}` Workspace:
 
@@ -338,15 +433,19 @@ Add a Notification to each `project-factory-{service}` Workspace:
 
 </details>
 
-### 4. Minimal permissions for the Cloud Run SA
+### 5. Minimal permissions for the Cloud Run runtime SA
 
 - Secret Manager Secret Accessor (`roles/secretmanager.secretAccessor`)
 - No other GCP permissions needed (the GitHub API / TFC API authenticate with their own tokens)
+
+[`scripts/bootstrap.sh`](../scripts/bootstrap.sh) の opt-in セットアップでは、runtime SA (`cloud-run-router-runtime`) にはこの 1 つの role のみ付与される。
 
 <details><summary>Ja</summary>
 
 - Secret Manager Secret Accessor (`roles/secretmanager.secretAccessor`)
 - 他の GCP 権限は不要 (GitHub API / TFC API はそれぞれのトークンで認証)
+
+opt-in セットアップ ([scripts/README.md](../scripts/README.md#cloud-run-router-deploy-拡張-opt-in)) では、runtime SA にこの 1 つの role のみが付与される。
 
 </details>
 
