@@ -17,12 +17,8 @@
  * @see https://cloud.google.com/logging/docs/agent/logging/configuration#special-fields
  */
 
-type LogSeverity = "INFO" | "WARNING" | "ERROR";
+type LogSeverity = 'INFO' | 'WARNING' | 'ERROR'
 
-export const log = (
-  severity: LogSeverity,
-  message: string,
-  extra: Record<string, unknown> = {},
-): void => {
-  console.log(JSON.stringify({ severity, message, ...extra }));
-};
+export const log = (severity: LogSeverity, message: string, extra: Record<string, unknown> = {}): void => {
+  console.log(JSON.stringify({ severity, message, ...extra }))
+}

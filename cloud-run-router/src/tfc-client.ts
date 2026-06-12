@@ -20,13 +20,13 @@
  */
 
 /** TFC API 呼び出しの全体 timeout (内部リトライしないので大きめ) */
-const FETCH_TIMEOUT_MS = 30_000;
+const FETCH_TIMEOUT_MS = 30_000
 
 /** エラーログに載せるレスポンスボディの最大長 (PII / secret 漏洩抑止) */
-const MAX_ERROR_BODY_LENGTH = 200;
+const MAX_ERROR_BODY_LENGTH = 200
 
 export interface TfcRunMeta {
-  service: string;
+  service: string
 
   /**
    * 今回 Run で実際に処理対象だった env キーの配列。
@@ -34,7 +34,7 @@ export interface TfcRunMeta {
    * Option A (run_variables) は workspace の管理対象を**累積**で返す仕様上、
    * 「今回ではなく workspace が管理する全 env」となる点に注意 (README 参照)。
    */
-  environments: string[];
+  environments: string[]
 
   /**
    * Action A 起動時の input labels (JS RegExp 文字列の配列)。
@@ -42,10 +42,10 @@ export interface TfcRunMeta {
    * - Action A が `environment` 単数で呼ばれていた場合は空配列
    * - Option A 経由 (TFC API) では復元不能なので常に空配列
    */
-  labels: string[];
+  labels: string[]
 
   /** dispatch 先 GitHub repo ("owner/name") */
-  source_repo: string;
+  source_repo: string
 }
 
 /**
@@ -69,24 +69,18 @@ export interface TfcRunMeta {
  *
  * @throws レスポンスが non-OK / workspace_id が無い / 必須 metadata 欠落の場合
  */
-export const fetchRunMetadata = async (
-  runId: string,
-  baseUrl: string,
-  token: string,
-): Promise<TfcRunMeta> => {
+export const fetchRunMetadata = async (runId: string, baseUrl: string, token: string): Promise<TfcRunMeta> => {
   // 1. Run から workspace_id を引く
   const runRes = await fetch(`${baseUrl}/api/v2/runs/${runId}`, {
     headers: {
       Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.api+json",
+      Accept: 'application/vnd.api+json',
     },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
+  })
   if (!runRes.ok) {
-    const body = await runRes.text();
-    throw new Error(
-      `TFC API /runs/${runId} returned ${runRes.status}: ${body.slice(0, MAX_ERROR_BODY_LENGTH)}`,
-    );
+    const body = await runRes.text()
+    throw new Error(`TFC API /runs/${runId} returned ${runRes.status}: ${body.slice(0, MAX_ERROR_BODY_LENGTH)}`)
   }
 
   // レスポンスの形は JSON:API 仕様で、必要なフィールドだけ optional として narrow する。
@@ -94,66 +88,66 @@ export const fetchRunMetadata = async (
   interface TfcRunResponse {
     data?: {
       relationships?: {
-        workspace?: { data?: { id?: string } };
-      };
-    };
+        workspace?: { data?: { id?: string } }
+      }
+    }
   }
-  const runData = (await runRes.json()) as TfcRunResponse;
-  const workspaceId = runData.data?.relationships?.workspace?.data?.id;
+  const runData = (await runRes.json()) as TfcRunResponse
+  const workspaceId = runData.data?.relationships?.workspace?.data?.id
   if (!workspaceId) {
-    throw new Error(`TFC API /runs/${runId} response missing workspace id`);
+    throw new Error(`TFC API /runs/${runId} response missing workspace id`)
   }
 
   interface TfcVarsResponse {
-    data?: Array<{ attributes?: { key?: string; value?: string } }>;
-    meta?: { pagination?: { next_page?: number | null } };
+    data?: Array<{ attributes?: { key?: string; value?: string } }>
+    meta?: { pagination?: { next_page?: number | null } }
   }
 
   // 2. workspace 変数を全件取得 (ページング)。
   //    TFC API の page size 最大は 100。組織によっては変数が 100 超のことがあるため
   //    next_page を辿って必ず最後まで取り切る。
-  const allVars: Array<{ attributes?: { key?: string; value?: string } }> = [];
-  let page = 1;
+  const allVars: Array<{ attributes?: { key?: string; value?: string } }> = []
+  let page = 1
   while (true) {
     const varsRes = await fetch(
       `${baseUrl}/api/v2/workspaces/${workspaceId}/vars?page%5Bnumber%5D=${page}&page%5Bsize%5D=100`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
-          Accept: "application/vnd.api+json",
+          Accept: 'application/vnd.api+json',
         },
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      },
-    );
+      }
+    )
     if (!varsRes.ok) {
-      const body = await varsRes.text();
+      const body = await varsRes.text()
       throw new Error(
-        `TFC API /workspaces/${workspaceId}/vars returned ${varsRes.status}: ${body.slice(0, MAX_ERROR_BODY_LENGTH)}`,
-      );
+        `TFC API /workspaces/${workspaceId}/vars returned ${varsRes.status}: ${body.slice(0, MAX_ERROR_BODY_LENGTH)}`
+      )
     }
-    const varsData = (await varsRes.json()) as TfcVarsResponse;
+    const varsData = (await varsRes.json()) as TfcVarsResponse
     if (!Array.isArray(varsData.data)) {
-      throw new Error(`TFC API /workspaces/${workspaceId}/vars response missing data array`);
+      throw new Error(`TFC API /workspaces/${workspaceId}/vars response missing data array`)
     }
-    allVars.push(...varsData.data);
-    const nextPage = varsData.meta?.pagination?.next_page;
-    if (!nextPage) break;
-    page = nextPage;
+    allVars.push(...varsData.data)
+    const nextPage = varsData.meta?.pagination?.next_page
+    if (!nextPage) break
+    page = nextPage
   }
 
   // 3. 変数を key→value の Map に畳んでから必要な値を引く。
   //    sensitive 変数は value が undefined で返ってくるため typeof で防御している。
-  const varMap = new Map<string, string>();
+  const varMap = new Map<string, string>()
   for (const v of allVars) {
-    const key = v.attributes?.key;
-    const value = v.attributes?.value;
-    if (typeof key === "string" && typeof value === "string") {
-      varMap.set(key, value);
+    const key = v.attributes?.key
+    const value = v.attributes?.value
+    if (typeof key === 'string' && typeof value === 'string') {
+      varMap.set(key, value)
     }
   }
 
-  const service = varMap.get("TF_VAR_service") ?? varMap.get("METADATA_SERVICE") ?? "";
-  const sourceRepo = varMap.get("TF_VAR_source_repo") ?? varMap.get("METADATA_SOURCE_REPO") ?? "";
+  const service = varMap.get('TF_VAR_service') ?? varMap.get('METADATA_SERVICE') ?? ''
+  const sourceRepo = varMap.get('TF_VAR_source_repo') ?? varMap.get('METADATA_SOURCE_REPO') ?? ''
 
   // Action A の per-service workspace が保持する `environments` 変数は
   // "env_key → entry" の JSON map。keys を env リストとして採用する。
@@ -162,13 +156,13 @@ export const fetchRunMetadata = async (
   //   この値は workspace が管理する **全 env** を累積で保持しており、
   //   今回 Run の対象 env と一致するとは限らない。Run 毎に正確な env リストが
   //   必要な場合は metadataSource を "run_message" にすること (README 参照)。
-  let environments: string[] = [];
-  const envsVar = varMap.get("environments");
+  let environments: string[] = []
+  const envsVar = varMap.get('environments')
   if (envsVar) {
     try {
-      const parsed = JSON.parse(envsVar) as Record<string, unknown>;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        environments = Object.keys(parsed);
+      const parsed = JSON.parse(envsVar) as Record<string, unknown>
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        environments = Object.keys(parsed)
       }
     } catch {
       // 変数の中身が壊れている場合は environments を空のままにして、
@@ -178,14 +172,14 @@ export const fetchRunMetadata = async (
 
   if (!service || environments.length === 0 || !sourceRepo) {
     throw new Error(
-      `Missing metadata in workspace variables: service=${service}, environments=[${environments.join(",")}], source_repo=${sourceRepo}`,
-    );
+      `Missing metadata in workspace variables: service=${service}, environments=[${environments.join(',')}], source_repo=${sourceRepo}`
+    )
   }
 
   // labels は workspace 変数からは復元できない (input の RegExp 文字列が
   // どこにも残らないため)。常に空配列を返す。
-  return { service, environments, labels: [], source_repo: sourceRepo };
-};
+  return { service, environments, labels: [], source_repo: sourceRepo }
+}
 
 /**
  * Option B: `run_message` フィールドに JSON として埋め込まれた metadata を parse する。
@@ -215,34 +209,34 @@ export const fetchRunMetadata = async (
  */
 export const parseRunMessage = (runMessage: string): TfcRunMeta | null => {
   try {
-    const parsed = JSON.parse(runMessage) as Record<string, unknown>;
-    const service = parsed["service"];
-    const environments = parsed["environments"];
-    const labelsRaw = parsed["labels"];
-    const sourceRepo = parsed["source_repo"];
+    const parsed = JSON.parse(runMessage) as Record<string, unknown>
+    const service = parsed['service']
+    const environments = parsed['environments']
+    const labelsRaw = parsed['labels']
+    const sourceRepo = parsed['source_repo']
 
     // 必須フィールドの shape チェック。
     // 文字列の空チェックや配列要素の型チェックまで含めて厳格に弾く
     // (downstream に空文字や undefined が漏れて意味不明な GitHub API 失敗に
     //  なるのを防ぐため)。
     if (
-      typeof service !== "string" ||
+      typeof service !== 'string' ||
       !service ||
-      typeof sourceRepo !== "string" ||
+      typeof sourceRepo !== 'string' ||
       !sourceRepo ||
       !Array.isArray(environments) ||
       environments.length === 0 ||
-      !environments.every((v) => typeof v === "string" && v.length > 0)
+      !environments.every(v => typeof v === 'string' && v.length > 0)
     ) {
-      return null;
+      return null
     }
 
     // labels は optional。存在する場合は配列かつ全要素が string であることを要求。
     // 不正な要素混入は前方互換と扱わず明示的に reject する (型壊れを下流に流さない)。
-    let labels: string[] = [];
+    let labels: string[] = []
     if (Array.isArray(labelsRaw)) {
-      if (!labelsRaw.every((v) => typeof v === "string")) return null;
-      labels = labelsRaw as string[];
+      if (!labelsRaw.every(v => typeof v === 'string')) return null
+      labels = labelsRaw as string[]
     }
 
     return {
@@ -250,10 +244,10 @@ export const parseRunMessage = (runMessage: string): TfcRunMeta | null => {
       environments: environments as string[],
       labels,
       source_repo: sourceRepo,
-    };
+    }
   } catch {
     // JSON.parse の SyntaxError は単なる「run_message が JSON ではない」状態。
     // 攻撃でも例外でもなく旧 Action の正常出力もここに来るため、null を返すだけ。
-    return null;
+    return null
   }
-};
+}
