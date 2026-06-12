@@ -86,6 +86,40 @@ GOOGLE_PROJECT=infra-bootstrap
 - `TFC_GCP_WORKLOAD_PROVIDER_NAME` → Workload Identity Provider の full name
 - `GOOGLE_PROJECT` → bootstrap Project ID
 
+## オプション拡張: cloud-run-router deploy リソース
+
+`.env` で `ENABLE_CLOUD_RUN_DEPLOY_SETUP="true"` + `GITHUB_REPOSITORY="owner/repo"` を設定して再実行すると、cloud-run-router を GitHub Actions から Cloud Run にデプロイするためのリソースも同時に provision されます。
+
+### 追加で作られるリソース
+
+1. 追加 API enable
+   - `run.googleapis.com` / `artifactregistry.googleapis.com` / `cloudbuild.googleapis.com` / `secretmanager.googleapis.com`
+2. **Cloud Run runtime SA** (`cloud-run-router-runtime`)
+   - Cloud Run service の実行 identity (最小権限)
+   - 付与 role: `roles/secretmanager.secretAccessor` のみ
+3. **Cloud Run deploy SA** (`cloud-run-router-deploy`)
+   - GitHub Actions が impersonate する identity
+   - Project レベル: `roles/run.developer` / `roles/artifactregistry.writer` / `roles/cloudbuild.builds.editor` / `roles/storage.admin` / `roles/iam.serviceAccountTokenCreator`
+   - runtime SA に対して: `roles/iam.serviceAccountUser` (Cloud Run `--service-account=<runtime>` のため)
+4. **GitHub WIF Provider** (既存 Pool 内に追加)
+   - issuer: `https://token.actions.githubusercontent.com`
+   - attribute condition: `assertion.repository == "${GITHUB_REPOSITORY}"` — 1 つの repo に厳格に絞る
+5. **WIF binding**: GitHub principalSet → deploy SA への `roles/iam.workloadIdentityUser`
+
+### deploy SA と runtime SA を分ける理由
+
+最小権限の原則に基づき、deploy 時の権限と service runtime の権限を分離。`gcloud run deploy --service-account=<runtime>` で deploy することで、Cloud Run service は runtime SA の権限だけで動き、強い deploy SA は service 内には残らない。
+
+### 既存プロジェクトへの後付け
+
+`bootstrap.sh` は全リソースで check-then-skip パターンで構成されており**完全冪等**。既に TFC 用 WIF / SA を構築済みの環境でも、`.env` に上記 2 行を追記して `make bootstrap` を再実行するだけで、既存リソースは触らず Cloud Run deploy 用リソースだけが追加されます。
+
+### 設定値の取り出し
+
+`make bootstrap-print-env` の出力に、Terraform Cloud 用に加えて GitHub Actions Repository Variables 用のセクションが追加されます。`GCP_WORKLOAD_IDENTITY_PROVIDER` / `GCP_DEPLOY_SERVICE_ACCOUNT` / `GCP_RUNTIME_SERVICE_ACCOUNT` 等を GitHub repo の Variables に登録して、`google-github-actions/auth@v2` で WIF 認証する workflow を構成します。
+
+詳しくは [scripts/README.md#cloud-run-router-deploy-拡張-opt-in](../../scripts/README.md#cloud-run-router-deploy-拡張-opt-in) を参照。
+
 ## 非対象範囲
 
 以下はこの bootstrap script では扱いません:
@@ -94,6 +128,7 @@ GOOGLE_PROJECT=infra-bootstrap
 - Firebase Project 化 / Firebase Platform HCL
 - Terraform Cloud Workspace の作成・管理 (infra-orchestrator 側の責務)
 - Billing Account の台帳管理
+- cloud-run-router の container image build / Cloud Run service の deploy 自体 (上記の拡張で provision するのは認証 / 権限基盤のみ)
 
 ## トラブルシューティング
 
@@ -172,3 +207,28 @@ gcloud iam workload-identity-pools providers describe terraform-cloud \
 ```
 
 出力に含まれる Organization 名が、実際の Terraform Cloud Organization 名と一致しているか確認してください。
+
+### GitHub Actions から認証できない (Cloud Run deploy 拡張使用時)
+
+GitHub Actions の `google-github-actions/auth@v2` で `Failed to generate Google Cloud federated token` が出る場合:
+
+1. **`GCP_WORKLOAD_IDENTITY_PROVIDER` が正しいか** — `make bootstrap-print-env` の出力 (`projects/{number}/locations/global/workloadIdentityPools/.../providers/github-actions`) と一致するか
+2. **attribute condition の repo 名が一致しているか** — `.env` の `GITHUB_REPOSITORY` と、workflow を走らせている GitHub repo が完全一致 (`owner/repo` 形式) であること
+
+```bash
+gcloud iam workload-identity-pools providers describe github-actions \
+  --project=infra-bootstrap \
+  --location=global \
+  --workload-identity-pool=terraform-cloud \
+  --format='value(attributeCondition)'
+```
+
+3. **deploy SA への binding があるか**
+
+```bash
+gcloud iam service-accounts get-iam-policy \
+  cloud-run-router-deploy@infra-bootstrap.iam.gserviceaccount.com \
+  --format=json | jq '.bindings[] | select(.role == "roles/iam.workloadIdentityUser")'
+```
+
+`principalSet://...attribute.repository/<owner>/<repo>` が含まれていることを確認。
