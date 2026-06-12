@@ -32,10 +32,7 @@ export type RouteResult =
 /**
  * Determine the pipeline stage from the workspace name.
  */
-export function classifyWorkspace(
-  workspaceName: string,
-  config: Config,
-): RouteResult {
+export function classifyWorkspace(workspaceName: string, config: Config): RouteResult {
   const pfMatch = config.projectFactoryPattern.exec(workspaceName);
   if (pfMatch?.groups?.["service"]) {
     return { stage: "project_factory", service: pfMatch.groups["service"] };
@@ -61,10 +58,7 @@ async function resolveMetadata(
   service: string,
   config: Config,
 ): Promise<TfcRunMeta> {
-  if (
-    config.metadataSource === "run_message" ||
-    config.metadataSource === "both"
-  ) {
+  if (config.metadataSource === "run_message" || config.metadataSource === "both") {
     const parsed = parseRunMessage(notification.run_message);
     if (parsed) {
       return parsed;
@@ -76,20 +70,13 @@ async function resolveMetadata(
     }
   }
 
-  if (
-    config.metadataSource === "run_variables" ||
-    config.metadataSource === "both"
-  ) {
+  if (config.metadataSource === "run_variables" || config.metadataSource === "both") {
     if (!config.tfcApiToken) {
       throw new Error(
         "TFC_API_TOKEN is required when metadata_source is run_variables or both (fallback)",
       );
     }
-    return fetchRunMetadata(
-      notification.run_id,
-      config.tfcApiBaseUrl,
-      config.tfcApiToken,
-    );
+    return fetchRunMetadata(notification.run_id, config.tfcApiBaseUrl, config.tfcApiToken);
   }
 
   throw new Error(`Cannot resolve metadata for service=${service}`);
@@ -115,8 +102,7 @@ export async function handleNotification(
   }
 
   const latestStatus =
-    notification.notifications[notification.notifications.length - 1]
-      ?.run_status;
+    notification.notifications[notification.notifications.length - 1]?.run_status;
 
   const route = classifyWorkspace(notification.workspace_name, config);
 

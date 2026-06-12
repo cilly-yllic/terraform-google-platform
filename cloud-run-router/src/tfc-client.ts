@@ -51,9 +51,7 @@ export async function fetchRunMetadata(
   const runData = (await runRes.json()) as TfcRunResponse;
   const workspaceId = runData.data?.relationships?.workspace?.data?.id;
   if (!workspaceId) {
-    throw new Error(
-      `TFC API /runs/${runId} response missing workspace id`,
-    );
+    throw new Error(`TFC API /runs/${runId} response missing workspace id`);
   }
 
   interface TfcVarsResponse {
@@ -82,9 +80,7 @@ export async function fetchRunMetadata(
     }
     const varsData = (await varsRes.json()) as TfcVarsResponse;
     if (!Array.isArray(varsData.data)) {
-      throw new Error(
-        `TFC API /workspaces/${workspaceId}/vars response missing data array`,
-      );
+      throw new Error(`TFC API /workspaces/${workspaceId}/vars response missing data array`);
     }
     allVars.push(...varsData.data);
     const nextPage = varsData.meta?.pagination?.next_page;
@@ -101,12 +97,8 @@ export async function fetchRunMetadata(
     }
   }
 
-  const service =
-    varMap.get("TF_VAR_service") ?? varMap.get("METADATA_SERVICE") ?? "";
-  const sourceRepo =
-    varMap.get("TF_VAR_source_repo") ??
-    varMap.get("METADATA_SOURCE_REPO") ??
-    "";
+  const service = varMap.get("TF_VAR_service") ?? varMap.get("METADATA_SERVICE") ?? "";
+  const sourceRepo = varMap.get("TF_VAR_source_repo") ?? varMap.get("METADATA_SOURCE_REPO") ?? "";
 
   // Action A's per-service workspace keeps an `environments` JSON-string TFC
   // variable mapping env_key → entry. Use its keys as the env list. Note this

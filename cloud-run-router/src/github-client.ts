@@ -42,24 +42,18 @@ async function getInstallationToken(
   repo: string,
 ): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
-  const jwt = createJwt(
-    { iss: appId, iat: now - 60, exp: now + 600 },
-    privateKeyPem,
-  );
+  const jwt = createJwt({ iss: appId, iat: now - 60, exp: now + 600 }, privateKeyPem);
 
   // Find installation for the owner
-  const installRes = await fetch(
-    `https://api.github.com/repos/${owner}/${repo}/installation`,
-    {
-      headers: {
-        Authorization: `Bearer ${jwt}`,
-        Accept: "application/vnd.github+json",
-        "User-Agent": USER_AGENT,
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  const installRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/installation`, {
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      Accept: "application/vnd.github+json",
+      "User-Agent": USER_AGENT,
+      "X-GitHub-Api-Version": "2022-11-28",
     },
-  );
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
   if (!installRes.ok) {
     const body = await installRes.text();
     throw new Error(
@@ -68,9 +62,7 @@ async function getInstallationToken(
   }
   const installData = (await installRes.json()) as { id?: number };
   if (typeof installData.id !== "number") {
-    throw new Error(
-      `GitHub App installation response missing 'id' for ${owner}/${repo}`,
-    );
+    throw new Error(`GitHub App installation response missing 'id' for ${owner}/${repo}`);
   }
 
   // Create installation access token
@@ -100,9 +92,7 @@ async function getInstallationToken(
   }
   const tokenData = (await tokenRes.json()) as { token?: string };
   if (!tokenData.token) {
-    throw new Error(
-      `GitHub installation token response missing 'token' for ${owner}/${repo}`,
-    );
+    throw new Error(`GitHub installation token response missing 'token' for ${owner}/${repo}`);
   }
   return tokenData.token;
 }
@@ -139,29 +129,28 @@ export async function repositoryDispatch(
   }
   const [owner, repo] = parts;
   if (owner.includes("..") || repo.includes("..")) {
-    throw new Error(`Invalid target_repo format: "${targetRepo}" (expected "owner/repo", no path traversal)`);
+    throw new Error(
+      `Invalid target_repo format: "${targetRepo}" (expected "owner/repo", no path traversal)`,
+    );
   }
 
   const token = await getInstallationToken(appId, privateKeyPem, owner, repo);
 
-  const res = await fetch(
-    `https://api.github.com/repos/${owner}/${repo}/dispatches`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `token ${token}`,
-        Accept: "application/vnd.github+json",
-        "Content-Type": "application/json",
-        "User-Agent": USER_AGENT,
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-      body: JSON.stringify({
-        event_type: eventType,
-        client_payload: payload,
-      }),
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/dispatches`, {
+    method: "POST",
+    headers: {
+      Authorization: `token ${token}`,
+      Accept: "application/vnd.github+json",
+      "Content-Type": "application/json",
+      "User-Agent": USER_AGENT,
+      "X-GitHub-Api-Version": "2022-11-28",
     },
-  );
+    body: JSON.stringify({
+      event_type: eventType,
+      client_payload: payload,
+    }),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
 
   if (!res.ok) {
     const body = await res.text();

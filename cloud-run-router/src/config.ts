@@ -57,9 +57,7 @@ function requiredEnv(name: string): string {
   return v;
 }
 
-function validateMetadataSource(
-  value: string,
-): Config["metadataSource"] {
+function validateMetadataSource(value: string): Config["metadataSource"] {
   if (!VALID_METADATA_SOURCES.includes(value as Config["metadataSource"])) {
     throw new Error(
       `Invalid METADATA_SOURCE "${value}". Must be one of: ${VALID_METADATA_SOURCES.join(", ")}`,
@@ -80,48 +78,32 @@ function validateRegex(envName: string, pattern: string): RegExp {
 function validatePort(value: string): number {
   const port = Number(value);
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
-    throw new Error(
-      `Invalid PORT "${value}". Must be an integer between 0 and 65535`,
-    );
+    throw new Error(`Invalid PORT "${value}". Must be an integer between 0 and 65535`);
   }
   return port;
 }
 
 export function loadConfig(): Config {
-  const pfPattern =
-    process.env["WORKSPACE_NAME_PATTERN"] ??
-    "^project-factory-(?<service>.+)$";
-  const termPattern =
-    process.env["TERMINAL_WORKSPACE_PATTERN"] ??
-    "^(?<service>.+)-(?<env>[^-]+)$";
+  const pfPattern = process.env["WORKSPACE_NAME_PATTERN"] ?? "^project-factory-(?<service>.+)$";
+  const termPattern = process.env["TERMINAL_WORKSPACE_PATTERN"] ?? "^(?<service>.+)-(?<env>[^-]+)$";
 
-  const metadataSource = validateMetadataSource(
-    process.env["METADATA_SOURCE"] ?? "both",
-  );
+  const metadataSource = validateMetadataSource(process.env["METADATA_SOURCE"] ?? "both");
   const tfcApiToken = process.env["TFC_API_TOKEN"];
 
-  if (
-    (metadataSource === "run_variables" || metadataSource === "both") &&
-    !tfcApiToken
-  ) {
-    throw new Error(
-      `TFC_API_TOKEN is required when METADATA_SOURCE is "${metadataSource}"`,
-    );
+  if ((metadataSource === "run_variables" || metadataSource === "both") && !tfcApiToken) {
+    throw new Error(`TFC_API_TOKEN is required when METADATA_SOURCE is "${metadataSource}"`);
   }
-
 
   return {
     port: validatePort(process.env["PORT"] ?? "8080"),
     tfcNotificationSecret: requiredEnv("TFC_NOTIFICATION_SECRET"),
     tfcApiToken,
-    tfcApiBaseUrl:
-      process.env["TFC_API_BASE_URL"] ?? "https://app.terraform.io",
+    tfcApiBaseUrl: process.env["TFC_API_BASE_URL"] ?? "https://app.terraform.io",
     githubAppId: requiredEnv("GITHUB_APP_ID"),
     githubAppPrivateKey: requiredEnv("GITHUB_APP_PRIVATE_KEY"),
     projectFactoryPattern: validateRegex("WORKSPACE_NAME_PATTERN", pfPattern),
     terminalPattern: validateRegex("TERMINAL_WORKSPACE_PATTERN", termPattern),
-    dispatchEventType:
-      process.env["DISPATCH_EVENT_TYPE"] ?? "firebase_platform_requested",
+    dispatchEventType: process.env["DISPATCH_EVENT_TYPE"] ?? "firebase_platform_requested",
     metadataSource,
   };
 }

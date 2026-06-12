@@ -1,0 +1,27 @@
+# lefthook 設定。リポジトリルートで `npm install` した時点で
+# postinstall 経由で `lefthook install` が走り、.git/hooks に
+# このファイルから生成された hook が登録される。
+#
+# 方針:
+#   - pre-commit のみに絞ってコミットを軽量に保つ
+#   - 重い checks (typecheck / test) は CI と手動 npm スクリプトに任せる
+#   - 対象は cloud-run-router/ 配下の TS/JS のみ
+#   - staged_files で staged ぶんだけ lint / format check する
+#
+# 抜けたい場合:
+#   `LEFTHOOK=0 git commit ...` で hook 全体を一時的にスキップできる
+#   (`--no-verify` でも可能だが、リポジトリ規約として明示的に LEFTHOOK=0 を推奨)
+
+pre-commit:
+  parallel: true
+  commands:
+    oxlint:
+      # cloud-run-router 配下の TS/JS を staged したコミットでのみ発火
+      glob: "cloud-run-router/**/*.{ts,tsx,js,mjs,cjs}"
+      # 直接 node_modules の bin を叩く (npx 経由より起動が速い)
+      run: ./cloud-run-router/node_modules/.bin/oxlint {staged_files}
+    oxfmt-check:
+      glob: "cloud-run-router/**/*.{ts,tsx,js,mjs,cjs}"
+      # --check モード: 修正せず差分があれば exit code != 0 で commit を止める
+      # 修正したいときは `cd cloud-run-router && npm run fmt` を手動で
+      run: ./cloud-run-router/node_modules/.bin/oxfmt --check {staged_files}

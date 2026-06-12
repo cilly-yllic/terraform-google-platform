@@ -14,9 +14,7 @@ class BodyTooLargeError extends Error {
   }
 }
 
-function collectBody(
-  req: import("node:http").IncomingMessage,
-): Promise<Buffer> {
+function collectBody(req: import("node:http").IncomingMessage): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let totalLength = 0;
@@ -109,10 +107,7 @@ const server = createServer(async (req, res) => {
     }
 
     // TFC sends a verification ping with payload_version=1 and no notifications
-    if (
-      !Array.isArray(notification.notifications) ||
-      notification.notifications.length === 0
-    ) {
+    if (!Array.isArray(notification.notifications) || notification.notifications.length === 0) {
       console.log(
         JSON.stringify({
           severity: "INFO",
