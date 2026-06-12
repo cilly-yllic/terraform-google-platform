@@ -21,25 +21,25 @@
  * @see ./routes/webhook/index.ts         — TFC Notification 受信エンドポイント
  * @see ./config.ts                       — 環境変数からの Config 構築
  */
-import { Hono } from "hono";
-import { loadConfig } from "./config.js";
-import healthz from "./routes/healthz/index.js";
-import { createWebhookRoute } from "./routes/webhook/index.js";
-import { bootstrap } from "./server.js";
+import { Hono } from 'hono'
+import { loadConfig } from './config.js'
+import healthz from './routes/healthz/index.js'
+import { createWebhookRoute } from './routes/webhook/index.js'
+import { bootstrap } from './server.js'
 
 // 起動時に環境変数を一度だけ評価。検証に失敗すれば例外で即終了する
 // (Cloud Run 上では再起動ループになり、ログから設定ミスがすぐ分かる)。
-const config = loadConfig();
+const config = loadConfig()
 
-const app = new Hono();
+const app = new Hono()
 
 // /healthz は config 不要 (auth/ロジック共になし) なので default export を直接マウント。
-app.route("/healthz", healthz);
+app.route('/healthz', healthz)
 
 // /webhook は config (HMAC secret, GitHub App credentials 等) に依存するため、
 // factory pattern で明示的に注入する。詳細は routes/webhook/index.ts を参照。
-app.route("/webhook", createWebhookRoute(config));
+app.route('/webhook', createWebhookRoute(config))
 
 // notFound / onError / serve / graceful shutdown はすべて bootstrap 側に集約。
 // index.ts はあくまで「何が何処にマウントされているか」だけを示す。
-bootstrap(app, { port: config.port });
+bootstrap(app, { port: config.port })

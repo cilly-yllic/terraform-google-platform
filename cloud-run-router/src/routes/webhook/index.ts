@@ -31,51 +31,51 @@
  * @see ../../signature.ts         — HMAC-SHA512 検証の詳細
  * @see ../../../README.md         — TFC Notification 設定と dispatch payload shape
  */
-import { Hono } from "hono";
-import { bodyLimit } from "hono/body-limit";
-import type { Config } from "../../config.js";
-import { log } from "../../log.js";
-import { verifySignature } from "../../signature.js";
-import { handleNotification, type TfcNotification } from "../../router.js";
+import { Hono } from 'hono'
+import { bodyLimit } from 'hono/body-limit'
+import type { Config } from '../../config.js'
+import { log } from '../../log.js'
+import { verifySignature } from '../../signature.js'
+import { handleNotification, type TfcNotification } from '../../router.js'
 
 /**
  * 1 MiB。TFC Notification payload は小さな JSON envelope (通常 <10 KiB)
  * なので、これは実用上の上限ではなく DoS ガード。
  * もし本当にここに引っかかる場合は、クライアント設定ミス or 攻撃を疑う。
  */
-const MAX_BODY_BYTES = 1024 * 1024;
+const MAX_BODY_BYTES = 1024 * 1024
 
 export const createWebhookRoute = (config: Config): Hono => {
-  const webhook = new Hono();
+  const webhook = new Hono()
 
   webhook.post(
-    "/",
+    '/',
     bodyLimit({
       maxSize: MAX_BODY_BYTES,
-      onError: (c) => c.json({ error: "payload_too_large" }, 413),
+      onError: c => c.json({ error: 'payload_too_large' }, 413),
     }),
-    async (c) => {
+    async c => {
       // HMAC 検証のために raw bytes をそのまま保持する。
       // c.req.json() で先に parse すると再シリアライズで digest が一致しなくなる。
-      const body = Buffer.from(await c.req.arrayBuffer());
+      const body = Buffer.from(await c.req.arrayBuffer())
 
       // HMAC 検証は **絶対必須**。公開 endpoint と GitHub への dispatch firehose
       // の間に立つ唯一のゲートなので、parse より先に実施する。
       // header 欠落 / 不一致はすべて 401 invalid_signature に畳む
       // (詳細を返すと攻撃側にヒントを与えるため)。
-      const signature = c.req.header("x-tfe-notification-signature");
+      const signature = c.req.header('x-tfe-notification-signature')
       if (!verifySignature(body, signature, config.tfcNotificationSecret)) {
-        log("WARNING", "HMAC signature verification failed");
-        return c.json({ error: "invalid_signature" }, 401);
+        log('WARNING', 'HMAC signature verification failed')
+        return c.json({ error: 'invalid_signature' }, 401)
       }
 
-      let notification: TfcNotification;
+      let notification: TfcNotification
       try {
-        notification = JSON.parse(body.toString("utf8")) as TfcNotification;
+        notification = JSON.parse(body.toString('utf8')) as TfcNotification
       } catch {
         // 署名は通ったが JSON として壊れているケース。
         // 攻撃ではなく、TFC 側 or 我々のスキーマ理解のバグなので 400 で可視化する。
-        return c.json({ error: "invalid_json" }, 400);
+        return c.json({ error: 'invalid_json' }, 400)
       }
 
       // TFC は Notification 設定画面で "Verify" ボタンを押されたとき、
@@ -84,17 +84,17 @@ export const createWebhookRoute = (config: Config): Hono => {
       // destination が "Failed" 扱いになり、以後の実イベントも届かなくなる。
       // dispatch は発火しないので、ここで早期 return する。
       if (!Array.isArray(notification.notifications) || notification.notifications.length === 0) {
-        log("INFO", "Verification ping received");
-        return c.json({ status: "ok", action: "verification_ping" });
+        log('INFO', 'Verification ping received')
+        return c.json({ status: 'ok', action: 'verification_ping' })
       }
 
       // 実イベント。以降の責務 (workspace 分類 / metadata 解決 / dispatch 発火)
       // は handleNotification に委譲。各分岐の構造化ログも router.ts 内で出す。
-      const result = await handleNotification(notification, config);
-      log("INFO", "Request processed", { action: result.action });
-      return c.json({ status: "ok", ...result });
-    },
-  );
+      const result = await handleNotification(notification, config)
+      log('INFO', 'Request processed', { action: result.action })
+      return c.json({ status: 'ok', ...result })
+    }
+  )
 
-  return webhook;
-};
+  return webhook
+}
