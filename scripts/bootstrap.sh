@@ -9,6 +9,8 @@ ENV_FILE="${REPO_ROOT}/.env"
 TFC_OIDC_ISSUER_URI="https://app.terraform.io"
 TFC_OIDC_ALLOWED_AUDIENCE="https://app.terraform.io"
 
+GITHUB_OIDC_ISSUER_URI="https://token.actions.githubusercontent.com"
+
 # --- Required APIs ---
 REQUIRED_APIS=(
   cloudresourcemanager.googleapis.com
@@ -18,6 +20,15 @@ REQUIRED_APIS=(
   sts.googleapis.com
   cloudbilling.googleapis.com
   billingbudgets.googleapis.com
+)
+
+# --- Additional APIs for cloud-run-router deploy ---
+# Enabled only when ENABLE_CLOUD_RUN_DEPLOY_SETUP=true.
+CLOUD_RUN_DEPLOY_APIS=(
+  run.googleapis.com
+  artifactregistry.googleapis.com
+  cloudbuild.googleapis.com
+  secretmanager.googleapis.com
 )
 
 # --- Required environment variables ---
@@ -101,6 +112,18 @@ check_required_vars() {
   if [[ ${#missing[@]} -gt 0 ]]; then
     error "Missing required environment variables: ${missing[*]}"
   fi
+
+  # Cloud Run deploy opt-in には GITHUB_REPOSITORY が必須
+  # (WIF Provider の attribute condition で repo を絞り込むため)。
+  if [[ "${ENABLE_CLOUD_RUN_DEPLOY_SETUP:-false}" == "true" ]]; then
+    if [[ -z "${GITHUB_REPOSITORY:-}" ]]; then
+      error "GITHUB_REPOSITORY is required when ENABLE_CLOUD_RUN_DEPLOY_SETUP=true (format: owner/repo)"
+    fi
+    if [[ ! "${GITHUB_REPOSITORY}" =~ ^[^/]+/[^/]+$ ]]; then
+      error "GITHUB_REPOSITORY must be in 'owner/repo' format, got: ${GITHUB_REPOSITORY}"
+    fi
+  fi
+
   info "All required environment variables are set."
 }
 
@@ -181,6 +204,45 @@ budget_exists() {
   [[ -n "${existing}" ]]
 }
 
+# --- Cloud Run deploy resource helpers (opt-in) ---
+
+deploy_sa_id() {
+  echo "${CLOUD_RUN_DEPLOY_SA_ID:-cloud-run-router-deploy}"
+}
+
+deploy_sa_email() {
+  echo "$(deploy_sa_id)@${BOOTSTRAP_PROJECT_ID}.iam.gserviceaccount.com"
+}
+
+deploy_sa_exists() {
+  gcloud iam service-accounts describe "$(deploy_sa_email)" \
+    --project="${BOOTSTRAP_PROJECT_ID}" &>/dev/null
+}
+
+runtime_sa_id() {
+  echo "${CLOUD_RUN_RUNTIME_SA_ID:-cloud-run-router-runtime}"
+}
+
+runtime_sa_email() {
+  echo "$(runtime_sa_id)@${BOOTSTRAP_PROJECT_ID}.iam.gserviceaccount.com"
+}
+
+runtime_sa_exists() {
+  gcloud iam service-accounts describe "$(runtime_sa_email)" \
+    --project="${BOOTSTRAP_PROJECT_ID}" &>/dev/null
+}
+
+github_provider_id() {
+  echo "${GITHUB_WIF_PROVIDER_ID:-github-actions}"
+}
+
+github_provider_exists() {
+  gcloud iam workload-identity-pools providers describe "$(github_provider_id)" \
+    --project="${BOOTSTRAP_PROJECT_ID}" \
+    --location="global" \
+    --workload-identity-pool="${WORKLOAD_IDENTITY_POOL_ID}" &>/dev/null
+}
+
 ###############################################################################
 # check subcommand
 ###############################################################################
@@ -235,6 +297,31 @@ run_check() {
     info "BUDGET_AMOUNT not set. Budget creation will be skipped on apply."
   fi
 
+  if [[ "${ENABLE_CLOUD_RUN_DEPLOY_SETUP:-false}" == "true" ]]; then
+    info "Checking Cloud Run runtime SA $(runtime_sa_id)..."
+    if project_exists && runtime_sa_exists; then
+      info "Runtime SA $(runtime_sa_email) exists."
+    else
+      info "Runtime SA $(runtime_sa_email) does not exist (will be created on apply)."
+    fi
+
+    info "Checking Cloud Run deploy SA $(deploy_sa_id)..."
+    if project_exists && deploy_sa_exists; then
+      info "Deploy SA $(deploy_sa_email) exists."
+    else
+      info "Deploy SA $(deploy_sa_email) does not exist (will be created on apply)."
+    fi
+
+    info "Checking GitHub WIF Provider $(github_provider_id)..."
+    if project_exists && pool_exists && github_provider_exists; then
+      info "GitHub WIF Provider $(github_provider_id) exists."
+    else
+      info "GitHub WIF Provider $(github_provider_id) does not exist (will be created on apply)."
+    fi
+  else
+    info "ENABLE_CLOUD_RUN_DEPLOY_SETUP not set. Cloud Run deploy resource creation will be skipped on apply."
+  fi
+
   info "Check completed."
 }
 
@@ -256,6 +343,14 @@ confirm_apply() {
       echo "  - Budget: $(budget_display_name) (${BUDGET_AMOUNT} ${BUDGET_CURRENCY:-USD}, scope=${BUDGET_SCOPE:-project}, thresholds=${BUDGET_THRESHOLDS:-0.1,0.3,0.5,0.9,1.0})"
     else
       echo "  - Budget: (skipped — BUDGET_AMOUNT not set)"
+    fi
+    if [[ "${ENABLE_CLOUD_RUN_DEPLOY_SETUP:-false}" == "true" ]]; then
+      echo "  - Cloud Run runtime SA: $(runtime_sa_email)"
+      echo "  - Cloud Run deploy SA: $(deploy_sa_email)"
+      echo "  - GitHub WIF Provider: $(github_provider_id) (repo: ${GITHUB_REPOSITORY})"
+      echo "  - Additional APIs: ${CLOUD_RUN_DEPLOY_APIS[*]}"
+    else
+      echo "  - Cloud Run deploy resources: (skipped — ENABLE_CLOUD_RUN_DEPLOY_SETUP not set)"
     fi
     echo ""
     read -r -p "Proceed? [y/N] " answer
@@ -501,6 +596,157 @@ create_budget() {
   info "Budget '${display_name}' created."
 }
 
+###############################################################################
+# Cloud Run deploy resources (opt-in via ENABLE_CLOUD_RUN_DEPLOY_SETUP=true)
+###############################################################################
+
+enable_cloud_run_deploy_apis() {
+  info "Enabling Cloud Run deploy APIs on ${BOOTSTRAP_PROJECT_ID}..."
+  gcloud services enable "${CLOUD_RUN_DEPLOY_APIS[@]}" \
+    --project="${BOOTSTRAP_PROJECT_ID}"
+  info "Cloud Run deploy APIs enabled."
+  propagate_sleep med "newly-enabled APIs (run / artifactregistry / cloudbuild / secretmanager) to be ready"
+}
+
+create_cloud_run_runtime_sa() {
+  info "Creating Cloud Run runtime SA $(runtime_sa_id)..."
+  if runtime_sa_exists; then
+    info "Runtime SA $(runtime_sa_email) already exists. Skipping."
+    return
+  fi
+
+  gcloud iam service-accounts create "$(runtime_sa_id)" \
+    --project="${BOOTSTRAP_PROJECT_ID}" \
+    --display-name="${CLOUD_RUN_RUNTIME_SA_DISPLAY_NAME:-Cloud Run Router Runtime}"
+
+  info "Runtime SA $(runtime_sa_email) created."
+  propagate_sleep high "runtime SA to be visible to IAM before binding"
+}
+
+create_cloud_run_deploy_sa() {
+  info "Creating Cloud Run deploy SA $(deploy_sa_id)..."
+  if deploy_sa_exists; then
+    info "Deploy SA $(deploy_sa_email) already exists. Skipping."
+    return
+  fi
+
+  gcloud iam service-accounts create "$(deploy_sa_id)" \
+    --project="${BOOTSTRAP_PROJECT_ID}" \
+    --display-name="${CLOUD_RUN_DEPLOY_SA_DISPLAY_NAME:-Cloud Run Router Deploy}"
+
+  info "Deploy SA $(deploy_sa_email) created."
+  propagate_sleep high "deploy SA to be visible to IAM before binding"
+}
+
+grant_cloud_run_deploy_iam() {
+  info "Granting IAM roles to Cloud Run deploy / runtime SAs..."
+
+  local deploy_member runtime_member
+  deploy_member="serviceAccount:$(deploy_sa_email)"
+  runtime_member="serviceAccount:$(runtime_sa_email)"
+
+  # --- Deploy SA roles on bootstrap project ---
+  #   run.developer            : Cloud Run service の deploy / 更新
+  #   artifactregistry.writer  : container image を push
+  #   cloudbuild.builds.editor : `gcloud builds submit` で Cloud Build job 発行
+  #   storage.admin            : Cloud Build が source upload に GCS bucket を使う
+  #   iam.serviceAccountTokenCreator
+  #                            : runtime SA の token を発行 (Cloud Run service 起動時の impersonation)
+  local deploy_project_roles=(
+    roles/run.developer
+    roles/artifactregistry.writer
+    roles/cloudbuild.builds.editor
+    roles/storage.admin
+    roles/iam.serviceAccountTokenCreator
+  )
+  for role in "${deploy_project_roles[@]}"; do
+    info "  Deploy SA / Project: ${role}"
+    gcloud projects add-iam-policy-binding "${BOOTSTRAP_PROJECT_ID}" \
+      --member="${deploy_member}" \
+      --role="${role}" \
+      --quiet
+  done
+
+  # --- Deploy SA → Runtime SA: serviceAccountUser ---
+  # Cloud Run service の `--service-account=<runtime>` を指定するには、
+  # deploy 主体が runtime SA に対して serviceAccountUser を持つ必要がある。
+  info "  Deploy SA / Runtime SA: roles/iam.serviceAccountUser"
+  gcloud iam service-accounts add-iam-policy-binding "$(runtime_sa_email)" \
+    --project="${BOOTSTRAP_PROJECT_ID}" \
+    --member="${deploy_member}" \
+    --role="roles/iam.serviceAccountUser" \
+    --quiet
+
+  # --- Runtime SA roles on bootstrap project ---
+  #   secretmanager.secretAccessor :
+  #     Cloud Run service が runtime で TFC_NOTIFICATION_SECRET /
+  #     GITHUB_APP_PRIVATE_KEY / TFC_API_TOKEN 等を読む。
+  local runtime_project_roles=(
+    roles/secretmanager.secretAccessor
+  )
+  for role in "${runtime_project_roles[@]}"; do
+    info "  Runtime SA / Project: ${role}"
+    gcloud projects add-iam-policy-binding "${BOOTSTRAP_PROJECT_ID}" \
+      --member="${runtime_member}" \
+      --role="${role}" \
+      --quiet
+  done
+
+  info "Cloud Run deploy IAM roles granted."
+}
+
+create_github_wif_provider() {
+  info "Creating GitHub WIF Provider $(github_provider_id)..."
+  if github_provider_exists; then
+    info "GitHub WIF Provider $(github_provider_id) already exists. Skipping."
+    return
+  fi
+
+  # 既存の WIF Pool (TFC 用) に追加で GitHub Actions 用 OIDC Provider を載せる。
+  # - issuer は GitHub Actions 固定
+  # - allowed-audiences は指定しない (= デフォルトは provider full resource name で
+  #   google-github-actions/auth がそのまま使う形式)
+  # - attribute condition で 1 つの repo に厳しく絞る
+  gcloud iam workload-identity-pools providers create-oidc "$(github_provider_id)" \
+    --project="${BOOTSTRAP_PROJECT_ID}" \
+    --location="global" \
+    --workload-identity-pool="${WORKLOAD_IDENTITY_POOL_ID}" \
+    --display-name="${GITHUB_WIF_PROVIDER_DISPLAY_NAME:-GitHub Actions}" \
+    --issuer-uri="${GITHUB_OIDC_ISSUER_URI}" \
+    --attribute-mapping="\
+google.subject=assertion.sub,\
+attribute.repository=assertion.repository,\
+attribute.repository_owner=assertion.repository_owner,\
+attribute.ref=assertion.ref,\
+attribute.actor=assertion.actor,\
+attribute.workflow=assertion.workflow" \
+    --attribute-condition="assertion.repository == \"${GITHUB_REPOSITORY}\""
+
+  info "GitHub WIF Provider created."
+  propagate_sleep low "WIF provider to be visible before SA binding"
+}
+
+grant_github_wif_binding() {
+  info "Granting workloadIdentityUser to GitHub repo ${GITHUB_REPOSITORY}..."
+
+  local project_number
+  project_number="$(gcloud projects describe "${BOOTSTRAP_PROJECT_ID}" \
+    --format='value(projectNumber)')"
+
+  # principalSet で GitHub repo を identity スコープに指定。
+  # attribute.repository は WIF Provider 側の attribute mapping で
+  # assertion.repository から抽出された値。
+  local member="principalSet://iam.googleapis.com/projects/${project_number}/locations/global/workloadIdentityPools/${WORKLOAD_IDENTITY_POOL_ID}/attribute.repository/${GITHUB_REPOSITORY}"
+
+  gcloud iam service-accounts add-iam-policy-binding "$(deploy_sa_email)" \
+    --project="${BOOTSTRAP_PROJECT_ID}" \
+    --role="roles/iam.workloadIdentityUser" \
+    --member="${member}" \
+    --quiet
+
+  info "GitHub WIF binding created."
+}
+
 run_apply() {
   check_commands
   check_gcloud_auth
@@ -519,6 +765,16 @@ run_apply() {
   create_workload_identity_provider
   grant_wif_impersonation
   create_budget
+
+  if [[ "${ENABLE_CLOUD_RUN_DEPLOY_SETUP:-false}" == "true" ]]; then
+    info "ENABLE_CLOUD_RUN_DEPLOY_SETUP=true — provisioning Cloud Run deploy resources..."
+    enable_cloud_run_deploy_apis
+    create_cloud_run_runtime_sa
+    create_cloud_run_deploy_sa
+    grant_cloud_run_deploy_iam
+    create_github_wif_provider
+    grant_github_wif_binding
+  fi
 
   info "Bootstrap apply completed."
   echo ""
@@ -545,6 +801,27 @@ print_env() {
   echo "TFC_GCP_WORKLOAD_PROVIDER_NAME=${provider_full_name}"
   echo "GOOGLE_PROJECT=${BOOTSTRAP_PROJECT_ID}"
   echo ""
+
+  if [[ "${ENABLE_CLOUD_RUN_DEPLOY_SETUP:-false}" == "true" ]]; then
+    local github_provider_full_name="projects/${project_number}/locations/global/workloadIdentityPools/${WORKLOAD_IDENTITY_POOL_ID}/providers/$(github_provider_id)"
+
+    echo "============================================"
+    echo " GitHub Actions Repository Variables / Secrets"
+    echo "============================================"
+    echo ""
+    echo "# Set these as Repository Variables (or env vars in workflow):"
+    echo "GCP_PROJECT_ID=${BOOTSTRAP_PROJECT_ID}"
+    echo "GCP_WORKLOAD_IDENTITY_PROVIDER=${github_provider_full_name}"
+    echo "GCP_DEPLOY_SERVICE_ACCOUNT=$(deploy_sa_email)"
+    echo "GCP_RUNTIME_SERVICE_ACCOUNT=$(runtime_sa_email)"
+    echo ""
+    echo "# Usage in workflow (google-github-actions/auth@v2):"
+    echo "#   - uses: google-github-actions/auth@v2"
+    echo "#     with:"
+    echo "#       workload_identity_provider: \${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}"
+    echo "#       service_account: \${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}"
+    echo ""
+  fi
 }
 
 run_print_env() {
@@ -622,6 +899,27 @@ ENVIRONMENT VARIABLES (loaded from .env)
     BUDGET_THRESHOLDS                    Comma-separated alert thresholds as
                                          fractions (default:
                                          0.1,0.3,0.5,0.9,1.0)
+
+  Optional (Cloud Run deploy — created only when
+   ENABLE_CLOUD_RUN_DEPLOY_SETUP=true):
+    ENABLE_CLOUD_RUN_DEPLOY_SETUP        Set to 'true' to provision GitHub
+                                         WIF Provider + deploy/runtime SAs
+                                         for cloud-run-router. Default: false.
+    GITHUB_REPOSITORY                    'owner/repo' allowed to authenticate
+                                         via the GitHub WIF Provider.
+                                         Required when ENABLE_CLOUD_RUN_DEPLOY_SETUP=true.
+    CLOUD_RUN_DEPLOY_SA_ID               Deploy SA ID
+                                         (default: cloud-run-router-deploy)
+    CLOUD_RUN_DEPLOY_SA_DISPLAY_NAME     Deploy SA display name
+                                         (default: Cloud Run Router Deploy)
+    CLOUD_RUN_RUNTIME_SA_ID              Runtime SA ID
+                                         (default: cloud-run-router-runtime)
+    CLOUD_RUN_RUNTIME_SA_DISPLAY_NAME    Runtime SA display name
+                                         (default: Cloud Run Router Runtime)
+    GITHUB_WIF_PROVIDER_ID               GitHub OIDC Provider ID
+                                         (default: github-actions)
+    GITHUB_WIF_PROVIDER_DISPLAY_NAME     Provider display name
+                                         (default: GitHub Actions)
 
 EXAMPLES
   # Show this help
@@ -721,6 +1019,14 @@ run_dry_run() {
     "BUDGET_DISPLAY_NAME|Budget display name (default: \${BOOTSTRAP_PROJECT_NAME} Budget)"
     "BUDGET_SCOPE|Budget scope: 'project' (default) or 'billing-account'"
     "BUDGET_THRESHOLDS|Comma-separated alert thresholds (default: 0.1,0.3,0.5,0.9,1.0)"
+    "ENABLE_CLOUD_RUN_DEPLOY_SETUP|Set 'true' to provision Cloud Run deploy resources (default: false)"
+    "GITHUB_REPOSITORY|owner/repo allowed via GitHub WIF (required when ENABLE_CLOUD_RUN_DEPLOY_SETUP=true)"
+    "CLOUD_RUN_DEPLOY_SA_ID|Deploy SA ID (default: cloud-run-router-deploy)"
+    "CLOUD_RUN_DEPLOY_SA_DISPLAY_NAME|Deploy SA display name (default: Cloud Run Router Deploy)"
+    "CLOUD_RUN_RUNTIME_SA_ID|Runtime SA ID (default: cloud-run-router-runtime)"
+    "CLOUD_RUN_RUNTIME_SA_DISPLAY_NAME|Runtime SA display name (default: Cloud Run Router Runtime)"
+    "GITHUB_WIF_PROVIDER_ID|GitHub OIDC Provider ID (default: github-actions)"
+    "GITHUB_WIF_PROVIDER_DISPLAY_NAME|GitHub Provider display name (default: GitHub Actions)"
   )
   for entry in "${optional_vars[@]}"; do
     local var="${entry%%|*}"
