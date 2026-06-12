@@ -10,12 +10,12 @@ interface JwtClaims {
   exp: number;
 }
 
-function base64url(data: Buffer | string): string {
+const base64url = (data: Buffer | string): string => {
   const buf = typeof data === "string" ? Buffer.from(data) : data;
   return buf.toString("base64url");
-}
+};
 
-function createJwt(claims: JwtClaims, privateKeyPem: string): string {
+const createJwt = (claims: JwtClaims, privateKeyPem: string): string => {
   const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const payload = base64url(JSON.stringify(claims));
   const unsigned = `${header}.${payload}`;
@@ -26,7 +26,7 @@ function createJwt(claims: JwtClaims, privateKeyPem: string): string {
   const signature = signer.sign(key);
 
   return `${unsigned}.${base64url(signature)}`;
-}
+};
 
 /**
  * Generate a GitHub App installation token.
@@ -35,12 +35,12 @@ function createJwt(claims: JwtClaims, privateKeyPem: string): string {
  * 2. Find the installation for `owner`.
  * 3. Create an installation access token scoped to the target repo.
  */
-async function getInstallationToken(
+const getInstallationToken = async (
   appId: string,
   privateKeyPem: string,
   owner: string,
   repo: string,
-): Promise<string> {
+): Promise<string> => {
   const now = Math.floor(Date.now() / 1000);
   const jwt = createJwt({ iss: appId, iat: now - 60, exp: now + 600 }, privateKeyPem);
 
@@ -95,7 +95,7 @@ async function getInstallationToken(
     throw new Error(`GitHub installation token response missing 'token' for ${owner}/${repo}`);
   }
   return tokenData.token;
-}
+};
 
 export interface DispatchPayload {
   service: string;
@@ -116,13 +116,13 @@ export interface DispatchPayload {
 /**
  * Fire a `repository_dispatch` event on the target repo.
  */
-export async function repositoryDispatch(
+export const repositoryDispatch = async (
   appId: string,
   privateKeyPem: string,
   targetRepo: string,
   eventType: string,
   payload: DispatchPayload,
-): Promise<void> {
+): Promise<void> => {
   const parts = targetRepo.split("/");
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
     throw new Error(`Invalid target_repo format: "${targetRepo}" (expected "owner/repo")`);
@@ -158,4 +158,4 @@ export async function repositoryDispatch(
       `repository_dispatch failed for ${targetRepo}: ${res.status} ${body.slice(0, MAX_ERROR_BODY_LENGTH)}`,
     );
   }
-}
+};

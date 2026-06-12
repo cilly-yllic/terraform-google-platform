@@ -6,11 +6,11 @@ import { createHmac, timingSafeEqual } from "node:crypto";
  * TFC computes `HMAC-SHA512(body, secret)` and sends the hex digest in
  * the `X-TFE-Notification-Signature` header.
  */
-export function verifySignature(
+export const verifySignature = (
   body: Buffer,
   signatureHeader: string | undefined,
   secret: string,
-): boolean {
+): boolean => {
   if (!signatureHeader) {
     return false;
   }
@@ -25,4 +25,4 @@ export function verifySignature(
   }
 
   return timingSafeEqual(sigBuf, expBuf);
-}
+};

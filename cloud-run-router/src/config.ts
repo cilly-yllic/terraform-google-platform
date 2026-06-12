@@ -45,7 +45,7 @@ export interface Config {
 
 const VALID_METADATA_SOURCES = ["run_message", "run_variables", "both"] as const;
 
-function requiredEnv(name: string): string {
+const requiredEnv = (name: string): string => {
   const v = process.env[name];
   if (v === undefined || v === "") {
     throw new Error(
@@ -55,35 +55,35 @@ function requiredEnv(name: string): string {
     );
   }
   return v;
-}
+};
 
-function validateMetadataSource(value: string): Config["metadataSource"] {
+const validateMetadataSource = (value: string): Config["metadataSource"] => {
   if (!VALID_METADATA_SOURCES.includes(value as Config["metadataSource"])) {
     throw new Error(
       `Invalid METADATA_SOURCE "${value}". Must be one of: ${VALID_METADATA_SOURCES.join(", ")}`,
     );
   }
   return value as Config["metadataSource"];
-}
+};
 
-function validateRegex(envName: string, pattern: string): RegExp {
+const validateRegex = (envName: string, pattern: string): RegExp => {
   try {
     return new RegExp(pattern);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(`Invalid regex in ${envName}: "${pattern}" — ${msg}`);
   }
-}
+};
 
-function validatePort(value: string): number {
+const validatePort = (value: string): number => {
   const port = Number(value);
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
     throw new Error(`Invalid PORT "${value}". Must be an integer between 0 and 65535`);
   }
   return port;
-}
+};
 
-export function loadConfig(): Config {
+export const loadConfig = (): Config => {
   const pfPattern = process.env["WORKSPACE_NAME_PATTERN"] ?? "^project-factory-(?<service>.+)$";
   const termPattern = process.env["TERMINAL_WORKSPACE_PATTERN"] ?? "^(?<service>.+)-(?<env>[^-]+)$";
 
@@ -106,4 +106,4 @@ export function loadConfig(): Config {
     dispatchEventType: process.env["DISPATCH_EVENT_TYPE"] ?? "firebase_platform_requested",
     metadataSource,
   };
-}
+};

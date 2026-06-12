@@ -32,7 +32,7 @@ export type RouteResult =
 /**
  * Determine the pipeline stage from the workspace name.
  */
-export function classifyWorkspace(workspaceName: string, config: Config): RouteResult {
+export const classifyWorkspace = (workspaceName: string, config: Config): RouteResult => {
   const pfMatch = config.projectFactoryPattern.exec(workspaceName);
   if (pfMatch?.groups?.["service"]) {
     return { stage: "project_factory", service: pfMatch.groups["service"] };
@@ -48,16 +48,16 @@ export function classifyWorkspace(workspaceName: string, config: Config): RouteR
   }
 
   return { stage: "unknown" };
-}
+};
 
 /**
  * Resolve (service, env, source_repo) using the configured metadata source.
  */
-async function resolveMetadata(
+const resolveMetadata = async (
   notification: TfcNotification,
   service: string,
   config: Config,
-): Promise<TfcRunMeta> {
+): Promise<TfcRunMeta> => {
   if (config.metadataSource === "run_message" || config.metadataSource === "both") {
     const parsed = parseRunMessage(notification.run_message);
     if (parsed) {
@@ -80,7 +80,7 @@ async function resolveMetadata(
   }
 
   throw new Error(`Cannot resolve metadata for service=${service}`);
-}
+};
 
 export interface HandleResult {
   action: "dispatched" | "terminal_noop" | "ignored";
@@ -90,10 +90,10 @@ export interface HandleResult {
 /**
  * Main routing entry point.
  */
-export async function handleNotification(
+export const handleNotification = async (
   notification: TfcNotification,
   config: Config,
-): Promise<HandleResult> {
+): Promise<HandleResult> => {
   if (!Array.isArray(notification.notifications) || notification.notifications.length === 0) {
     return {
       action: "ignored",
@@ -201,4 +201,4 @@ export async function handleNotification(
     action: "ignored",
     details: { reason: "unknown_workspace_pattern", ...logBase },
   };
-}
+};

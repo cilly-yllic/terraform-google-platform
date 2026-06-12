@@ -1,4 +1,6 @@
-import { createServer } from "node:http";
+import { Hono } from "hono";
+import { serve } from "@hono/node-server";
+import { bodyLimit } from "hono/body-limit";
 import { loadConfig } from "./config.js";
 import { verifySignature } from "./signature.js";
 import { handleNotification, type TfcNotification } from "./router.js";
@@ -6,200 +8,85 @@ import { handleNotification, type TfcNotification } from "./router.js";
 const config = loadConfig();
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MiB — TFC payloads are small JSON
+const SHUTDOWN_TIMEOUT_MS = 8_000; // Must be < Cloud Run's SIGKILL grace period (default 10 s)
 
-class BodyTooLargeError extends Error {
-  constructor() {
-    super("Request body too large");
-    this.name = "BodyTooLargeError";
-  }
-}
+type LogSeverity = "INFO" | "WARNING" | "ERROR";
+const log = (severity: LogSeverity, message: string, extra: Record<string, unknown> = {}): void => {
+  console.log(JSON.stringify({ severity, message, ...extra }));
+};
 
-function collectBody(req: import("node:http").IncomingMessage): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let totalLength = 0;
-    let settled = false;
-    req.on("data", (c: Buffer) => {
-      if (settled) return;
-      totalLength += c.length;
-      if (totalLength > MAX_BODY_BYTES) {
-        settled = true;
-        req.destroy();
-        reject(new BodyTooLargeError());
-        return;
-      }
-      chunks.push(c);
-    });
-    req.on("end", () => {
-      if (!settled) {
-        settled = true;
-        resolve(Buffer.concat(chunks));
-      }
-    });
-    req.on("error", (err) => {
-      if (!settled) {
-        settled = true;
-        reject(err);
-      }
-    });
-  });
-}
+const app = new Hono();
 
-function pathname(raw: string | undefined): string {
-  try {
-    return new URL(raw ?? "/", "http://localhost").pathname;
-  } catch {
-    return raw ?? "/";
-  }
-}
+app.get("/healthz", (c) => c.json({ status: "ok" }));
 
-const server = createServer(async (req, res) => {
-  const path = pathname(req.url);
+app.post(
+  "/webhook",
+  bodyLimit({
+    maxSize: MAX_BODY_BYTES,
+    onError: (c) => c.json({ error: "payload_too_large" }, 413),
+  }),
+  async (c) => {
+    const body = Buffer.from(await c.req.arrayBuffer());
 
-  // Health check
-  if (req.method === "GET" && path === "/healthz") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok" }));
-    return;
-  }
-
-  if (req.method !== "POST" || path !== "/webhook") {
-    res.writeHead(404, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "not_found" }));
-    return;
-  }
-
-  try {
-    let body: Buffer;
-    try {
-      body = await collectBody(req);
-    } catch (collectErr) {
-      if (collectErr instanceof BodyTooLargeError) {
-        res.writeHead(413, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "payload_too_large" }));
-        return;
-      }
-      throw collectErr;
-    }
-
-    // HMAC verification (mandatory)
-    const rawSig = req.headers["x-tfe-notification-signature"];
-    const signature = Array.isArray(rawSig) ? rawSig[0] : rawSig;
+    const signature = c.req.header("x-tfe-notification-signature");
     if (!verifySignature(body, signature, config.tfcNotificationSecret)) {
-      console.log(
-        JSON.stringify({
-          severity: "WARNING",
-          message: "HMAC signature verification failed",
-        }),
-      );
-      res.writeHead(401, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "invalid_signature" }));
-      return;
+      log("WARNING", "HMAC signature verification failed");
+      return c.json({ error: "invalid_signature" }, 401);
     }
 
     let notification: TfcNotification;
     try {
       notification = JSON.parse(body.toString("utf8")) as TfcNotification;
     } catch {
-      res.writeHead(400, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "invalid_json" }));
-      return;
+      return c.json({ error: "invalid_json" }, 400);
     }
 
     // TFC sends a verification ping with payload_version=1 and no notifications
     if (!Array.isArray(notification.notifications) || notification.notifications.length === 0) {
-      console.log(
-        JSON.stringify({
-          severity: "INFO",
-          message: "Verification ping received",
-        }),
-      );
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "ok", action: "verification_ping" }));
-      return;
+      log("INFO", "Verification ping received");
+      return c.json({ status: "ok", action: "verification_ping" });
     }
 
     const result = await handleNotification(notification, config);
-    console.log(
-      JSON.stringify({
-        severity: "INFO",
-        message: "Request processed",
-        action: result.action,
-      }),
-    );
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", ...result }));
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.log(
-      JSON.stringify({
-        severity: "ERROR",
-        message: "Error processing request",
-        error: msg,
-      }),
-    );
-    if (!res.headersSent) {
-      res.writeHead(500, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "internal_error" }));
-    }
-  }
+    log("INFO", "Request processed", { action: result.action });
+    return c.json({ status: "ok", ...result });
+  },
+);
+
+app.notFound((c) => c.json({ error: "not_found" }, 404));
+
+app.onError((err, c) => {
+  const msg = err instanceof Error ? err.message : String(err);
+  log("ERROR", "Error processing request", { error: msg });
+  return c.json({ error: "internal_error" }, 500);
 });
 
-server.on("error", (err) => {
-  console.log(
-    JSON.stringify({
-      severity: "ERROR",
-      message: "Server error",
-      error: err.message,
-    }),
-  );
+const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
+  log("INFO", `Cloud Run router listening on port ${info.port}`);
+});
+
+server.on("error", (err: Error) => {
+  log("ERROR", "Server error", { error: err.message });
   process.exit(1);
 });
 
-server.listen(config.port, () => {
-  console.log(
-    JSON.stringify({
-      severity: "INFO",
-      message: `Cloud Run router listening on port ${config.port}`,
-    }),
-  );
-});
-
-const SHUTDOWN_TIMEOUT_MS = 8_000; // Must be < Cloud Run's SIGKILL grace period (default 10 s)
-
 let shuttingDown = false;
-
-function shutdown() {
+const shutdown = (): void => {
   if (shuttingDown) return;
   shuttingDown = true;
 
-  console.log(
-    JSON.stringify({
-      severity: "INFO",
-      message: "Received shutdown signal, draining connections…",
-    }),
-  );
+  log("INFO", "Received shutdown signal, draining connections…");
   const forceExit = setTimeout(() => {
-    console.log(
-      JSON.stringify({
-        severity: "WARNING",
-        message: "Shutdown timeout exceeded, forcing exit",
-      }),
-    );
+    log("WARNING", "Shutdown timeout exceeded, forcing exit");
     process.exit(1);
   }, SHUTDOWN_TIMEOUT_MS);
   forceExit.unref();
   server.close(() => {
     clearTimeout(forceExit);
-    console.log(
-      JSON.stringify({
-        severity: "INFO",
-        message: "Server closed, exiting",
-      }),
-    );
+    log("INFO", "Server closed, exiting");
     process.exit(0);
   });
-}
+};
 
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);

@@ -23,11 +23,11 @@ export interface TfcRunMeta {
  *   - TF_VAR_environment (or METADATA_ENV)
  *   - TF_VAR_source_repo (or METADATA_SOURCE_REPO)
  */
-export async function fetchRunMetadata(
+export const fetchRunMetadata = async (
   runId: string,
   baseUrl: string,
   token: string,
-): Promise<TfcRunMeta> {
+): Promise<TfcRunMeta> => {
   const runRes = await fetch(`${baseUrl}/api/v2/runs/${runId}`, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -125,7 +125,7 @@ export async function fetchRunMetadata(
   }
 
   return { service, environments, labels: [], source_repo: sourceRepo };
-}
+};
 
 /**
  * Parse metadata embedded in `run_message` as JSON (Option B).
@@ -143,7 +143,7 @@ export async function fetchRunMetadata(
  * that didn't carry labels yet — older messages emitted by the platform never
  * had `environments` either, so they're already rejected below).
  */
-export function parseRunMessage(runMessage: string): TfcRunMeta | null {
+export const parseRunMessage = (runMessage: string): TfcRunMeta | null => {
   try {
     const parsed = JSON.parse(runMessage) as Record<string, unknown>;
     const service = parsed["service"];
@@ -175,4 +175,4 @@ export function parseRunMessage(runMessage: string): TfcRunMeta | null {
   } catch {
     return null;
   }
-}
+};
