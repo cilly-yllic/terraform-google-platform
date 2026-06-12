@@ -26,7 +26,6 @@ describe("verifySignature", () => {
   });
 
   it("returns false when body was tampered", () => {
-    const original = Buffer.from("original");
     const sig = sign("original", SECRET);
     const tampered = Buffer.from("tampered");
     expect(verifySignature(tampered, sig, SECRET)).toBe(false);

@@ -91,9 +91,7 @@ describe("loadConfig", () => {
     setRequiredEnvs();
     process.env["METADATA_SOURCE"] = "run_message";
     process.env["TERMINAL_WORKSPACE_PATTERN"] = "(unclosed";
-    expect(() => loadConfig()).toThrow(
-      "Invalid regex in TERMINAL_WORKSPACE_PATTERN",
-    );
+    expect(() => loadConfig()).toThrow("Invalid regex in TERMINAL_WORKSPACE_PATTERN");
   });
 
   it("throws when TFC_API_TOKEN missing with METADATA_SOURCE=run_variables", () => {
@@ -107,9 +105,7 @@ describe("loadConfig", () => {
   it("throws when TFC_API_TOKEN missing with METADATA_SOURCE=both", () => {
     setRequiredEnvs();
     process.env["METADATA_SOURCE"] = "both";
-    expect(() => loadConfig()).toThrow(
-      'TFC_API_TOKEN is required when METADATA_SOURCE is "both"',
-    );
+    expect(() => loadConfig()).toThrow('TFC_API_TOKEN is required when METADATA_SOURCE is "both"');
   });
 
   it("does not require TFC_API_TOKEN when METADATA_SOURCE=run_message", () => {
