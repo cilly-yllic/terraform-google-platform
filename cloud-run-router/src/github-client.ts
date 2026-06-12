@@ -25,24 +25,24 @@
  * @see https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app
  * @see https://docs.github.com/en/rest/repos/repos#create-a-repository-dispatch-event
  */
-import { createPrivateKey, createSign } from "node:crypto";
+import { createPrivateKey, createSign } from 'node:crypto'
 
 /** GitHub API 呼び出しの全体 timeout */
-const FETCH_TIMEOUT_MS = 30_000;
+const FETCH_TIMEOUT_MS = 30_000
 
 /** エラーログに載せる GitHub レスポンスの最大長 */
-const MAX_ERROR_BODY_LENGTH = 200;
+const MAX_ERROR_BODY_LENGTH = 200
 
 /** GitHub API は User-Agent ヘッダを要求する。本サービスの識別子 */
-const USER_AGENT = "cloud-run-router/1.0";
+const USER_AGENT = 'cloud-run-router/1.0'
 
 interface JwtClaims {
   /** issuer = GitHub App ID */
-  iss: string;
+  iss: string
   /** issued at (epoch seconds) */
-  iat: number;
+  iat: number
   /** expiration (epoch seconds, iat から最長 10 分) */
-  exp: number;
+  exp: number
 }
 
 /**
@@ -51,9 +51,9 @@ interface JwtClaims {
  * しているため、padding (=) 除去や URL-safe 文字変換を自前で行う必要なし。
  */
 const base64url = (data: Buffer | string): string => {
-  const buf = typeof data === "string" ? Buffer.from(data) : data;
-  return buf.toString("base64url");
-};
+  const buf = typeof data === 'string' ? Buffer.from(data) : data
+  return buf.toString('base64url')
+}
 
 /**
  * GitHub App の認証 JWT を作成する。
@@ -66,18 +66,18 @@ const base64url = (data: Buffer | string): string => {
  * @see https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app
  */
 const createJwt = (claims: JwtClaims, privateKeyPem: string): string => {
-  const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-  const payload = base64url(JSON.stringify(claims));
-  const unsigned = `${header}.${payload}`;
+  const header = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))
+  const payload = base64url(JSON.stringify(claims))
+  const unsigned = `${header}.${payload}`
 
   // PEM 文字列から PrivateKeyObject にロードして RSA-SHA256 で署名する。
-  const key = createPrivateKey(privateKeyPem);
-  const signer = createSign("RSA-SHA256");
-  signer.update(unsigned);
-  const signature = signer.sign(key);
+  const key = createPrivateKey(privateKeyPem)
+  const signer = createSign('RSA-SHA256')
+  signer.update(unsigned)
+  const signature = signer.sign(key)
 
-  return `${unsigned}.${base64url(signature)}`;
-};
+  return `${unsigned}.${base64url(signature)}`
+}
 
 /**
  * 対象 owner/repo に紐づく installation の access token を取得する。
@@ -93,14 +93,14 @@ const getInstallationToken = async (
   appId: string,
   privateKeyPem: string,
   owner: string,
-  repo: string,
+  repo: string
 ): Promise<string> => {
   // App JWT の作成。
   // iat を -60s にしてクロックずれを吸収、exp は GitHub の上限 10 分 (600s) に設定。
   // 単発呼び出しなので long-lived にする必要はないが、ローカル時計が遅れている
   // 環境を想定すると 5 分以上は欲しい。
-  const now = Math.floor(Date.now() / 1000);
-  const jwt = createJwt({ iss: appId, iat: now - 60, exp: now + 600 }, privateKeyPem);
+  const now = Math.floor(Date.now() / 1000)
+  const jwt = createJwt({ iss: appId, iat: now - 60, exp: now + 600 }, privateKeyPem)
 
   // Step 1: 対象 repo に対応する installation を引く。
   // GitHub App がその repo にインストールされていない場合は 404 が返る
@@ -108,57 +108,54 @@ const getInstallationToken = async (
   const installRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/installation`, {
     headers: {
       Authorization: `Bearer ${jwt}`,
-      Accept: "application/vnd.github+json",
-      "User-Agent": USER_AGENT,
-      "X-GitHub-Api-Version": "2022-11-28",
+      Accept: 'application/vnd.github+json',
+      'User-Agent': USER_AGENT,
+      'X-GitHub-Api-Version': '2022-11-28',
     },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
+  })
   if (!installRes.ok) {
-    const body = await installRes.text();
+    const body = await installRes.text()
     throw new Error(
-      `GitHub App installation lookup failed for ${owner}/${repo}: ${installRes.status} ${body.slice(0, MAX_ERROR_BODY_LENGTH)}`,
-    );
+      `GitHub App installation lookup failed for ${owner}/${repo}: ${installRes.status} ${body.slice(0, MAX_ERROR_BODY_LENGTH)}`
+    )
   }
-  const installData = (await installRes.json()) as { id?: number };
-  if (typeof installData.id !== "number") {
-    throw new Error(`GitHub App installation response missing 'id' for ${owner}/${repo}`);
+  const installData = (await installRes.json()) as { id?: number }
+  if (typeof installData.id !== 'number') {
+    throw new Error(`GitHub App installation response missing 'id' for ${owner}/${repo}`)
   }
 
   // Step 2: installation から repo と permission を絞った access token を発行。
   // - repositories: [repo]            → 対象 repo 1 件にだけ有効
   // - permissions: { contents: write } → repository_dispatch に必要な最小権限
   //   (dispatch は contents: write で発火できる; 詳細は GitHub docs 参照)
-  const tokenRes = await fetch(
-    `https://api.github.com/app/installations/${installData.id}/access_tokens`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${jwt}`,
-        Accept: "application/vnd.github+json",
-        "Content-Type": "application/json",
-        "User-Agent": USER_AGENT,
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-      body: JSON.stringify({
-        repositories: [repo],
-        permissions: { contents: "write" },
-      }),
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  const tokenRes = await fetch(`https://api.github.com/app/installations/${installData.id}/access_tokens`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      Accept: 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+      'User-Agent': USER_AGENT,
+      'X-GitHub-Api-Version': '2022-11-28',
     },
-  );
+    body: JSON.stringify({
+      repositories: [repo],
+      permissions: { contents: 'write' },
+    }),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  })
   if (!tokenRes.ok) {
-    const body = await tokenRes.text();
+    const body = await tokenRes.text()
     throw new Error(
-      `GitHub installation token creation failed: ${tokenRes.status} ${body.slice(0, MAX_ERROR_BODY_LENGTH)}`,
-    );
+      `GitHub installation token creation failed: ${tokenRes.status} ${body.slice(0, MAX_ERROR_BODY_LENGTH)}`
+    )
   }
-  const tokenData = (await tokenRes.json()) as { token?: string };
+  const tokenData = (await tokenRes.json()) as { token?: string }
   if (!tokenData.token) {
-    throw new Error(`GitHub installation token response missing 'token' for ${owner}/${repo}`);
+    throw new Error(`GitHub installation token response missing 'token' for ${owner}/${repo}`)
   }
-  return tokenData.token;
-};
+  return tokenData.token
+}
 
 /**
  * Action B (caller workflow) が受け取る client_payload の shape。
@@ -170,21 +167,21 @@ const getInstallationToken = async (
  * 両者の使い分けは README "Dispatch payload shape" セクション参照。
  */
 export interface DispatchPayload {
-  service: string;
+  service: string
 
   /** Action A が今回 Run で実際に処理対象とした env キー */
-  environments: string[];
+  environments: string[]
 
   /**
    * Action A 起動時の input labels (RegExp 文字列)。
    * - A が `environment` 単数で呼ばれていた場合は空配列
    * - caller workflow は `labels` を B にそのまま渡せば B が再解決可能
    */
-  labels: string[];
+  labels: string[]
 
-  run_id: string;
-  workspace_name: string;
-  source_repo: string;
+  run_id: string
+  workspace_name: string
+  source_repo: string
 }
 
 /**
@@ -206,49 +203,47 @@ export const repositoryDispatch = async (
   privateKeyPem: string,
   targetRepo: string,
   eventType: string,
-  payload: DispatchPayload,
+  payload: DispatchPayload
 ): Promise<void> => {
   // "owner/repo" 形式の素朴な検証。
   // 厳格な正規表現にしないのは、GitHub の許容文字を変に絞ると将来の
   // 命名仕様変更に追従しづらくなるため。最低限 "/" で 2 セグメントに割れて
   // 双方が非空、かつ path traversal が混ざらないことだけを保証する。
-  const parts = targetRepo.split("/");
+  const parts = targetRepo.split('/')
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
-    throw new Error(`Invalid target_repo format: "${targetRepo}" (expected "owner/repo")`);
+    throw new Error(`Invalid target_repo format: "${targetRepo}" (expected "owner/repo")`)
   }
-  const [owner, repo] = parts;
-  if (owner.includes("..") || repo.includes("..")) {
-    throw new Error(
-      `Invalid target_repo format: "${targetRepo}" (expected "owner/repo", no path traversal)`,
-    );
+  const [owner, repo] = parts
+  if (owner.includes('..') || repo.includes('..')) {
+    throw new Error(`Invalid target_repo format: "${targetRepo}" (expected "owner/repo", no path traversal)`)
   }
 
   // installation token を取って即 dispatch。token はそのまま捨てる
   // (1 時間で自然失効、明示的な revoke も特に必要なし)。
-  const token = await getInstallationToken(appId, privateKeyPem, owner, repo);
+  const token = await getInstallationToken(appId, privateKeyPem, owner, repo)
 
   const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/dispatches`, {
-    method: "POST",
+    method: 'POST',
     headers: {
       Authorization: `token ${token}`,
-      Accept: "application/vnd.github+json",
-      "Content-Type": "application/json",
-      "User-Agent": USER_AGENT,
-      "X-GitHub-Api-Version": "2022-11-28",
+      Accept: 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+      'User-Agent': USER_AGENT,
+      'X-GitHub-Api-Version': '2022-11-28',
     },
     body: JSON.stringify({
       event_type: eventType,
       client_payload: payload,
     }),
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
+  })
 
   // 204 No Content が正常応答。それ以外はステータスを含めて throw し、
   // 上位の onError ハンドラから 500 として返す。
   if (!res.ok) {
-    const body = await res.text();
+    const body = await res.text()
     throw new Error(
-      `repository_dispatch failed for ${targetRepo}: ${res.status} ${body.slice(0, MAX_ERROR_BODY_LENGTH)}`,
-    );
+      `repository_dispatch failed for ${targetRepo}: ${res.status} ${body.slice(0, MAX_ERROR_BODY_LENGTH)}`
+    )
   }
-};
+}

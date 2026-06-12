@@ -20,10 +20,10 @@
  *
  * @see https://cloud.google.com/run/docs/configuring/healthchecks
  */
-import { Hono } from "hono";
+import { Hono } from 'hono'
 
-const healthz = new Hono();
+const healthz = new Hono()
 
-healthz.get("/", (c) => c.json({ status: "ok" }));
+healthz.get('/', c => c.json({ status: 'ok' }))
 
-export default healthz;
+export default healthz
