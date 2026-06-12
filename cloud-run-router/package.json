@@ -12,14 +12,21 @@
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "tsc --noEmit",
-    "fmt": "prettier --write ."
+    "lint": "oxlint src test",
+    "typecheck": "tsc --noEmit",
+    "fmt": "oxfmt src test",
+    "fmt:check": "oxfmt --check src test"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "prettier": "^3.4.0",
+    "oxfmt": "^0.54.0",
+    "oxlint": "^1.69.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^3.1.0"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.0.4",
+    "hono": "^4.12.25"
   }
 }

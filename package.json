@@ -1,0 +1,14 @@
+{
+  "name": "terraform-google-platform",
+  "private": true,
+  "description": "Repo-root package: ホスト用途のみ (TS コード本体は cloud-run-router/ 配下)。ここでは lefthook のセットアップだけを担う。",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "postinstall": "lefthook install || true"
+  },
+  "devDependencies": {
+    "lefthook": "^2.1.9"
+  }
+}
