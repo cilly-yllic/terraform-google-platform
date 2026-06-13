@@ -190,7 +190,7 @@ SUBCOMMANDS
 ENVIRONMENT (loaded from .env)
   BOOTSTRAP_PROJECT_ID    GCP Project that holds Secret Manager (required)
   WEBHOOK_SECRET_REPOS    Space-separated list of GitHub repos
-                          (e.g. "mooodone/svc1 mooodone/svc2") to which
+                          (e.g. "your-org/svc1 your-org/svc2") to which
                           WEBHOOK_SECRET should be synced. Optional for
                           'setup' / 'rotate', required for 'sync'.
   GH_ORG                  (optional) GitHub Organization name. When set,

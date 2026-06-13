@@ -299,11 +299,11 @@ WEBHOOK_SECRET の同期方法を 2 モードで切り替え可能:
 
 ```bash
 # (推奨) org-level secret: visibility=selected で対象 repo を限定
-GH_ORG="MoooDoNE"
-WEBHOOK_SECRET_REPOS="mooodone/service1 mooodone/service2"
+GH_ORG="your-org"
+WEBHOOK_SECRET_REPOS="your-org/service1 your-org/service2"
 
 # (fallback) repo-level secret: GH_ORG を未設定にすると各 repo に個別 set
-# WEBHOOK_SECRET_REPOS="mooodone/service1 mooodone/service2"
+# WEBHOOK_SECRET_REPOS="your-org/service1 your-org/service2"
 ```
 
 | モード | 動作 | メリット | 必要権限 |
@@ -329,10 +329,10 @@ WEBHOOK_SECRET_REPOS="mooodone/service1 mooodone/service2"
  WEBHOOK_SECRET sync targets (.env)
 ============================================
 
-  Mode: org-level (GH_ORG=MoooDoNE, visibility=selected)
+  Mode: org-level (GH_ORG=your-org, visibility=selected)
 
-  ✓ mooodone/service1
-  ✓ mooodone/service2
+  ✓ your-org/service1
+  ✓ your-org/service2
 ```
 
 ### Rotation の注意点
