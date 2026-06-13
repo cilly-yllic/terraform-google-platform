@@ -29,29 +29,44 @@ module "firebase_platform" {
       export_platform = "cloud_run"
     }
   }
-  # Web App は省略可 (hosting / app_hosting がいるので "default" 名で自動作成される)。
-  # 明示するなら以下のように複数定義もできる:
-  #   web_app = [
-  #     { name = "main", display_name = "Main" },
-  #     { name = "admin", display_name = "Admin Console" },
-  #   ]
-
-  # 複数 hosting site の例。web_app 単数なら参照省略可。
-  hosting = [
-    { site_id = "my-full-project-web" },
-    { site_id = "my-full-project-staging" },
+  # Firebase App 登録 (Web / iOS / Android を 1 array で管理)。
+  # apps を完全に省略しても hosting / app_hosting があれば "default" 名で
+  # type=web を 1 件 auto-create する。
+  apps = [
+    { name = "main", type = "web", display_name = "Main Web App" },
+    { name = "admin", type = "web", display_name = "Admin Console" },
+    # iOS / Android の例 (任意 — Web のみで十分なら省略可):
+    # {
+    #   name      = "main-ios"
+    #   type      = "ios"
+    #   bundle_id = "com.example.app"
+    # },
+    # {
+    #   name         = "main-android"
+    #   type         = "android"
+    #   package_name = "com.example.app"
+    # },
   ]
 
-  # 複数 App Hosting backend の例。同じく web_app 単数なら参照省略可。
+  # 複数 hosting site の例。app field は type=web の apps[].name を指す。
+  # type=web の apps が 1 件のみなら省略可。
+  hosting = [
+    { site_id = "my-full-project-web", app = "main" },
+    { site_id = "my-full-project-admin", app = "admin" },
+  ]
+
+  # 複数 App Hosting backend の例。app field の挙動は hosting と同じ。
   app_hosting = [
     {
       backend_id = "api"
       location   = "asia-northeast1"
+      app        = "main"
     },
     {
       backend_id = "jobs"
       location   = "us-central1"
-      # 外部 Web App を pin したい時は web_app の代わりに app_id を指定:
+      app        = "main"
+      # 外部 Web App を pin したい時は app の代わりに app_id を指定:
       # app_id = "1:XXXXX:web:abc123"
     },
   ]

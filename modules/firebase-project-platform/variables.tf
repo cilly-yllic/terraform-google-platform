@@ -110,16 +110,33 @@ variable "storage" {
   default     = null
 }
 
-variable "web_app" {
+variable "apps" {
   description = <<-EOT
-    Firebase Web Apps (registration / app_id 発行用)。
-    null or omitted で disable。hosting / app_hosting が指定されていて
-    web_app が空の場合は自動で 1 件 (name="default") を auto-create する。
+    Firebase Apps (web / iOS / Android registration)。app_id 発行用。
+    null or omitted で disable。hosting / app_hosting が指定されていて apps が
+    空の場合は自動で 1 件 (name="default", type="web") を auto-create する。
 
-    List of objects:
-      name         = 内部参照用 ID (hosting / app_hosting から `web_app: <name>` で指す)。
-                     ※ rename = destroy-recreate になるので immutable 扱い推奨。
+    List of objects (type discriminated):
+      name         = 内部参照用 ID (hosting / app_hosting から `app: <name>` で指す)。
+                     ※ type 跨いで unique。rename = destroy-recreate になるので
+                     immutable 扱い推奨。
+      type         = "web" | "ios" | "android"
       display_name = Firebase Console での表示名 (optional, 省略時は name を流用)
+
+      # type=web 専用
+      (追加 field なし)
+
+      # type=ios 専用
+      bundle_id    = iOS Bundle ID (必須)
+      app_store_id = App Store ID (optional, numeric)
+      team_id      = Apple Developer Team ID (optional)
+
+      # type=android 専用
+      package_name  = Android package name (必須)
+      sha1_hashes   = SHA-1 cert hashes (list of strings, optional)
+      sha256_hashes = SHA-256 cert hashes (list of strings, optional)
+
+    hosting / app_hosting から参照できるのは type="web" の entry のみ。
   EOT
   type        = any
   default     = null
@@ -132,9 +149,9 @@ variable "hosting" {
 
     List of objects:
       site_id = Hosting site ID (globally unique, URL の subdomain になる)
-      web_app = 紐付ける web_app[].name (optional)
-                ・web_app が 1 件しか無い時は省略可 (auto-default)
-                ・複数あるなら明示必須 (省略は plan-time error)
+      app     = 紐付ける apps[].name (optional, type=web のみ参照可)
+                ・type=web の apps が 1 件しか無い時は省略可 (auto-default)
+                ・複数 / 0 件で省略 / 不在の名前 / 非 web type を参照 = plan-time error
   EOT
   type        = any
   default     = null
@@ -149,8 +166,8 @@ variable "app_hosting" {
       backend_id       = Backend ID (project-unique, Firebase Console title)
                          [a-z][a-z0-9-]{2,30}[a-z0-9]
       location         = Backend location (default: var.region)
-      web_app          = 紐付ける web_app[].name (web_app 単数なら省略可、複数なら明示必須)
-      app_id           = 外部 Web App ID を pin したい場合のみ指定。web_app と排他
+      app              = 紐付ける apps[].name (type=web のみ参照可、単数なら省略可)
+      app_id           = 外部 Web App ID を pin したい場合のみ指定。app と排他
                          (両方書くと plan-time error)
       service_account  = Service account email (default: 自動で project 共有の SA を作成)
       serving_locality = GLOBAL_ACCESS | REGION_LOCKED (default: "GLOBAL_ACCESS")

@@ -151,22 +151,31 @@ The default bucket (`{project_id}.firebasestorage.app`) is **always created** wi
 
 </details>
 
-### `web_app`
+### `apps`
 
-List of Firebase Web App registrations. Each entry produces a `google_firebase_web_app`. The auto-generated `app_id` (`1:XXX:web:abc...`) is linked from any matching `hosting[]` / `app_hosting[]` entry.
+List of Firebase App registrations (Web / iOS / Android を **1 array で discriminated union**)。各 entry は `type` で分岐して対応する Firebase Resource を作る:
+
+| `type` | Firebase Resource | 必須 field | optional field |
+|--------|------------------|-----------|---------------|
+| `web` | `google_firebase_web_app` | (`name` のみ) | `display_name` |
+| `ios` | `google_firebase_apple_app` | `name`, `bundle_id` | `display_name`, `app_store_id`, `team_id` |
+| `android` | `google_firebase_android_app` | `name`, `package_name` | `display_name`, `sha1_hashes` (list), `sha256_hashes` (list) |
+
+共通 field:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `name` | `string` | (required) | Internal reference name. `hosting[].web_app` / `app_hosting[].web_app` で参照される key。Rename = destroy-recreate なので immutable 扱い。 |
+| `name` | `string` | (required) | Internal reference name (type 跨いで unique)。`hosting[].app` / `app_hosting[].app` で参照される key。Rename = destroy-recreate なので immutable 扱い。 |
+| `type` | `string` | (required) | `"web"` / `"ios"` / `"android"` |
 | `display_name` | `string` | `name` 流用 | Firebase Console 表示名 |
 
-If `web_app` is omitted but `hosting` or `app_hosting` is present, a single entry named `default` is auto-created.
+If `apps` is omitted but `hosting` or `app_hosting` is present, a single `{name: "default", type: "web"}` entry is auto-created. `hosting` / `app_hosting` can only reference `type: "web"` entries (Firebase 仕様)。
 
 <details><summary>Ja</summary>
 
-複数 Web App を登録できる list。各 entry が `google_firebase_web_app` を 1 つ作る。発行された `app_id` は名前一致する `hosting[]` / `app_hosting[]` から参照される。
+Web / iOS / Android の Firebase App 登録を 1 array で表現する。`type` で discriminate して対応する Firebase Resource (`google_firebase_web_app` / `_apple_app` / `_android_app`) を作る。発行された `app_id` (`1:XXX:web:abc...` 等) は name 経由で `hosting[]` / `app_hosting[]` から参照される (web type のみ link 可)。
 
-`web_app` を完全に省略しても、`hosting` / `app_hosting` が指定されていれば `default` 名で 1 件自動作成される。
+`apps` を完全に省略しても、`hosting` / `app_hosting` があれば `default` 名で type=web を 1 件自動作成 + 自動 link される。
 
 </details>
 
@@ -177,11 +186,11 @@ List of Firebase Hosting sites.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `site_id` | `string` | (required) | Globally unique site ID (URL は `<site_id>.web.app`) |
-| `web_app` | `string` | (single web_app 時のみ省略可) | 紐付ける `web_app[].name`。複数 web_app があるなら明示必須 (省略は plan-time error) |
+| `app` | `string` | (type=web の app が 1 件のみ時に省略可) | 紐付ける `apps[].name`。**type=web のみ参照可**。複数 / 0 件で省略 / 存在しない名前 / 非 web type を指定 = plan-time error |
 
 <details><summary>Ja</summary>
 
-複数 Hosting site を登録できる list。`web_app` 省略時、`web_app` が 1 件しかなければ自動でそれに link、複数あるなら plan-time error。
+複数 Hosting site を登録できる list。`app` 省略時、type=web の `apps` が 1 件しかなければ自動 link、複数 / 0 件あるなら plan-time error。
 
 </details>
 
@@ -193,8 +202,8 @@ List of Firebase App Hosting backends.
 |-------|------|---------|-------------|
 | `backend_id` | `string` | (required) | Backend ID (project-unique, Firebase Console title)。`[a-z][a-z0-9-]{2,30}[a-z0-9]` |
 | `location` | `string` | `var.region` | backend location |
-| `web_app` | `string` | (single web_app 時のみ省略可) | 紐付ける `web_app[].name`。`app_id` と排他 |
-| `app_id` | `string` | (省略可) | 外部 Web App を pin したい場合のみ指定。`web_app` と排他 (両方書くと plan-time error) |
+| `app` | `string` | (type=web の app が 1 件のみ時に省略可) | 紐付ける `apps[].name`。**type=web のみ参照可**。`app_id` と排他 |
+| `app_id` | `string` | (省略可) | 外部 Web App を pin したい場合のみ指定。`app` と排他 (両方書くと plan-time error) |
 | `service_account` | `string` | (auto-created) | Compute SA email。Empty なら project 共有の `firebase-app-hosting-compute` SA を 1 つだけ自動作成して全 backend で共有 |
 | `serving_locality` | `string` | `"GLOBAL_ACCESS"` | `GLOBAL_ACCESS` / `REGION_LOCKED` |
 
