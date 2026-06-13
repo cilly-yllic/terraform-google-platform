@@ -10,7 +10,7 @@ describe("buildTemplateFiles", () => {
   it("references the firebase-project-platform module", () => {
     const { "main.tf": main } = buildTemplateFiles(undefined);
     expect(main).toContain(
-      'source = "cilly-yllic/firebase-project-platform/google"',
+      'source = "cilly-yllic/platform/google//modules/firebase-project-platform"',
     );
   });
 
