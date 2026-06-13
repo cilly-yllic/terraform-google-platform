@@ -42,7 +42,10 @@ environments:
     firebase_platform:
       firebase: true
       firestore: true
-      hosting: true
+      # hosting / app_hosting は配列で複数 site / backend を持てる。web_app は
+      # 省略時 "default" 名で自動作成、hosting / app_hosting から自動 link される。
+      hosting:
+        - site_id: my-service-prd-001-web
   dev-001:
     # status / labels は省略可（active / [] が default）
     labels:

@@ -40588,14 +40588,13 @@ function resolveAutoApply(policy, env) {
 // ---------------------------------------------------------------------------
 // Feature flag conversion: null | true | object → HCL literal
 // ---------------------------------------------------------------------------
+// 単数 feature (null | true | false | object) を取る key 群。
 const FEATURE_KEYS = [
     "firebase",
     "authentication",
     "firestore",
     "rtdb",
     "storage",
-    "hosting",
-    "app_hosting",
     "data_connect",
     "fcm",
     "remote_config",
@@ -40611,6 +40610,14 @@ const FEATURE_KEYS = [
     "eventarc",
     "cloud_run",
     "cloud_functions",
+];
+// 複数 instance 持てる feature (null | array of objects) を取る key 群。
+// web_app / hosting / app_hosting は同 project 内で複数登録できるため、
+// settings.yml で配列を書いてもらい、Terraform 側で for_each で展開する。
+const LIST_FEATURE_KEYS = [
+    "web_app",
+    "hosting",
+    "app_hosting",
 ];
 const PASSTHROUGH_KEYS = [
     "region",
@@ -40643,13 +40650,13 @@ function toHclValue(val) {
     return JSON.stringify(val);
 }
 /**
- * Normalize a feature flag value.
+ * Normalize a feature flag value (single-instance features).
  *   null / undefined → null
  *   true / "true" → true
  *   false / "false" → null  (disable the feature)
  *   object → the object itself (passed as HCL)
  *
- * Throws for unexpected types (number, non-boolean string, etc.)
+ * Throws for unexpected types (number, array, non-boolean string, etc.)
  */
 function normalizeFeatureFlag(key, val) {
     if (val === null || val === undefined)
@@ -40664,6 +40671,33 @@ function normalizeFeatureFlag(key, val) {
     if (typeof val === "object")
         return val;
     throw new Error(`Invalid value for feature key "${key}": expected null, boolean, or object but got ${typeof val} (${JSON.stringify(val)})`);
+}
+/**
+ * Normalize a list-feature value (multi-instance features: web_app / hosting /
+ * app_hosting)。
+ *   null / undefined → null
+ *   false / "false" → null  (disable the feature)
+ *   array → array (validated as object-array)
+ *   その他 → throw
+ *
+ * 単数 object / true / 文字列の各 shorthand はサポートしない (array にしてから
+ * 渡す前提)。
+ */
+function normalizeListFeatureFlag(key, val) {
+    if (val === null || val === undefined)
+        return null;
+    if (val === false || val === "false")
+        return null;
+    if (Array.isArray(val)) {
+        for (let i = 0; i < val.length; i++) {
+            const item = val[i];
+            if (item === null || typeof item !== "object" || Array.isArray(item)) {
+                throw new Error(`Invalid value for list-feature key "${key}" at index ${i}: expected an object but got ${Array.isArray(item) ? "array" : typeof item} (${JSON.stringify(item)})`);
+            }
+        }
+        return val;
+    }
+    throw new Error(`Invalid value for list-feature key "${key}": expected null or array of objects but got ${typeof val} (${JSON.stringify(val)})`);
 }
 // ---------------------------------------------------------------------------
 // Build Terraform variable specs from firebase_platform config
@@ -40680,6 +40714,17 @@ function buildTerraformVariables(projectId, firebasePlatform) {
     for (const key of FEATURE_KEYS) {
         const raw = firebasePlatform[key];
         const normalized = normalizeFeatureFlag(key, raw);
+        vars.push({
+            key,
+            value: toHclValue(normalized),
+            category: "terraform",
+            hcl: true,
+            sensitive: false,
+        });
+    }
+    for (const key of LIST_FEATURE_KEYS) {
+        const raw = firebasePlatform[key];
+        const normalized = normalizeListFeatureFlag(key, raw);
         vars.push({
             key,
             value: toHclValue(normalized),
@@ -40926,6 +40971,7 @@ ${VERSION_PLACEHOLDER}
   firestore       = var.firestore
   rtdb            = var.rtdb
   storage         = var.storage
+  web_app         = var.web_app
   hosting         = var.hosting
   app_hosting     = var.app_hosting
   data_connect    = var.data_connect
@@ -40980,6 +41026,11 @@ variable "rtdb" {
 }
 
 variable "storage" {
+  type    = any
+  default = null
+}
+
+variable "web_app" {
   type    = any
   default = null
 }
