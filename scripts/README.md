@@ -263,6 +263,77 @@ GCP_RUNTIME_SERVICE_ACCOUNT=cloud-run-router-runtime@infra-bootstrap.iam.gservic
 
 ---
 
+## Cloud Run router runtime secrets
+
+Cloud Run service が runtime で読む 2 つの secret (GCP Secret Manager) と、Action A が TFC Notification 作成時に Token として使う GitHub Secret (`WEBHOOK_SECRET`) の同期管理を make ターゲットで提供します。
+
+### 関係する値
+
+| 値 | 保管先 | 用途 |
+|----|------|------|
+| **TFC HMAC shared secret** (任意のランダム文字列) | GCP Secret Manager `tfc-notification-secret` | Cloud Run router が起動時に読む `TFC_NOTIFICATION_SECRET` env |
+| 同じ値 (sync) | 各 project repo の GitHub Secret `WEBHOOK_SECRET` | Action A が `enable_webhook_notification: true` で TFC Notification 作成時の Token に使う |
+| **GitHub App Private Key (PEM)** | GCP Secret Manager `github-app-private-key` | Cloud Run router が起動時に読む `GITHUB_APP_PRIVATE_KEY` env |
+
+両側 (Secret Manager と GitHub Secret) で同じ HMAC 値を持たせる必要があるため、片方だけ rotate すると signature 検証が失敗します。
+
+### Make ターゲット
+
+```bash
+# 初回 (生成 → Secret Manager 登録 → GitHub Secret 同期)
+make setup-router-hmac
+
+# ローテーション (新しい HMAC 生成 → Secret Manager に新 version → GitHub Secret 再同期)
+make rotate-router-hmac
+
+# 既存値を新規 repo に同期 (rotate せずに WEBHOOK_SECRET_REPOS に追加した repo にだけ push)
+make sync-router-hmac
+
+# GitHub App private key を登録 (新規 or 新 version)
+make set-github-app-private-key PEM=path/to/key.pem
+```
+
+### `.env` 設定
+
+WEBHOOK_SECRET の同期先 GitHub repo をスペース区切りで列挙:
+
+```bash
+WEBHOOK_SECRET_REPOS="mooodone/service1 mooodone/service2"
+```
+
+空のままなら GCP Secret Manager 側だけ更新され、GitHub Secret の同期はスキップされます。後から `gh secret set WEBHOOK_SECRET --repo <owner/repo> --body "$VALUE"` で個別に設定することも可能。
+
+### 検証 (`make bootstrap-print-env`)
+
+`ENABLE_CLOUD_RUN_DEPLOY_SETUP=true` のとき、`make bootstrap-print-env` の出力に以下 2 セクションが追加されます。**全インフラ設定値の状態がこのコマンドで一覧できる** ように設計されています:
+
+```text
+============================================
+ Runtime Secrets (GCP Secret Manager)
+============================================
+
+  tfc-notification-secret        ✓ configured (versions: 1)
+  github-app-private-key         ✗ 未設定  → make set-github-app-private-key PEM=path/to/key.pem
+
+============================================
+ WEBHOOK_SECRET sync targets (.env)
+============================================
+
+  ✓ mooodone/service1
+  ✓ mooodone/service2
+```
+
+### Rotation の注意点
+
+Cloud Run service は環境変数を Secret Manager の **特定 version** (`:latest`) から読みます。新 version を追加しただけでは既に起動中の Cloud Run revision には反映されません。HMAC を rotate した後は:
+
+1. `make rotate-router-hmac` で新値を Secret Manager + GitHub Secret に push
+2. Cloud Run router を **再 deploy** (revision を更新) して新 version を読み込ませる
+
+の 2 ステップが必要です。
+
+---
+
 ## `.env` と `.envrc` の使い分け
 
 | ファイル | ロード方法 | 用途 |
