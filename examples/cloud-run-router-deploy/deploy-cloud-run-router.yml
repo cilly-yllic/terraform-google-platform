@@ -1,0 +1,263 @@
+name: Deploy cloud-run-router
+
+# ============================================================================
+# ⚠️ これは **reference workflow** です。
+#
+# 本ファイルは `examples/` 配下に置かれており、GitHub Actions には自動拾い
+# 上げ**されません**。本リポジトリで実 deploy 用途には使われません。
+#
+# 推奨の利用方法:
+#   1. このファイルを fork ユーザーの **private な deploy 用 repo** にコピー
+#      (例: <your-org>/infrastructure 等)
+#   2. 配置先: `.github/workflows/deploy-cloud-run-router.yml`
+#   3. 必要に応じて `SOURCE_REPO` / region / service 名等を調整
+#   4. `scripts/bootstrap.sh` の opt-in セットアップで作成した WIF Provider の
+#      `attribute.repository == "<your-org>/<your-deploy-repo>"` を、
+#      **deploy 用 private repo に向けて**おくこと
+#   5. private repo 側の Variables / Secrets を設定:
+#      - Variables: GCP_PROJECT_ID / GCP_WORKLOAD_IDENTITY_PROVIDER /
+#                   GCP_DEPLOY_SERVICE_ACCOUNT / GCP_RUNTIME_SERVICE_ACCOUNT /
+#                   GH_APP_ID
+#      - Secrets:   DEPLOY_WEBHOOK (Slack incoming webhook URL),
+#                   GH_APP_PRIVATE_KEY (GitHub App PEM)
+#
+# 詳細: examples/cloud-run-router-deploy/README.md
+# ============================================================================
+#
+# 運用方針:
+#   - 起動経路は 2 つ:
+#     a) workflow_dispatch で手動起動 (Run workflow ボタン)
+#     b) Initialize / Rotate TFC_NOTIFICATION_SECRET workflow が成功で完了したとき自動起動
+#   - 常に source repo の main HEAD を取得して deploy する (tag 概念は廃止)
+#   - image tag は `main-<short-sha>` で commit traceability を確保
+#   - deploy 後に Cloud Run service URL + /webhook を Repository Secret
+#     CLOUD_RUN_WEBHOOK_URL に登録 (Action A がこれを TFC Notification 設定に使う)
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Initialize / Rotate TFC_NOTIFICATION_SECRET"]
+    types: [completed]
+
+permissions:
+  contents: read
+  id-token: write   # WIF 用 OIDC token の発行に必須
+
+# 同時 deploy 防止 (進行中の deploy は取り消さない)
+concurrency:
+  group: deploy-cloud-run-router
+  cancel-in-progress: false
+
+env:
+  # ↓ private deploy repo にコピーした場合、ここを自リポジトリの source repo に
+  #    変更してください (本リポジトリを fork している場合は <your-org>/<fork-name>)。
+  SOURCE_REPO: cilly-yllic/terraform-google-platform
+  SERVICE_NAME: cloud-run-router
+  REGION: asia-northeast1
+  IMAGE_REPO: gcr.io   # gcr.io alias 経由で Artifact Registry に push される
+
+jobs:
+  deploy:
+    # workflow_dispatch なら常に走る。workflow_run なら init success のときだけ走る。
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    name: Deploy from ${{ github.event.repository.name }} main
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source repo main HEAD
+        # public repo なので token 不要。main の最新 commit を浅く fetch する
+        # (tag 概念は廃止したので fetch-depth=1 で十分)。
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SOURCE_REPO }}
+          ref: refs/heads/main
+          fetch-depth: 1
+
+      - name: Capture source commit SHA
+        id: source
+        run: |
+          set -euo pipefail
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          FULL_SHA=$(git rev-parse HEAD)
+          {
+            echo "short_sha=${SHORT_SHA}"
+            echo "full_sha=${FULL_SHA}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "::notice::Deploying from ${{ env.SOURCE_REPO }}@main (commit ${SHORT_SHA})"
+
+      - name: Authenticate to GCP via Workload Identity Federation
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build & push container image
+        working-directory: cloud-run-router
+        run: |
+          set -euo pipefail
+          IMAGE="${{ env.IMAGE_REPO }}/${{ vars.GCP_PROJECT_ID }}/${{ env.SERVICE_NAME }}:main-${{ steps.source.outputs.short_sha }}"
+          echo "Building image: ${IMAGE}"
+          gcloud builds submit \
+            --tag "${IMAGE}" \
+            --project="${{ vars.GCP_PROJECT_ID }}"
+          echo "IMAGE=${IMAGE}" >> "${GITHUB_ENV}"
+
+      - name: Sync runtime secrets to GCP Secret Manager
+        # GitHub Secrets を single source of truth として、毎 deploy で
+        # Secret Manager に新 version を追加する。新 Cloud Run revision は
+        # `:latest` を参照するので、自動的に最新値が runtime に反映される。
+        #
+        # 前提 (source repo の make bootstrap で provision 済み):
+        #   - Secret Manager の container (tfc-notification-secret /
+        #     github-app-private-key) が作成済み
+        #   - deploy SA に roles/secretmanager.secretVersionAdder 付与済み
+        env:
+          TFC_NOTIFICATION_SECRET: ${{ secrets.TFC_NOTIFICATION_SECRET }}
+          GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${TFC_NOTIFICATION_SECRET}" ]]; then
+            echo "::error::secrets.TFC_NOTIFICATION_SECRET is not set. Run the 'Initialize / Rotate TFC_NOTIFICATION_SECRET' workflow first."
+            exit 1
+          fi
+          if [[ -z "${GH_APP_PRIVATE_KEY}" ]]; then
+            echo "::error::secrets.GH_APP_PRIVATE_KEY is not set. Register the GitHub App PEM manually first."
+            exit 1
+          fi
+          printf '%s' "${TFC_NOTIFICATION_SECRET}" | gcloud secrets versions add tfc-notification-secret \
+            --project="${{ vars.GCP_PROJECT_ID }}" \
+            --data-file=- > /dev/null
+          printf '%s' "${GH_APP_PRIVATE_KEY}" | gcloud secrets versions add github-app-private-key \
+            --project="${{ vars.GCP_PROJECT_ID }}" \
+            --data-file=- > /dev/null
+          echo "Synced TFC_NOTIFICATION_SECRET → tfc-notification-secret and GH_APP_PRIVATE_KEY → github-app-private-key (new versions added)."
+
+      - name: Deploy to Cloud Run
+        run: |
+          set -euo pipefail
+          gcloud run deploy "${{ env.SERVICE_NAME }}" \
+            --image "${IMAGE}" \
+            --project="${{ vars.GCP_PROJECT_ID }}" \
+            --region="${{ env.REGION }}" \
+            --platform=managed \
+            --service-account="${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}" \
+            --set-secrets="TFC_NOTIFICATION_SECRET=tfc-notification-secret:latest,GITHUB_APP_PRIVATE_KEY=github-app-private-key:latest" \
+            --set-env-vars="GITHUB_APP_ID=${{ vars.GH_APP_ID }},METADATA_SOURCE=run_message,DISPATCH_EVENT_TYPE=firebase_platform_requested" \
+            --allow-unauthenticated
+
+      - name: Capture deployed metadata
+        # 後続の URL 登録 / summary / Slack 通知で URL と revision を使うので、
+        # describe を 1 回だけ実行して step outputs に乗せる。
+        id: meta
+        run: |
+          set -euo pipefail
+          SERVICE_URL=$(gcloud run services describe "${{ env.SERVICE_NAME }}" \
+            --project="${{ vars.GCP_PROJECT_ID }}" \
+            --region="${{ env.REGION }}" \
+            --format='value(status.url)')
+          SERVICE_REVISION=$(gcloud run services describe "${{ env.SERVICE_NAME }}" \
+            --project="${{ vars.GCP_PROJECT_ID }}" \
+            --region="${{ env.REGION }}" \
+            --format='value(status.latestReadyRevisionName)')
+          {
+            echo "service_url=${SERVICE_URL}"
+            echo "service_revision=${SERVICE_REVISION}"
+            echo "webhook_url=${SERVICE_URL}/webhook"
+          } >> "${GITHUB_OUTPUT}"
+          echo "::notice::Deployed to ${SERVICE_URL} (revision: ${SERVICE_REVISION})"
+
+      - name: Get GitHub App installation token (for Secrets:Write)
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+      - name: Save Cloud Run webhook URL as Repository Secret
+        # Action A (provision-project workflow) が `cloud_run_webhook_url` 入力に
+        # secrets.CLOUD_RUN_WEBHOOK_URL を渡している。deploy のたびに最新値で
+        # 上書きすることで、Cloud Run URL が変わった場合 (新 service / region 変更等)
+        # にも自動追従する。
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          WEBHOOK_URL: ${{ steps.meta.outputs.webhook_url }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${WEBHOOK_URL}" | gh secret set CLOUD_RUN_WEBHOOK_URL \
+            --repo "${{ github.repository }}" \
+            --body -
+          echo "::notice::Saved CLOUD_RUN_WEBHOOK_URL=${WEBHOOK_URL}"
+
+      - name: Write step summary
+        if: success()
+        run: |
+          {
+            echo "## Deployment Summary"
+            echo ""
+            echo "- **Source**: \`${{ env.SOURCE_REPO }}@main\` (commit \`${{ steps.source.outputs.short_sha }}\`)"
+            echo "- **Image**: \`${IMAGE}\`"
+            echo "- **Cloud Run URL**: ${{ steps.meta.outputs.service_url }}"
+            echo "- **Latest revision**: \`${{ steps.meta.outputs.service_revision }}\`"
+            echo "- **TFC Notification destination**: ${{ steps.meta.outputs.webhook_url }}"
+            echo "- **Saved to Repository Secret**: \`CLOUD_RUN_WEBHOOK_URL\`"
+            echo ""
+            echo "**Trigger**: \`${{ github.event_name }}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Notify Slack on success
+        # deploy 自体は成功している状態で通知に失敗しても workflow 全体は成功扱いに
+        # したい (Slack 障害でデプロイ完了を覆さない) ため continue-on-error。
+        if: success()
+        continue-on-error: true
+        env:
+          SLACK_WEBHOOK: ${{ secrets.DEPLOY_WEBHOOK }}
+          SOURCE_REPO: ${{ env.SOURCE_REPO }}
+          SHORT_SHA: ${{ steps.source.outputs.short_sha }}
+          SERVICE_URL: ${{ steps.meta.outputs.service_url }}
+          WEBHOOK_URL: ${{ steps.meta.outputs.webhook_url }}
+          SERVICE_REVISION: ${{ steps.meta.outputs.service_revision }}
+          TRIGGER: ${{ github.event_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          # Slack Block Kit を jq で組み立てて curl で POST。
+          # bash の heredoc 内で `\`...\`` を扱うとシェルがバックティックを
+          # 評価してしまうので jq の方が安全。
+          jq -n \
+            --arg source_repo "${SOURCE_REPO}" \
+            --arg short_sha "${SHORT_SHA}" \
+            --arg revision "${SERVICE_REVISION}" \
+            --arg url "${SERVICE_URL}" \
+            --arg webhook_url "${WEBHOOK_URL}" \
+            --arg trigger "${TRIGGER}" \
+            --arg run_url "${RUN_URL}" \
+            --arg run_num "${RUN_NUMBER}" \
+            '{
+              blocks: [
+                {
+                  type: "header",
+                  text: {type: "plain_text", text: ":rocket: cloud-run-router deployed", emoji: true}
+                },
+                {
+                  type: "section",
+                  fields: [
+                    {type: "mrkdwn", text: "*Source*\n`\($source_repo)@main` (`\($short_sha)`)"},
+                    {type: "mrkdwn", text: "*Revision*\n`\($revision)`"},
+                    {type: "mrkdwn", text: "*Service URL*\n<\($url)>"},
+                    {type: "mrkdwn", text: "*TFC Notification destination*\n<\($webhook_url)>"}
+                  ]
+                },
+                {
+                  type: "context",
+                  elements: [
+                    {type: "mrkdwn", text: "Trigger: `\($trigger)` / Workflow: <\($run_url)|run #\($run_num)>"}
+                  ]
+                }
+              ]
+            }' \
+            | curl -fsS -X POST -H 'Content-Type: application/json' \
+                -d @- "${SLACK_WEBHOOK}"
