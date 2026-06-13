@@ -331,73 +331,20 @@ CMD ["node", "dist/index.js"]
 
 ### 2. Deploy via GitHub Actions (推奨)
 
-`make bootstrap-print-env` の出力を **GitHub repo の Settings → Secrets and variables → Actions → Variables** に登録 (Secrets ではなく Variables で OK; 値自体は秘匿情報ではない):
+deploy 用の **reference workflow** を [`examples/cloud-run-router-deploy/`](../examples/cloud-run-router-deploy/) に用意してあります。本リポジトリ自身では実行されません (`examples/` 配下なので GitHub Actions に拾われない)。
 
-| Variable | 値の例 | 取得元 |
-|----------|-------|-------|
-| `GCP_PROJECT_ID` | `infra-bootstrap` | `make bootstrap-print-env` |
-| `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/{number}/locations/global/workloadIdentityPools/terraform-cloud/providers/github-actions` | `make bootstrap-print-env` |
-| `GCP_DEPLOY_SERVICE_ACCOUNT` | `cloud-run-router-deploy@infra-bootstrap.iam.gserviceaccount.com` | `make bootstrap-print-env` |
-| `GCP_RUNTIME_SERVICE_ACCOUNT` | `cloud-run-router-runtime@infra-bootstrap.iam.gserviceaccount.com` | `make bootstrap-print-env` |
-| `GH_APP_ID` | `123456` (数値) | GitHub App 設定画面の **About → App ID** |
+**推奨パターン**: workflow YAML を**別の private repo にコピー**して使用 (公開リポジトリに deploy 権限を持たせない隔離)。詳細な手順 / Variables / Secrets / Secret Manager 設定は [`examples/cloud-run-router-deploy/README.md`](../examples/cloud-run-router-deploy/README.md) を参照。
 
-> **注意**: GitHub Actions の Variable / Secret 名は `GITHUB_` prefix が予約されており作成できないため、GitHub App ID は `GH_APP_ID` という名前で登録します。workflow 内で Cloud Run service に渡す際に `GITHUB_APP_ID=${{ vars.GH_APP_ID }}` のように env 名を `GITHUB_APP_ID` にリマップしてください (cloud-run-router の runtime は `GITHUB_APP_ID` という env 名を読みます)。
+主要な前提:
 
-workflow の最小サンプル (`.github/workflows/deploy-cloud-run-router.yml`):
+| 項目 | 値 |
+|------|---|
+| WIF Provider attribute condition | `assertion.repository == "<your-deploy-repo>"` (= bootstrap の `GITHUB_REPOSITORY`) |
+| Variables (deploy repo) | `GCP_PROJECT_ID` / `GCP_WORKLOAD_IDENTITY_PROVIDER` / `GCP_DEPLOY_SERVICE_ACCOUNT` / `GCP_RUNTIME_SERVICE_ACCOUNT` / `GH_APP_ID` |
+| Secrets (deploy repo) | `DEPLOY_WEBHOOK` (Slack) |
+| GCP Secret Manager | `tfc-notification-secret` / `github-app-private-key` |
 
-```yaml
-name: Deploy cloud-run-router
-
-on:
-  push:
-    branches: [main]
-    paths: ["cloud-run-router/**"]
-  workflow_dispatch:
-
-permissions:
-  contents: read
-  id-token: write   # WIF 用 OIDC token を発行するために必須
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: cloud-run-router
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
-
-      - uses: google-github-actions/setup-gcloud@v2
-
-      - name: Build & push container image
-        run: |
-          gcloud builds submit \
-            --tag "gcr.io/${{ vars.GCP_PROJECT_ID }}/cloud-run-router:${{ github.sha }}" \
-            --project="${{ vars.GCP_PROJECT_ID }}"
-
-      - name: Deploy to Cloud Run
-        run: |
-          gcloud run deploy cloud-run-router \
-            --image "gcr.io/${{ vars.GCP_PROJECT_ID }}/cloud-run-router:${{ github.sha }}" \
-            --project="${{ vars.GCP_PROJECT_ID }}" \
-            --region=asia-northeast1 \
-            --platform=managed \
-            --service-account="${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}" \
-            --set-secrets="TFC_NOTIFICATION_SECRET=tfc-notification-secret:latest,GITHUB_APP_PRIVATE_KEY=github-app-private-key:latest" \
-            --set-env-vars="GITHUB_APP_ID=${{ vars.GH_APP_ID }},DISPATCH_EVENT_TYPE=firebase_platform_requested" \
-            --allow-unauthenticated
-```
-
-ポイント:
-
-- `--service-account=` で **runtime SA** を指定 (deploy SA ではない)。これにより Cloud Run service の実行権限は runtime SA に絞られる
-- secrets は Secret Manager から `--set-secrets` で env として渡す (workflow に値を埋め込まない)
-- `paths: ["cloud-run-router/**"]` で router のコード変更時のみデプロイが走るよう絞っている
+> **注意**: GitHub Actions の Variable / Secret 名は `GITHUB_` prefix が予約されており作成できないため、GitHub App ID は `GH_APP_ID` という名前で登録します。workflow 内で Cloud Run service に渡す際は `--set-env-vars="GITHUB_APP_ID=${{ vars.GH_APP_ID }}"` の形で env 名を `GITHUB_APP_ID` にリマップしてください (cloud-run-router の runtime は `GITHUB_APP_ID` env を読みます)。
 
 ### 3. Cloud Run deploy (gcloud, 手動 fallback)
 

@@ -108,7 +108,10 @@ module "project_bootstrap" {
 
 TFC notification を受けて GitHub `repository_dispatch` を発火する Cloud Run service。
 
-詳細: [`cloud-run-router/`](./cloud-run-router/)
+- ソースコードと仕様: [`cloud-run-router/`](./cloud-run-router/)
+- デプロイ用 reference workflow: [`examples/cloud-run-router-deploy/`](./examples/cloud-run-router-deploy/)
+  (推奨は **private な deploy 専用 repo** にコピーして使用)
+- 認証 / IAM の事前セットアップ: [`scripts/README.md` — Cloud Run router deploy 拡張](./scripts/README.md#cloud-run-router-deploy-拡張-opt-in)
 
 ---
 
@@ -147,12 +150,13 @@ make create-billing-account-print-env  # 作成された ID を確認
 
 ## Examples
 
-| Module | Example | Path |
-|--------|---------|------|
-| firebase-project-platform | minimal | [`examples/firebase-project-platform/minimal/`](./examples/firebase-project-platform/minimal/) |
-| firebase-project-platform | full | [`examples/firebase-project-platform/full/`](./examples/firebase-project-platform/full/) |
-| project-bootstrap | minimal | [`examples/project-bootstrap/minimal/`](./examples/project-bootstrap/minimal/) |
-| project-bootstrap | complete | [`examples/project-bootstrap/complete/`](./examples/project-bootstrap/complete/) |
+| 種別 | Path | 内容 |
+|-----|------|------|
+| Terraform Module | [`examples/firebase-project-platform/minimal/`](./examples/firebase-project-platform/minimal/) | firebase-project-platform 最小構成 |
+| Terraform Module | [`examples/firebase-project-platform/full/`](./examples/firebase-project-platform/full/) | firebase-project-platform フル構成 |
+| Terraform Module | [`examples/project-bootstrap/minimal/`](./examples/project-bootstrap/minimal/) | project-bootstrap 最小構成 |
+| Terraform Module | [`examples/project-bootstrap/complete/`](./examples/project-bootstrap/complete/) | project-bootstrap 完全構成 |
+| GitHub Actions | [`examples/cloud-run-router-deploy/`](./examples/cloud-run-router-deploy/) | cloud-run-router の deploy workflow (reference, 自リポにコピーして使用) |
 
 ---
 
@@ -184,9 +188,10 @@ terraform-google-platform/
 │   ├── firebase-project-platform/
 │   │   ├── minimal/
 │   │   └── full/
-│   └── project-bootstrap/
-│       ├── minimal/
-│       └── complete/
+│   ├── project-bootstrap/
+│   │   ├── minimal/
+│   │   └── complete/
+│   └── cloud-run-router-deploy/      # cloud-run-router deploy workflow (reference)
 ├── docs/
 │   ├── getting-started/              # エンドツーエンド導入ガイド
 │   ├── firebase-project-platform/    # Firebase Module ドキュメント
