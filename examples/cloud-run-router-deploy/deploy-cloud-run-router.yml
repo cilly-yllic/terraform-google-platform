@@ -100,9 +100,18 @@ jobs:
           set -euo pipefail
           IMAGE="${{ env.IMAGE_REPO }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.SERVICE_NAME }}:main-${{ steps.source.outputs.short_sha }}"
           echo "Building image: ${IMAGE}"
+          # --suppress-logs: gcloud builds submit は log streaming のために
+          # project レベル roles/viewer または roles/owner を CLI 側で
+          # hardcoded check する (実 API 権限とは別の pre-check) ため、
+          # deploy SA に Viewer を付けない方針だと build 起動後に
+          # "can only stream logs if you are Viewer/Owner" で exit 1 になる。
+          # log streaming を skip しても build 完了は wait するので、
+          # 失敗 / 成功は exit code で正しく判定される。失敗時の log は
+          # `Logs are available at <URL>` の console URL から確認できる。
           gcloud builds submit \
             --tag "${IMAGE}" \
-            --project="${{ secrets.GCP_PROJECT_ID }}"
+            --project="${{ secrets.GCP_PROJECT_ID }}" \
+            --suppress-logs
           echo "IMAGE=${IMAGE}" >> "${GITHUB_ENV}"
 
       - name: Sync runtime secrets to GCP Secret Manager
