@@ -30285,7 +30285,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.buildTemplateFiles = buildTemplateFiles;
 const VERSION_PLACEHOLDER = "##MODULE_VERSION_LINE##";
 const MAIN_TF = `module "project_factory" {
-  source = "cilly-yllic/project-bootstrap/google"
+  source = "cilly-yllic/platform/google//modules/project-bootstrap"
 ${VERSION_PLACEHOLDER}
   for_each = jsondecode(var.environments)
 

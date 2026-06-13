@@ -54,9 +54,10 @@ inputs:
     required: false
   module_version:
     description: >
-      Version constraint for the cilly-yllic/project-bootstrap/google Registry module
-      written into the uploaded main.tf (e.g. "1.2.3" or "~> 1.0").
-      Leave empty to omit the version attribute and always use the latest.
+      Version constraint for the cilly-yllic/platform/google Registry module
+      (project-bootstrap sub-module) written into the uploaded main.tf
+      (e.g. "1.2.3" or "~> 1.0"). Leave empty to omit the version attribute and
+      always use the latest.
     required: false
     default: ""
   labels:

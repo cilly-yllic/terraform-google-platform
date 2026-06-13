@@ -1,7 +1,7 @@
 const VERSION_PLACEHOLDER = "##MODULE_VERSION_LINE##";
 
 const MAIN_TF = `module "firebase_platform" {
-  source = "cilly-yllic/firebase-project-platform/google"
+  source = "cilly-yllic/platform/google//modules/firebase-project-platform"
 ${VERSION_PLACEHOLDER}
 
   project_id = var.project_id

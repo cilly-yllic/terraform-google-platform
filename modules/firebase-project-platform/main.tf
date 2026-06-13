@@ -3,7 +3,7 @@
  *
  * ```tf
  * module "firebase_platform" {
- *   source  = "cilly-yllic/firebase-project-platform/google"
+ *   source  = "cilly-yllic/platform/google//modules/firebase-project-platform"
  *   # version = "x.y.z"
  *
  *   project_id = "my-project-id"

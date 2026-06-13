@@ -9,7 +9,9 @@ describe("buildTemplateFiles", () => {
 
   it("references the project-bootstrap module", () => {
     const { "main.tf": main } = buildTemplateFiles();
-    expect(main).toContain('source = "cilly-yllic/project-bootstrap/google"');
+    expect(main).toContain(
+      'source = "cilly-yllic/platform/google//modules/project-bootstrap"',
+    );
   });
 
   it("omits the version line when moduleVersion is undefined", () => {
