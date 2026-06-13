@@ -31,12 +31,49 @@ print_env() {
     echo "GCP_WORKLOAD_IDENTITY_PROVIDER=${github_provider_full_name}"
     echo "GCP_DEPLOY_SERVICE_ACCOUNT=$(deploy_sa_email)"
     echo "GCP_RUNTIME_SERVICE_ACCOUNT=$(runtime_sa_email)"
+    echo "GH_APP_ID=<GitHub App 設定画面の About → App ID 数値>"
+    echo ""
+    echo "# Set this as a Repository Secret (not Variable — sensitive):"
+    echo "DEPLOY_WEBHOOK=<Slack Incoming Webhook URL>"
     echo ""
     echo "# Usage in workflow (google-github-actions/auth@v2):"
     echo "#   - uses: google-github-actions/auth@v2"
     echo "#     with:"
     echo "#       workload_identity_provider: \${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}"
     echo "#       service_account: \${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}"
+    echo ""
+
+    # Cloud Run runtime secrets (GCP Secret Manager) の存在状態を表示。
+    # 値そのものは表示しない (sensitive)。
+    echo "============================================"
+    echo " Runtime Secrets (GCP Secret Manager)"
+    echo "============================================"
+    echo ""
+    print_runtime_secret_status "tfc-notification-secret" "→ deploy workflow を実行 (or make setup-router-hmac で直接投入)"
+    print_runtime_secret_status "github-app-private-key"  "→ deploy workflow を実行 (or make set-github-app-private-key PEM=... で直接投入)"
+    echo ""
+
+    # TFC_NOTIFICATION_SECRET の同期対象 GitHub repo リスト。
+    # `.env` の TFC_NOTIFICATION_SECRET_REPOS で管理する。
+    # GH_ORG が設定されていれば org-level secret モード、なければ repo-level。
+    echo "============================================"
+    echo " TFC_NOTIFICATION_SECRET sync targets (.env)"
+    echo "============================================"
+    echo ""
+    if [[ -n "${TFC_NOTIFICATION_SECRET_REPOS:-}" ]]; then
+      if [[ -n "${GH_ORG:-}" ]]; then
+        echo "  Mode: org-level (GH_ORG=${GH_ORG}, visibility=selected)"
+      else
+        echo "  Mode: repo-level  (set GH_ORG=<org> in .env for org-level sync)"
+      fi
+      echo ""
+      local repo
+      for repo in ${TFC_NOTIFICATION_SECRET_REPOS}; do
+        echo "  ✓ ${repo}"
+      done
+    else
+      echo "  (none — set TFC_NOTIFICATION_SECRET_REPOS=\"owner/repo1 owner/repo2\" in .env)"
+    fi
     echo ""
   fi
 }

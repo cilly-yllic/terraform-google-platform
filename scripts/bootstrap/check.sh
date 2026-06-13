@@ -71,6 +71,16 @@ run_check() {
     else
       info "GitHub WIF Provider $(github_provider_id) does not exist (will be created on apply)."
     fi
+
+    local secret
+    for secret in tfc-notification-secret github-app-private-key; do
+      info "Checking runtime secret container '${secret}'..."
+      if project_exists && runtime_secret_exists "${secret}"; then
+        info "  Container '${secret}' exists."
+      else
+        info "  Container '${secret}' does not exist (will be created on apply)."
+      fi
+    done
   else
     info "ENABLE_CLOUD_RUN_DEPLOY_SETUP not set. Cloud Run deploy resource creation will be skipped on apply."
   fi
