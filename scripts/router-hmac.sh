@@ -1,5 +1,24 @@
 #!/usr/bin/env bash
 #
+# ============================================================================
+# ⚠️  DEPRECATED
+# ============================================================================
+# This script is no longer the recommended flow.
+#
+# The deploy workflow (examples/cloud-run-router-deploy/deploy-cloud-run-router.yml
+# and the equivalent in your private deploy repo) now syncs WEBHOOK_SECRET and
+# GH_APP_PRIVATE_KEY from GitHub Secrets to GCP Secret Manager automatically
+# on each deploy. GitHub Secret is the single source of truth.
+#
+# This script is retained for:
+#   - Local development / debugging without going through GitHub
+#   - Emergency rotation outside the deploy pipeline
+#   - Initial bootstrap if you can't run a deploy yet
+#
+# For the recommended flow, see scripts/README.md
+# → "Cloud Run router runtime secrets" section
+# ============================================================================
+#
 # Cloud Run router の TFC HMAC shared secret 管理スクリプト。
 #
 # 用途:
@@ -203,15 +222,32 @@ ENVIRONMENT (loaded from .env)
 EOF
 }
 
+print_deprecation_warning() {
+  cat >&2 <<'EOF'
+
+============================================================================
+⚠️  DEPRECATED: scripts/router-hmac.sh
+============================================================================
+The deploy workflow now syncs WEBHOOK_SECRET from GitHub Secrets to GCP
+Secret Manager automatically on each deploy. GitHub Secret is the single
+source of truth.
+
+This script is retained as a fallback for local development / emergency
+rotation. For the recommended flow, see scripts/README.md.
+============================================================================
+
+EOF
+}
+
 main() {
   if [[ $# -lt 1 ]]; then
     show_help >&2
     exit 1
   fi
   case "$1" in
-    setup)  cmd_setup ;;
-    rotate) cmd_rotate ;;
-    sync)   cmd_sync ;;
+    setup)  print_deprecation_warning; cmd_setup ;;
+    rotate) print_deprecation_warning; cmd_rotate ;;
+    sync)   print_deprecation_warning; cmd_sync ;;
     -h|--help|help) show_help ;;
     *)
       echo "[ERROR] Unknown subcommand: $1" >&2

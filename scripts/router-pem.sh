@@ -1,5 +1,22 @@
 #!/usr/bin/env bash
 #
+# ============================================================================
+# ⚠️  DEPRECATED
+# ============================================================================
+# This script is no longer the recommended flow.
+#
+# The deploy workflow now syncs GH_APP_PRIVATE_KEY from GitHub Secrets to GCP
+# Secret Manager automatically on each deploy. GitHub Secret is the single
+# source of truth.
+#
+# This script is retained for:
+#   - Local development / debugging without going through GitHub
+#   - Emergency direct PEM injection outside the deploy pipeline
+#
+# For the recommended flow, see scripts/README.md
+# → "Cloud Run router runtime secrets" section
+# ============================================================================
+#
 # Cloud Run router の GitHub App Private Key (PEM) 管理スクリプト。
 #
 # 用途:
@@ -75,6 +92,23 @@ ENVIRONMENT (loaded from .env)
 EOF
 }
 
+print_deprecation_warning() {
+  cat >&2 <<'EOF'
+
+============================================================================
+⚠️  DEPRECATED: scripts/router-pem.sh
+============================================================================
+The deploy workflow now syncs GH_APP_PRIVATE_KEY from GitHub Secrets to GCP
+Secret Manager automatically on each deploy. GitHub Secret is the single
+source of truth.
+
+This script is retained as a fallback for local development / emergency
+direct PEM injection. For the recommended flow, see scripts/README.md.
+============================================================================
+
+EOF
+}
+
 main() {
   if [[ $# -lt 1 ]]; then
     show_help >&2
@@ -85,6 +119,7 @@ main() {
       if [[ $# -lt 2 ]]; then
         error "PEM file path required. Usage: $0 add <path/to/key.pem>"
       fi
+      print_deprecation_warning
       cmd_add "$2"
       ;;
     -h|--help|help) show_help ;;

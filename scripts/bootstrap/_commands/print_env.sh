@@ -49,8 +49,8 @@ print_env() {
     echo " Runtime Secrets (GCP Secret Manager)"
     echo "============================================"
     echo ""
-    print_runtime_secret_status "tfc-notification-secret" "→ make setup-router-hmac"
-    print_runtime_secret_status "github-app-private-key"  "→ make set-github-app-private-key PEM=path/to/key.pem"
+    print_runtime_secret_status "tfc-notification-secret" "→ deploy workflow を実行 (or make setup-router-hmac で直接投入)"
+    print_runtime_secret_status "github-app-private-key"  "→ deploy workflow を実行 (or make set-github-app-private-key PEM=... で直接投入)"
     echo ""
 
     # WEBHOOK_SECRET の同期対象 GitHub repo リスト。

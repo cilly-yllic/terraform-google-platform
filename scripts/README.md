@@ -265,57 +265,65 @@ GCP_RUNTIME_SERVICE_ACCOUNT=cloud-run-router-runtime@infra-bootstrap.iam.gservic
 
 ## Cloud Run router runtime secrets
 
-Cloud Run service が runtime で読む 2 つの secret (GCP Secret Manager) と、Action A が TFC Notification 作成時に Token として使う GitHub Secret (`WEBHOOK_SECRET`) の同期管理を make ターゲットで提供します。
+Cloud Run service が runtime で読む 2 つの secret (GCP Secret Manager の `tfc-notification-secret` と `github-app-private-key`) は **deploy workflow が GitHub Secrets から自動 sync** する設計です。GitHub Secrets が **single source of truth**。
 
-### 関係する値
+### データフロー (推奨)
 
-| 値 | 保管先 | 用途 |
-|----|------|------|
-| **TFC HMAC shared secret** (任意のランダム文字列) | GCP Secret Manager `tfc-notification-secret` | Cloud Run router が起動時に読む `TFC_NOTIFICATION_SECRET` env |
-| 同じ値 (sync) | 各 project repo の GitHub Secret `WEBHOOK_SECRET` | Action A が `enable_webhook_notification: true` で TFC Notification 作成時の Token に使う |
-| **GitHub App Private Key (PEM)** | GCP Secret Manager `github-app-private-key` | Cloud Run router が起動時に読む `GITHUB_APP_PRIVATE_KEY` env |
-
-両側 (Secret Manager と GitHub Secret) で同じ HMAC 値を持たせる必要があるため、片方だけ rotate すると signature 検証が失敗します。
-
-### Make ターゲット
-
-```bash
-# 初回 (生成 → Secret Manager 登録 → GitHub Secret 同期)
-make setup-router-hmac
-
-# ローテーション (新しい HMAC 生成 → Secret Manager に新 version → GitHub Secret 再同期)
-make rotate-router-hmac
-
-# 既存値を新規 repo に同期 (rotate せずに WEBHOOK_SECRET_REPOS に追加した repo にだけ push)
-make sync-router-hmac
-
-# GitHub App private key を登録 (新規 or 新 version)
-make set-github-app-private-key PEM=path/to/key.pem
+```
+[GitHub Org-level Secrets]
+   WEBHOOK_SECRET        (= TFC HMAC shared secret)
+   GH_APP_PRIVATE_KEY    (= GitHub App PEM)
+        │ visibility=selected
+        ├─ deploy repo (your-org/<deploy-repo>)
+        │     ↓ deploy workflow の sync step
+        │ [Secret Manager] tfc-notification-secret / github-app-private-key
+        │     ↓ Cloud Run --set-secrets
+        │ [Cloud Run service] TFC_NOTIFICATION_SECRET / GITHUB_APP_PRIVATE_KEY env
+        │
+        └─ project repos (your-org/service1, /service2, ...)
+              ↓ Action A が secrets.WEBHOOK_SECRET を TFC Notification Token として登録
+          [TFC Workspace] Notification (HMAC で webhook 署名)
 ```
 
-### `.env` 設定
+### 必要な事前セットアップ
 
-WEBHOOK_SECRET の同期方法を 2 モードで切り替え可能:
+| 作業 | 場所 | 方法 |
+|------|------|------|
+| 1. `WEBHOOK_SECRET` を GitHub Secrets に登録 | org-level (推奨) | `openssl rand -hex 32` で値生成 → GitHub UI / `gh secret set --org <org> --visibility selected --repos <deploy-repo>,<svc1>,<svc2>` |
+| 2. `GH_APP_PRIVATE_KEY` を GitHub Secrets に登録 | org-level (推奨) | GitHub App 設定で生成した `.pem` の内容を GitHub Secret に貼り付け |
+| 3. bootstrap.sh で Secret Manager container を作成 (opt-in 経由で自動) | GCP | `make bootstrap` (`ENABLE_CLOUD_RUN_DEPLOY_SETUP=true`) |
+| 4. deploy SA に `secretVersionAdder` 付与 (opt-in 経由で自動) | GCP | 上記と同じく `make bootstrap` |
 
-```bash
-# (推奨) org-level secret: visibility=selected で対象 repo を限定
-GH_ORG="your-org"
-WEBHOOK_SECRET_REPOS="your-org/service1 your-org/service2"
+3 と 4 は `make bootstrap` opt-in セットアップに既に含まれています。1 と 2 は手動 (org-level secret 設定は単一ポイントなので 1 回だけ)。
 
-# (fallback) repo-level secret: GH_ORG を未設定にすると各 repo に個別 set
-# WEBHOOK_SECRET_REPOS="your-org/service1 your-org/service2"
+### Deploy 時の自動 sync
+
+deploy workflow ([`examples/cloud-run-router-deploy/deploy-cloud-run-router.yml`](../examples/cloud-run-router-deploy/deploy-cloud-run-router.yml) 参照) は Cloud Run deploy 直前に:
+
+```yaml
+- name: Sync runtime secrets to Secret Manager
+  env:
+    WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+    GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+  run: |
+    printf '%s' "${WEBHOOK_SECRET}"      | gcloud secrets versions add tfc-notification-secret \
+      --project="${{ vars.GCP_PROJECT_ID }}" --data-file=-
+    printf '%s' "${GH_APP_PRIVATE_KEY}"  | gcloud secrets versions add github-app-private-key \
+      --project="${{ vars.GCP_PROJECT_ID }}" --data-file=-
 ```
 
-| モード | 動作 | メリット | 必要権限 |
-|--------|------|---------|---------|
-| **org-level** (GH_ORG 設定時) | `gh secret set --org $GH_ORG --visibility selected --repos a,b,c` を 1 回 | rotation 時 1 箇所だけ更新で全 repo に即反映、**drift リスク低** | GitHub Organization の admin |
-| **repo-level** (GH_ORG 未設定) | `gh secret set --repo <r>` を repo ごとにループ | org admin 権限不要 | 各 repo の secret 権限 |
+を実行し、各 secret に新 version を追加してから Cloud Run の新 revision を deploy。新 revision は最新 version を読むので、**deploy ごとに最新 GitHub Secret 値が確実に runtime に反映** されます。
 
-複数 repo で同じ HMAC を使う運用なら **org-level 推奨**。WEBHOOK_SECRET_REPOS が空ならどちらのモードでも GCP Secret Manager 側だけ更新され、GitHub 同期はスキップされます。
+### Rotation フロー
+
+| Secret | Rotation 手順 |
+|--------|-------------|
+| **GH_APP_PRIVATE_KEY (PEM)** | (a) GitHub App 設定で新 private key 生成 → `.pem` ダウンロード → (b) GitHub Secret `GH_APP_PRIVATE_KEY` を新値に更新 → (c) deploy を実行 (revision 更新) → 完了 ✓ |
+| **WEBHOOK_SECRET (HMAC)** | (a) `openssl rand -hex 32` で新値生成 → (b) GitHub Secret `WEBHOOK_SECRET` を新値に更新 → (c) deploy を実行 → Cloud Run runtime は新値で動く ✓ ※ ただし **既存 TFC Notification の Token は古い値のまま** なので、Action A を各 project repo で再実行して Notification を上書きする必要がある (現状の Action A は idempotent create のみで Token update path 未対応 — TFC UI で手動更新 or Action A 拡張が必要) |
 
 ### 検証 (`make bootstrap-print-env`)
 
-`ENABLE_CLOUD_RUN_DEPLOY_SETUP=true` のとき、`make bootstrap-print-env` の出力に以下 2 セクションが追加されます。**全インフラ設定値の状態がこのコマンドで一覧できる** ように設計されています:
+`ENABLE_CLOUD_RUN_DEPLOY_SETUP=true` のとき、`make bootstrap-print-env` の出力に以下 2 セクションが追加され、**全インフラ設定値の状態を一望できる** 設計です:
 
 ```text
 ============================================
@@ -323,7 +331,7 @@ WEBHOOK_SECRET_REPOS="your-org/service1 your-org/service2"
 ============================================
 
   tfc-notification-secret        ✓ configured (versions: 1)
-  github-app-private-key         ✗ 未設定  → make set-github-app-private-key PEM=path/to/key.pem
+  github-app-private-key         ✗ 未設定  → deploy workflow を一度実行すれば版が追加される
 
 ============================================
  WEBHOOK_SECRET sync targets (.env)
@@ -335,14 +343,46 @@ WEBHOOK_SECRET_REPOS="your-org/service1 your-org/service2"
   ✓ your-org/service2
 ```
 
-### Rotation の注意点
+> Note: `(versions: 0)` 状態でも container 自体は bootstrap 完了で作成済み。最初の deploy で version 1 が追加されます。
 
-Cloud Run service は環境変数を Secret Manager の **特定 version** (`:latest`) から読みます。新 version を追加しただけでは既に起動中の Cloud Run revision には反映されません。HMAC を rotate した後は:
+---
 
-1. `make rotate-router-hmac` で新値を Secret Manager + GitHub Secret に push
-2. Cloud Run router を **再 deploy** (revision を更新) して新 version を読み込ませる
+### Fallback: `make` ターゲット (DEPRECATED)
 
-の 2 ステップが必要です。
+> ⚠️ 以下の make ターゲット (`setup-router-hmac` / `rotate-router-hmac` / `sync-router-hmac` / `set-github-app-private-key`) は **deprecated** です。実行時に警告が出ます。
+>
+> 通常運用では使用しないでください。GitHub Secrets が source of truth で、deploy workflow が同期します。
+
+これらは以下のケースの fallback として残してあります:
+
+- ローカル開発 / debug 用に直接 Secret Manager を触りたい
+- deploy pipeline が動かない緊急時に PEM / HMAC を Secret Manager に直接投入したい
+- 初回 bootstrap 完了直後、まだ deploy を一度も走らせていない時の事前検証
+
+```bash
+# 直接 HMAC を生成して Secret Manager + GitHub Secret に push
+make setup-router-hmac
+
+# 既存値を rotate
+make rotate-router-hmac
+
+# 新規 repo に既存値を同期
+make sync-router-hmac
+
+# PEM を Secret Manager に直接投入
+make set-github-app-private-key PEM=path/to/key.pem
+```
+
+`.env` 設定 (org-level / repo-level の切り替え):
+
+```bash
+# (推奨) org-level secret: visibility=selected で対象 repo を限定
+GH_ORG="your-org"
+WEBHOOK_SECRET_REPOS="your-org/service1 your-org/service2"
+
+# (fallback) repo-level secret: GH_ORG を未設定にすると各 repo に個別 set
+# WEBHOOK_SECRET_REPOS="your-org/service1 your-org/service2"
+```
 
 ---
 
