@@ -18,53 +18,32 @@ name: Deploy cloud-run-router
 #      - Variables: GCP_PROJECT_ID / GCP_WORKLOAD_IDENTITY_PROVIDER /
 #                   GCP_DEPLOY_SERVICE_ACCOUNT / GCP_RUNTIME_SERVICE_ACCOUNT /
 #                   GH_APP_ID
-#      - Secrets:   DEPLOY_WEBHOOK (Slack incoming webhook URL)
+#      - Secrets:   DEPLOY_WEBHOOK (Slack incoming webhook URL),
+#                   GH_APP_PRIVATE_KEY (GitHub App PEM)
 #
 # 詳細: examples/cloud-run-router-deploy/README.md
 # ============================================================================
 #
 # 運用方針:
-#   - source repo (cilly-yllic/terraform-google-platform) で
-#     `cloud-run-router-v<semver>` 形式のタグを切る (例: cloud-run-router-v1.0.0)
-#   - private deploy repo にコピーした本 workflow を Actions 画面から
-#     `workflow_dispatch` で起動
-#   - 入力欄にタグ名を指定
-#   - main の祖先に含まれる commit のタグかを検証してから build / deploy
-#
-# 前提 (一度だけセットアップ):
-#   1. `make bootstrap` を ENABLE_CLOUD_RUN_DEPLOY_SETUP=true で実行済み
-#      → deploy SA / runtime SA / GitHub WIF Provider が作成済み
-#   2. `make bootstrap-print-env` の出力を GitHub repo の
-#      Settings → Secrets and variables → Actions → Variables に登録:
-#        - GCP_PROJECT_ID
-#        - GCP_WORKLOAD_IDENTITY_PROVIDER
-#        - GCP_DEPLOY_SERVICE_ACCOUNT
-#        - GCP_RUNTIME_SERVICE_ACCOUNT
-#        - GH_APP_ID                ← GitHub App ID (Secret ではなく Variable で可)
-#                                     GitHub の予約により `GITHUB_` prefix の
-#                                     Variable / Secret 名は作成不可なので
-#                                     `GH_` prefix を使用
-#   3. Secret Manager に runtime 用 secret を作成:
-#        gcloud secrets create tfc-notification-secret \
-#          --data-file=<(printf '%s' "$TFC_HMAC_SECRET") \
-#          --project=$GCP_PROJECT_ID
-#        gcloud secrets create github-app-private-key \
-#          --data-file=path/to/github-app-private-key.pem \
-#          --project=$GCP_PROJECT_ID
+#   - 起動経路は 2 つ:
+#     a) workflow_dispatch で手動起動 (Run workflow ボタン)
+#     b) Initialize / Rotate TFC_NOTIFICATION_SECRET workflow が成功で完了したとき自動起動
+#   - 常に source repo の main HEAD を取得して deploy する (tag 概念は廃止)
+#   - image tag は `main-<short-sha>` で commit traceability を確保
+#   - deploy 後に Cloud Run service URL + /webhook を Repository Secret
+#     CLOUD_RUN_WEBHOOK_URL に登録 (Action A がこれを TFC Notification 設定に使う)
 
 on:
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "main にあるタグ名 (例: cloud-run-router-v1.0.0)"
-        required: true
-        type: string
+  workflow_run:
+    workflows: ["Initialize / Rotate TFC_NOTIFICATION_SECRET"]
+    types: [completed]
 
 permissions:
   contents: read
-  id-token: write   # WIF 用 OIDC token を発行するために必須
+  id-token: write   # WIF 用 OIDC token の発行に必須
 
-# 同時 deploy 防止 (前の deploy 完了を待つ; 進行中の deploy は取り消さない)
+# 同時 deploy 防止 (進行中の deploy は取り消さない)
 concurrency:
   group: deploy-cloud-run-router
   cancel-in-progress: false
@@ -79,33 +58,32 @@ env:
 
 jobs:
   deploy:
-    name: Build & deploy ${{ inputs.tag }}
+    # workflow_dispatch なら常に走る。workflow_run なら init success のときだけ走る。
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    name: Deploy from ${{ github.event.repository.name }} main
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source repo at tag
-        # SOURCE_REPO の指定 tag を fetch-depth=0 で取得 (祖先チェックのため履歴必要)。
-        # source repo が public なら token 不要。private の場合は token を追加する。
+      - name: Checkout source repo main HEAD
+        # public repo なので token 不要。main の最新 commit を浅く fetch する
+        # (tag 概念は廃止したので fetch-depth=1 で十分)。
         uses: actions/checkout@v4
         with:
           repository: ${{ env.SOURCE_REPO }}
-          ref: ${{ inputs.tag }}
-          fetch-depth: 0
+          ref: refs/heads/main
+          fetch-depth: 1
 
-      - name: Validate tag is reachable from source main
-        # 別ブランチに切られたタグからの deploy を防ぐ。
-        # actions/checkout@v4 の origin = SOURCE_REPO になっているので、
-        # origin/main = SOURCE_REPO の main を指す。
+      - name: Capture source commit SHA
+        id: source
         run: |
           set -euo pipefail
-          git fetch origin main --depth=1
-          MAIN_SHA=$(git rev-parse FETCH_HEAD)
-          TAG_SHA=$(git rev-parse "${{ inputs.tag }}^{commit}")
-          if ! git merge-base --is-ancestor "${TAG_SHA}" "${MAIN_SHA}"; then
-            echo "::error::Tag ${{ inputs.tag }} (${TAG_SHA}) is not reachable from ${{ env.SOURCE_REPO }} main (${MAIN_SHA})."
-            exit 1
-          fi
-          echo "Tag ${{ inputs.tag }} confirmed on ${{ env.SOURCE_REPO }} main (commit ${TAG_SHA})."
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          FULL_SHA=$(git rev-parse HEAD)
+          {
+            echo "short_sha=${SHORT_SHA}"
+            echo "full_sha=${FULL_SHA}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "::notice::Deploying from ${{ env.SOURCE_REPO }}@main (commit ${SHORT_SHA})"
 
       - name: Authenticate to GCP via Workload Identity Federation
         uses: google-github-actions/auth@v2
@@ -120,7 +98,7 @@ jobs:
         working-directory: cloud-run-router
         run: |
           set -euo pipefail
-          IMAGE="${{ env.IMAGE_REPO }}/${{ vars.GCP_PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ inputs.tag }}"
+          IMAGE="${{ env.IMAGE_REPO }}/${{ vars.GCP_PROJECT_ID }}/${{ env.SERVICE_NAME }}:main-${{ steps.source.outputs.short_sha }}"
           echo "Building image: ${IMAGE}"
           gcloud builds submit \
             --tag "${IMAGE}" \
@@ -129,24 +107,24 @@ jobs:
 
       - name: Sync runtime secrets to GCP Secret Manager
         # GitHub Secrets を single source of truth として、毎 deploy で
-        # Secret Manager に新 version を追加する。Cloud Run service の新 revision
-        # は `:latest` を読むので、自動的に最新値が runtime に反映される。
+        # Secret Manager に新 version を追加する。新 Cloud Run revision は
+        # `:latest` を参照するので、自動的に最新値が runtime に反映される。
         #
-        # 前提:
-        #   - `make bootstrap` (ENABLE_CLOUD_RUN_DEPLOY_SETUP=true) で
-        #     Secret Manager の container 2 つは既に作成済み
-        #   - deploy SA に `roles/secretmanager.secretVersionAdder` 付与済み
+        # 前提 (source repo の make bootstrap で provision 済み):
+        #   - Secret Manager の container (tfc-notification-secret /
+        #     github-app-private-key) が作成済み
+        #   - deploy SA に roles/secretmanager.secretVersionAdder 付与済み
         env:
           TFC_NOTIFICATION_SECRET: ${{ secrets.TFC_NOTIFICATION_SECRET }}
           GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           if [[ -z "${TFC_NOTIFICATION_SECRET}" ]]; then
-            echo "::error::secrets.TFC_NOTIFICATION_SECRET is not set in this repository/org"
+            echo "::error::secrets.TFC_NOTIFICATION_SECRET is not set. Run the 'Initialize / Rotate TFC_NOTIFICATION_SECRET' workflow first."
             exit 1
           fi
           if [[ -z "${GH_APP_PRIVATE_KEY}" ]]; then
-            echo "::error::secrets.GH_APP_PRIVATE_KEY is not set in this repository/org"
+            echo "::error::secrets.GH_APP_PRIVATE_KEY is not set. Register the GitHub App PEM manually first."
             exit 1
           fi
           printf '%s' "${TFC_NOTIFICATION_SECRET}" | gcloud secrets versions add tfc-notification-secret \
@@ -171,7 +149,7 @@ jobs:
             --allow-unauthenticated
 
       - name: Capture deployed metadata
-        # 後続の summary / Slack 通知の両方で URL と revision 名を使うので、
+        # 後続の URL 登録 / summary / Slack 通知で URL と revision を使うので、
         # describe を 1 回だけ実行して step outputs に乗せる。
         id: meta
         run: |
@@ -187,8 +165,31 @@ jobs:
           {
             echo "service_url=${SERVICE_URL}"
             echo "service_revision=${SERVICE_REVISION}"
+            echo "webhook_url=${SERVICE_URL}/webhook"
           } >> "${GITHUB_OUTPUT}"
-          echo "::notice::Deployed ${{ inputs.tag }} to ${SERVICE_URL} (revision: ${SERVICE_REVISION})"
+          echo "::notice::Deployed to ${SERVICE_URL} (revision: ${SERVICE_REVISION})"
+
+      - name: Get GitHub App installation token (for Secrets:Write)
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+      - name: Save Cloud Run webhook URL as Repository Secret
+        # Action A (provision-project workflow) が `cloud_run_webhook_url` 入力に
+        # secrets.CLOUD_RUN_WEBHOOK_URL を渡している。deploy のたびに最新値で
+        # 上書きすることで、Cloud Run URL が変わった場合 (新 service / region 変更等)
+        # にも自動追従する。
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          WEBHOOK_URL: ${{ steps.meta.outputs.webhook_url }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${WEBHOOK_URL}" | gh secret set CLOUD_RUN_WEBHOOK_URL \
+            --repo "${{ github.repository }}" \
+            --body -
+          echo "::notice::Saved CLOUD_RUN_WEBHOOK_URL=${WEBHOOK_URL}"
 
       - name: Write step summary
         if: success()
@@ -196,11 +197,14 @@ jobs:
           {
             echo "## Deployment Summary"
             echo ""
-            echo "- **Tag**: \`${{ inputs.tag }}\`"
+            echo "- **Source**: \`${{ env.SOURCE_REPO }}@main\` (commit \`${{ steps.source.outputs.short_sha }}\`)"
             echo "- **Image**: \`${IMAGE}\`"
             echo "- **Cloud Run URL**: ${{ steps.meta.outputs.service_url }}"
             echo "- **Latest revision**: \`${{ steps.meta.outputs.service_revision }}\`"
-            echo "- **TFC Notification destination**: ${{ steps.meta.outputs.service_url }}/webhook"
+            echo "- **TFC Notification destination**: ${{ steps.meta.outputs.webhook_url }}"
+            echo "- **Saved to Repository Secret**: \`CLOUD_RUN_WEBHOOK_URL\`"
+            echo ""
+            echo "**Trigger**: \`${{ github.event_name }}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Notify Slack on success
@@ -210,20 +214,26 @@ jobs:
         continue-on-error: true
         env:
           SLACK_WEBHOOK: ${{ secrets.DEPLOY_WEBHOOK }}
-          DEPLOY_TAG: ${{ inputs.tag }}
+          SOURCE_REPO: ${{ env.SOURCE_REPO }}
+          SHORT_SHA: ${{ steps.source.outputs.short_sha }}
           SERVICE_URL: ${{ steps.meta.outputs.service_url }}
+          WEBHOOK_URL: ${{ steps.meta.outputs.webhook_url }}
           SERVICE_REVISION: ${{ steps.meta.outputs.service_revision }}
+          TRIGGER: ${{ github.event_name }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           RUN_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
           # Slack Block Kit を jq で組み立てて curl で POST。
           # bash の heredoc 内で `\`...\`` を扱うとシェルがバックティックを
-          # 評価してしまうので jq で組み立てる方が安全。
+          # 評価してしまうので jq の方が安全。
           jq -n \
-            --arg tag "${DEPLOY_TAG}" \
+            --arg source_repo "${SOURCE_REPO}" \
+            --arg short_sha "${SHORT_SHA}" \
             --arg revision "${SERVICE_REVISION}" \
             --arg url "${SERVICE_URL}" \
+            --arg webhook_url "${WEBHOOK_URL}" \
+            --arg trigger "${TRIGGER}" \
             --arg run_url "${RUN_URL}" \
             --arg run_num "${RUN_NUMBER}" \
             '{
@@ -235,16 +245,16 @@ jobs:
                 {
                   type: "section",
                   fields: [
-                    {type: "mrkdwn", text: "*Tag*\n`\($tag)`"},
+                    {type: "mrkdwn", text: "*Source*\n`\($source_repo)@main` (`\($short_sha)`)"},
                     {type: "mrkdwn", text: "*Revision*\n`\($revision)`"},
                     {type: "mrkdwn", text: "*Service URL*\n<\($url)>"},
-                    {type: "mrkdwn", text: "*TFC Notification destination*\n<\($url)/webhook>"}
+                    {type: "mrkdwn", text: "*TFC Notification destination*\n<\($webhook_url)>"}
                   ]
                 },
                 {
                   type: "context",
                   elements: [
-                    {type: "mrkdwn", text: "Workflow: <\($run_url)|run #\($run_num)>"}
+                    {type: "mrkdwn", text: "Trigger: `\($trigger)` / Workflow: <\($run_url)|run #\($run_num)>"}
                   ]
                 }
               ]

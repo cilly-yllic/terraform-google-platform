@@ -8,8 +8,8 @@
 
 | ファイル | 用途 |
 |---------|------|
-| [`deploy-cloud-run-router.yml`](./deploy-cloud-run-router.yml) | タグを指定して Cloud Run に deploy。Build → Sync runtime secrets (GitHub Secrets → Secret Manager) → Deploy → Slack 通知 |
-| [`init-router-hmac.yml`](./init-router-hmac.yml) | TFC HMAC shared secret (`TFC_NOTIFICATION_SECRET`) を CI 内で生成・GitHub Repository Secret に登録 (workflow_dispatch、rotate オプション付き) |
+| [`deploy-cloud-run-router.yml`](./deploy-cloud-run-router.yml) | source repo の main HEAD を取り、Cloud Run に deploy。Build → Sync runtime secrets (GitHub Secrets → Secret Manager) → Deploy → Cloud Run URL を `CLOUD_RUN_WEBHOOK_URL` Repository Secret に登録 → Slack 通知 |
+| [`init-router-hmac.yml`](./init-router-hmac.yml) | TFC HMAC shared secret (`TFC_NOTIFICATION_SECRET`) を CI 内で生成・GitHub Repository Secret に登録 (workflow_dispatch、rotate オプション付き)。**成功で完了すると deploy workflow が自動 trigger される** |
 
 ---
 
@@ -141,30 +141,59 @@ private deploy repo の **Actions** タブ → **Initialize / Rotate TFC_NOTIFIC
 
 ## 運用フロー
 
+### 起動経路
+
+deploy workflow は **2 つのトリガー**で起動:
+
+| 経路 | 操作 | いつ使うか |
+|------|------|----------|
+| **workflow_dispatch** | Actions → "Deploy cloud-run-router" → **Run workflow** | source repo の main に新しい commit が乗ったときに手動で反映したい |
+| **workflow_run** (自動) | "Initialize / Rotate TFC_NOTIFICATION_SECRET" workflow が成功で完了 | HMAC を init / rotate した直後の連鎖 deploy。手動操作不要 |
+
+tag 入力は **廃止**しました。常に source repo の main HEAD を取得して deploy します。image tag は `main-<short-sha>` 形式で commit traceability を確保。
+
+### 1 回の deploy で何が起きるか
+
 ```
-1. source repo (cilly-yllic/terraform-google-platform 等) の main で
-   `cloud-run-router-v<semver>` 形式のタグを切る
-       例: git tag cloud-run-router-v1.0.0 && git push origin cloud-run-router-v1.0.0
+[Deploy workflow start]
+   ↓
+1. source repo の main HEAD を checkout
+2. WIF 認証
+3. gcloud builds submit でコンテナイメージを build & push
+   (image tag: main-<source-repo-short-sha>)
+4. Sync runtime secrets:
+   - secrets.TFC_NOTIFICATION_SECRET → GCP Secret Manager `tfc-notification-secret` 新 version
+   - secrets.GH_APP_PRIVATE_KEY      → GCP Secret Manager `github-app-private-key` 新 version
+5. gcloud run deploy で Cloud Run の新 revision を作成 (:latest を読む = 上記の最新 version が runtime に乗る)
+6. Cloud Run service URL を describe で取得
+7. URL + /webhook を Repository Secret `CLOUD_RUN_WEBHOOK_URL` に上書き登録
+   (GitHub App token 使用、App に Repository secrets: Write 必要)
+8. Slack に Service URL / TFC Notification destination URL を含めて通知
+```
 
-2. private deploy repo の Actions → "Deploy cloud-run-router" → Run workflow
-       Tag input に `cloud-run-router-v1.0.0` を入力 → Run
+### 初回 deploy までの最短手順
 
-3. workflow が:
-   - tag を fetch → main 祖先チェック
-   - WIF 認証
-   - gcloud builds submit でコンテナイメージを build & push
-   - Sync runtime secrets (GitHub Secrets `TFC_NOTIFICATION_SECRET` /
-     `GH_APP_PRIVATE_KEY` → Secret Manager に新 version 追加)
-   - gcloud run deploy で Cloud Run を更新 (runtime SA で実行)
-   - Slack に Service URL + /webhook endpoint URL を含めて通知
+セットアップ Step 1〜6 が完了している前提:
+
+```
+Actions タブ → "Initialize / Rotate TFC_NOTIFICATION_SECRET" → Run workflow (rotate=false)
+   ↓
+TFC_NOTIFICATION_SECRET が登録される
+   ↓
+自動で Deploy workflow が起動 (workflow_run trigger)
+   ↓
+Cloud Run に初回 revision が deploy + CLOUD_RUN_WEBHOOK_URL が登録される
+   ↓
+完了 ✨
 ```
 
 ### Rotation 操作
 
 | Secret | Rotation 手順 |
 |--------|-------------|
-| **TFC_NOTIFICATION_SECRET** (HMAC) | (a) Actions → "Initialize / Rotate TFC_NOTIFICATION_SECRET" → `rotate: true` → Run → (b) Deploy workflow を起動 (Cloud Run の新 revision で新値が反映) → (c) 各 service の provision-project workflow を再実行 (or TFC UI で Notification Token を手動更新) |
-| **GH_APP_PRIVATE_KEY** (PEM) | (a) GitHub App 設定画面で新 private key 生成 → `.pem` ダウンロード → (b) Repository Secret `GH_APP_PRIVATE_KEY` を新値に更新 → (c) Deploy workflow を起動 (Cloud Run の新 revision で新値が反映) → (d) GitHub App 設定で古い private key を Revoke |
+| **TFC_NOTIFICATION_SECRET** (HMAC) | (a) Actions → "Initialize / Rotate TFC_NOTIFICATION_SECRET" → `rotate: true` → Run → (b) **deploy は自動起動** (workflow_run) → 新値が Cloud Run runtime に反映 → (c) 各 service の provision-project workflow を再実行 (or TFC UI で Notification Token を手動更新) |
+| **GH_APP_PRIVATE_KEY** (PEM) | (a) GitHub App 設定画面で新 private key 生成 → `.pem` ダウンロード → (b) Repository Secret `GH_APP_PRIVATE_KEY` を新値に更新 → (c) Deploy workflow を手動起動 → 新値が Cloud Run runtime に反映 → (d) GitHub App 設定で古い private key を Revoke |
+| **CLOUD_RUN_WEBHOOK_URL** | **rotation 不要**。deploy 毎に最新値で自動上書きされる |
 
 ---
 
@@ -201,9 +230,17 @@ gcloud iam workload-identity-pools providers describe github-actions \
 
 → `assertion.repository == "<your-org>/<your-deploy-repo>"` であることを確認
 
-### `Tag <X> is not reachable from <repo> main`
+### `secrets.TFC_NOTIFICATION_SECRET is not set`
 
-別ブランチに切られたタグからの deploy は workflow で reject されます。main に merge された commit に対してタグを切り直してください。
+`TFC_NOTIFICATION_SECRET` が GitHub Secrets に未登録の状態で deploy が起動された場合。Actions → "Initialize / Rotate TFC_NOTIFICATION_SECRET" を `rotate=false` で実行してください。完了後に deploy が自動で起動します。
+
+### `secrets.GH_APP_PRIVATE_KEY is not set`
+
+`GH_APP_PRIVATE_KEY` (PEM) は手動登録必須です。GitHub App 設定画面で private key を生成 → `.pem` ダウンロード → 内容を Repository Secret に登録してください。
+
+### init workflow 成功後に deploy が走らない
+
+`workflow_run` trigger は workflow ファイルが **default branch (通常 main)** にある状態でのみ発火します。本 workflow が main にマージされる前 (= PR 上で test 実行) では自動 trigger は動きません。マージ後の本番運用で動作します。
 
 ### Slack 通知が来ない
 
