@@ -99,19 +99,56 @@ jobs:
         run: |
           set -euo pipefail
           IMAGE="${{ env.IMAGE_REPO }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.SERVICE_NAME }}:main-${{ steps.source.outputs.short_sha }}"
+          PROJECT="${{ secrets.GCP_PROJECT_ID }}"
           echo "Building image: ${IMAGE}"
-          # --suppress-logs: gcloud builds submit は log streaming のために
-          # project レベル roles/viewer または roles/owner を CLI 側で
-          # hardcoded check する (実 API 権限とは別の pre-check) ため、
-          # deploy SA に Viewer を付けない方針だと build 起動後に
+          # 同期モード (`gcloud builds submit` を flag 無しで実行) は build 起動後に
+          # log streaming を試み、その pre-check が project レベル roles/viewer
+          # または roles/owner を CLI 側で hardcoded check する (実 API 権限とは
+          # 別の pre-check)。deploy SA に最小権限しか付けない方針だと
           # "can only stream logs if you are Viewer/Owner" で exit 1 になる。
-          # log streaming を skip しても build 完了は wait するので、
-          # 失敗 / 成功は exit code で正しく判定される。失敗時の log は
-          # `Logs are available at <URL>` の console URL から確認できる。
-          gcloud builds submit \
+          # `--suppress-logs` は log の write 先 (GCS vs Cloud Logging) を切り替える
+          # だけで streaming 自体は skip されない。
+          #
+          # 対策: `--async` で build job を submit (起動だけして待たない) し、
+          # その後 `gcloud builds describe` を自前で polling する。これなら
+          # log streaming を一切呼ばないので pre-check が走らず、追加 IAM 不要。
+          BUILD_ID=$(gcloud builds submit \
             --tag "${IMAGE}" \
-            --project="${{ secrets.GCP_PROJECT_ID }}" \
-            --suppress-logs
+            --project="${PROJECT}" \
+            --async \
+            --format='value(id)')
+          BUILD_URL="https://console.cloud.google.com/cloud-build/builds/${BUILD_ID}?project=${PROJECT}"
+          echo "Build submitted: ${BUILD_ID}"
+          echo "Console URL   : ${BUILD_URL}"
+
+          # 終端 status になるまで polling。timeout は 30 分 (180 回 × 10 秒)。
+          # Cloud Build の default build timeout が 10 分なので、念のため 3 倍を上限に。
+          for i in $(seq 1 180); do
+            STATUS=$(gcloud builds describe "${BUILD_ID}" \
+              --project="${PROJECT}" \
+              --format='value(status)')
+            case "${STATUS}" in
+              SUCCESS)
+                echo "Build succeeded."
+                break
+                ;;
+              FAILURE|INTERNAL_ERROR|TIMEOUT|CANCELLED|EXPIRED)
+                echo "::error::Build failed with status: ${STATUS}"
+                echo "::error::See logs at: ${BUILD_URL}"
+                exit 1
+                ;;
+              *)
+                # QUEUED / WORKING / PENDING / STATUS_UNKNOWN 等は継続
+                echo "[${i}/180] status=${STATUS} (poll 10s)"
+                sleep 10
+                ;;
+            esac
+            if [[ "${i}" == "180" ]]; then
+              echo "::error::Polling timeout exceeded (30 min). Last status: ${STATUS}"
+              echo "::error::See logs at: ${BUILD_URL}"
+              exit 1
+            fi
+          done
           echo "IMAGE=${IMAGE}" >> "${GITHUB_ENV}"
 
       - name: Sync runtime secrets to GCP Secret Manager
