@@ -295,13 +295,23 @@ make set-github-app-private-key PEM=path/to/key.pem
 
 ### `.env` 設定
 
-WEBHOOK_SECRET の同期先 GitHub repo をスペース区切りで列挙:
+WEBHOOK_SECRET の同期方法を 2 モードで切り替え可能:
 
 ```bash
+# (推奨) org-level secret: visibility=selected で対象 repo を限定
+GH_ORG="MoooDoNE"
 WEBHOOK_SECRET_REPOS="mooodone/service1 mooodone/service2"
+
+# (fallback) repo-level secret: GH_ORG を未設定にすると各 repo に個別 set
+# WEBHOOK_SECRET_REPOS="mooodone/service1 mooodone/service2"
 ```
 
-空のままなら GCP Secret Manager 側だけ更新され、GitHub Secret の同期はスキップされます。後から `gh secret set WEBHOOK_SECRET --repo <owner/repo> --body "$VALUE"` で個別に設定することも可能。
+| モード | 動作 | メリット | 必要権限 |
+|--------|------|---------|---------|
+| **org-level** (GH_ORG 設定時) | `gh secret set --org $GH_ORG --visibility selected --repos a,b,c` を 1 回 | rotation 時 1 箇所だけ更新で全 repo に即反映、**drift リスク低** | GitHub Organization の admin |
+| **repo-level** (GH_ORG 未設定) | `gh secret set --repo <r>` を repo ごとにループ | org admin 権限不要 | 各 repo の secret 権限 |
+
+複数 repo で同じ HMAC を使う運用なら **org-level 推奨**。WEBHOOK_SECRET_REPOS が空ならどちらのモードでも GCP Secret Manager 側だけ更新され、GitHub 同期はスキップされます。
 
 ### 検証 (`make bootstrap-print-env`)
 
@@ -318,6 +328,8 @@ WEBHOOK_SECRET_REPOS="mooodone/service1 mooodone/service2"
 ============================================
  WEBHOOK_SECRET sync targets (.env)
 ============================================
+
+  Mode: org-level (GH_ORG=MoooDoNE, visibility=selected)
 
   ✓ mooodone/service1
   ✓ mooodone/service2

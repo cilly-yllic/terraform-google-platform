@@ -55,11 +55,18 @@ print_env() {
 
     # WEBHOOK_SECRET の同期対象 GitHub repo リスト。
     # `.env` の WEBHOOK_SECRET_REPOS で管理する。
+    # GH_ORG が設定されていれば org-level secret モード、なければ repo-level。
     echo "============================================"
     echo " WEBHOOK_SECRET sync targets (.env)"
     echo "============================================"
     echo ""
     if [[ -n "${WEBHOOK_SECRET_REPOS:-}" ]]; then
+      if [[ -n "${GH_ORG:-}" ]]; then
+        echo "  Mode: org-level (GH_ORG=${GH_ORG}, visibility=selected)"
+      else
+        echo "  Mode: repo-level  (set GH_ORG=<org> in .env for org-level sync)"
+      fi
+      echo ""
       local repo
       for repo in ${WEBHOOK_SECRET_REPOS}; do
         echo "  ✓ ${repo}"

@@ -80,11 +80,42 @@ sync_to_github_repos() {
     info "  → 個別 repo に同期する場合: gh secret set ${GH_SECRET_NAME} --repo <owner/repo> --body \"\$VALUE\""
     return
   fi
+
+  # GH_ORG の有無で 2 つのモードを切り替える:
+  #   org-level (GH_ORG 設定時, 推奨):
+  #     1 つの org secret に visibility=selected で対象 repo を列挙。
+  #     ローテーション時に 1 箇所だけ update で全 repo に即反映、drift リスク低。
+  #     org admin 権限が必要。
+  #   repo-level (GH_ORG 未設定時, fallback):
+  #     `gh secret set --repo` を repo ごとにループ。
+  #     各 repo の secret 権限だけで OK だが、repo が多いとドリフトしやすい。
+  if [[ -n "${GH_ORG:-}" ]]; then
+    sync_via_org_secret "${value}"
+  else
+    sync_via_repo_secrets "${value}"
+  fi
+}
+
+sync_via_org_secret() {
+  local value="$1"
+  # space-separated → comma-separated (gh CLI の --repos は CSV)
+  local repos_csv
+  repos_csv=$(echo "${WEBHOOK_SECRET_REPOS}" | tr -s ' ' ',' | sed 's/^,//;s/,$//')
+  info "Setting org-level ${GH_SECRET_NAME} on GitHub org '${GH_ORG}' (visibility=selected)"
+  info "  Selected repos: ${repos_csv}"
+  printf '%s' "${value}" | gh secret set "${GH_SECRET_NAME}" \
+    --org "${GH_ORG}" \
+    --visibility selected \
+    --repos "${repos_csv}" \
+    --body -
+}
+
+sync_via_repo_secrets() {
+  local value="$1"
   local repo
   for repo in ${WEBHOOK_SECRET_REPOS}; do
-    info "Setting ${GH_SECRET_NAME} on GitHub repo: ${repo}"
-    # gh secret set は stdin から値を取れる。--body- にすると argv に値が
-    # 入らないので少し安全。
+    info "Setting repo-level ${GH_SECRET_NAME} on GitHub repo: ${repo}"
+    # --body - で stdin から値を取る (argv に値が入らないので少し安全)。
     printf '%s' "${value}" | gh secret set "${GH_SECRET_NAME}" --repo "${repo}" --body -
   done
 }
@@ -162,6 +193,13 @@ ENVIRONMENT (loaded from .env)
                           (e.g. "mooodone/svc1 mooodone/svc2") to which
                           WEBHOOK_SECRET should be synced. Optional for
                           'setup' / 'rotate', required for 'sync'.
+  GH_ORG                  (optional) GitHub Organization name. When set,
+                          WEBHOOK_SECRET is registered as an ORG-level
+                          secret with visibility=selected, listing the repos
+                          in WEBHOOK_SECRET_REPOS. When unset, falls back to
+                          per-repo secrets. Org-level is recommended (single
+                          rotation point, lower drift risk) but requires
+                          org admin permissions on the GitHub side.
 EOF
 }
 
