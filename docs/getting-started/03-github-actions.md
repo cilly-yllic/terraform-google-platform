@@ -12,7 +12,7 @@ Project Repository の Workflow で `dispatch-project-bootstrap` (Action A) と 
 | Secret | 説明 |
 |--------|------|
 | `TFC_TOKEN` | Terraform Cloud API Token |
-| `WEBHOOK_SECRET` | (Phase 2 のみ) Cloud Run Router と共有する HMAC secret |
+| `TFC_NOTIFICATION_SECRET` | (Phase 2 のみ) Cloud Run Router と共有する HMAC secret |
 
 > Phase 2 で Cloud Run Router から `repository_dispatch` を発火する場合、Router 側に GitHub App credentials を持たせる構成です。Project Repo 側の workflow には Router 用 secret は不要です。
 
@@ -286,7 +286,7 @@ Action A に以下の追加 Inputs を渡すと、TFC Workspace に notification
 ```yaml
 enable_webhook_notification: "true"
 cloud_run_webhook_url: https://router-xxxxx.run.app/tfc-webhook
-cloud_run_webhook_secret: ${{ secrets.WEBHOOK_SECRET }}
+cloud_run_webhook_secret: ${{ secrets.TFC_NOTIFICATION_SECRET }}
 ```
 
 ---
