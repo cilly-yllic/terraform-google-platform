@@ -137,25 +137,25 @@ jobs:
         #     Secret Manager の container 2 つは既に作成済み
         #   - deploy SA に `roles/secretmanager.secretVersionAdder` 付与済み
         env:
-          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          TFC_NOTIFICATION_SECRET: ${{ secrets.TFC_NOTIFICATION_SECRET }}
           GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          if [[ -z "${WEBHOOK_SECRET}" ]]; then
-            echo "::error::secrets.WEBHOOK_SECRET is not set in this repository/org"
+          if [[ -z "${TFC_NOTIFICATION_SECRET}" ]]; then
+            echo "::error::secrets.TFC_NOTIFICATION_SECRET is not set in this repository/org"
             exit 1
           fi
           if [[ -z "${GH_APP_PRIVATE_KEY}" ]]; then
             echo "::error::secrets.GH_APP_PRIVATE_KEY is not set in this repository/org"
             exit 1
           fi
-          printf '%s' "${WEBHOOK_SECRET}" | gcloud secrets versions add tfc-notification-secret \
+          printf '%s' "${TFC_NOTIFICATION_SECRET}" | gcloud secrets versions add tfc-notification-secret \
             --project="${{ vars.GCP_PROJECT_ID }}" \
             --data-file=- > /dev/null
           printf '%s' "${GH_APP_PRIVATE_KEY}" | gcloud secrets versions add github-app-private-key \
             --project="${{ vars.GCP_PROJECT_ID }}" \
             --data-file=- > /dev/null
-          echo "Synced WEBHOOK_SECRET → tfc-notification-secret and GH_APP_PRIVATE_KEY → github-app-private-key (new versions added)."
+          echo "Synced TFC_NOTIFICATION_SECRET → tfc-notification-secret and GH_APP_PRIVATE_KEY → github-app-private-key (new versions added)."
 
       - name: Deploy to Cloud Run
         run: |
