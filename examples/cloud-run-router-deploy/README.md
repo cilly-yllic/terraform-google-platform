@@ -86,27 +86,29 @@ mv init-router-hmac.yml .github/workflows/
 
 ### 3. private deploy repo の Variables を登録
 
-**Settings → Secrets and variables → Actions → Variables** に以下を登録 (`make bootstrap-print-env` の出力をコピペ):
+**Settings → Secrets and variables → Actions → Variables** に以下を登録:
 
 | Variable | 例 | 取得元 |
 |----------|---|--------|
-| `GCP_PROJECT_ID` | `infra-bootstrap` | bootstrap-print-env |
-| `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/<num>/locations/global/workloadIdentityPools/terraform-cloud/providers/github-actions` | bootstrap-print-env |
-| `GCP_DEPLOY_SERVICE_ACCOUNT` | `cloud-run-router-deploy@<project>.iam.gserviceaccount.com` | bootstrap-print-env |
-| `GCP_RUNTIME_SERVICE_ACCOUNT` | `cloud-run-router-runtime@<project>.iam.gserviceaccount.com` | bootstrap-print-env |
 | `GH_APP_ID` | `123456` (数値) | GitHub App 設定画面の App ID |
 
 > **注意**: `GITHUB_APP_ID` という名前は GitHub Actions の予約 prefix `GITHUB_` に当たるため Variable / Secret として作成できません。`GH_APP_ID` で登録し、workflow 内で `--set-env-vars="GITHUB_APP_ID=${{ vars.GH_APP_ID }}"` の形で env 名をリマップします。
 
 ### 4. private deploy repo の Secrets を登録 (手動)
 
-**Settings → Secrets and variables → Actions → Secrets** に以下を登録:
+**Settings → Secrets and variables → Actions → Secrets** に以下を登録 (`make bootstrap-print-env` の出力をコピペ):
 
-| Secret | 用途 | 値の入手元 |
-|--------|------|----------|
+| Secret | 例 / 用途 | 値の入手元 |
+|--------|----------|----------|
+| `GCP_PROJECT_ID` | `infra-bootstrap` | bootstrap-print-env |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/<num>/locations/global/workloadIdentityPools/terraform-cloud/providers/github-actions` | bootstrap-print-env |
+| `GCP_DEPLOY_SERVICE_ACCOUNT` | `cloud-run-router-deploy@<project>.iam.gserviceaccount.com` | bootstrap-print-env |
+| `GCP_RUNTIME_SERVICE_ACCOUNT` | `cloud-run-router-runtime@<project>.iam.gserviceaccount.com` | bootstrap-print-env |
 | `DEPLOY_WEBHOOK` | Slack Incoming Webhook URL (deploy 成功通知) | Slack App 設定 |
 | `GH_APP_PRIVATE_KEY` | GitHub App Private Key (PEM 文字列) | GitHub App 設定画面で **Generate a private key** → `.pem` ダウンロード → ファイル全文を貼り付け |
 
+> GCP 関連 (`GCP_*`) は値自体は識別子で公開しても直接被害は出にくいですが、運用上の defense-in-depth として Secret に置く方針です。技術的には Variable でも動かせますが、その場合は workflow 内の `secrets.GCP_*` を `vars.GCP_*` に書き換える必要があります。
+>
 > `TFC_NOTIFICATION_SECRET` は **手動登録不要**。次の Step 6 の init workflow で **自動生成・登録** されます。
 
 ### 5. cloud-run-router GitHub App に Repository Secrets: Write 権限を追加
