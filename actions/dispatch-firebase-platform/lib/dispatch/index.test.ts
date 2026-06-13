@@ -76,18 +76,16 @@ describe("buildTerraformVariables", () => {
     });
   });
 
-  it("emits all 22 feature keys even when firebase_platform is empty", () => {
+  it("emits all 23 feature keys (20 single + 3 list) even when firebase_platform is empty", () => {
     const vars = buildTerraformVariables("p", {});
-    // 1 project_id + 22 feature keys = 23
-    expect(vars).toHaveLength(23);
+    // 1 project_id + 20 single-feature keys + 3 list-feature keys = 24
+    expect(vars).toHaveLength(24);
     const featureKeys = [
       "firebase",
       "authentication",
       "firestore",
       "rtdb",
       "storage",
-      "hosting",
-      "app_hosting",
       "data_connect",
       "fcm",
       "remote_config",
@@ -103,6 +101,10 @@ describe("buildTerraformVariables", () => {
       "eventarc",
       "cloud_run",
       "cloud_functions",
+      // list features (multi-instance) — default null when omitted
+      "web_app",
+      "hosting",
+      "app_hosting",
     ];
     for (const k of featureKeys) {
       const v = vars.find((x) => x.key === k);
@@ -149,16 +151,51 @@ describe("buildTerraformVariables", () => {
 
   it("escapes Terraform interpolation in string values", () => {
     const vars = buildTerraformVariables("p", {
-      hosting: { site_id: "use-${var.danger}" },
+      hosting: [{ site_id: "use-${var.danger}", web_app: "main" }],
     });
     const h = vars.find((v) => v.key === "hosting");
     expect(h?.value).toContain('"use-$${var.danger}"');
   });
 
-  it("throws when feature value is an array", () => {
+  it("throws when single-feature value is an array", () => {
     expect(() =>
       buildTerraformVariables("p", { firebase: ["nope"] }),
     ).toThrow(/expected null, boolean, or object but got array/);
+  });
+
+  it("renders list-feature values (web_app / hosting / app_hosting) as HCL arrays", () => {
+    const vars = buildTerraformVariables("p", {
+      web_app: [{ name: "main" }, { name: "admin", display_name: "Admin" }],
+      hosting: [{ site_id: "mooodone-prod" }],
+      app_hosting: [
+        { backend_id: "api", location: "asia-northeast1", web_app: "main" },
+      ],
+    });
+    const w = vars.find((v) => v.key === "web_app");
+    expect(w?.value).toBe(
+      '[{ "name" = "main" }, { "name" = "admin", "display_name" = "Admin" }]',
+    );
+    const h = vars.find((v) => v.key === "hosting");
+    expect(h?.value).toBe('[{ "site_id" = "mooodone-prod" }]');
+    const a = vars.find((v) => v.key === "app_hosting");
+    expect(a?.value).toBe(
+      '[{ "backend_id" = "api", "location" = "asia-northeast1", "web_app" = "main" }]',
+    );
+  });
+
+  it("throws when list-feature value is not an array", () => {
+    expect(() =>
+      buildTerraformVariables("p", {
+        // ← 旧 schema の単数 object 形式は無効
+        hosting: { site_id: "foo" },
+      }),
+    ).toThrow(/expected null or array of objects but got object/);
+  });
+
+  it("throws when list-feature array contains non-object items", () => {
+    expect(() =>
+      buildTerraformVariables("p", { web_app: ["not-an-object"] }),
+    ).toThrow(/at index 0: expected an object/);
   });
 
   it("throws when feature value is a number", () => {

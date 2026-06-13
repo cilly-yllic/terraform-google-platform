@@ -78,36 +78,45 @@ output "storage_additional_buckets" {
 }
 
 # ---------------------------------------------------------------------------
-# Hosting
+# Web App (multiple)
 # ---------------------------------------------------------------------------
 
-output "hosting_site_id" {
-  description = "Firebase Hosting site ID."
-  value       = local.enable_hosting ? module.hosting[0].site_id : null
-}
-
-output "hosting_app_id" {
-  description = "Firebase Web App ID."
-  value       = local.enable_hosting ? module.hosting[0].app_id : null
-}
-
-output "hosting_default_url" {
-  description = "Firebase Hosting default URL."
-  value       = local.enable_hosting ? module.hosting[0].default_url : null
+output "web_apps" {
+  description = "Map of Firebase Web Apps, keyed by name. Each value contains app_id and display_name."
+  value = {
+    for name, mod in module.web_app : name => {
+      app_id       = mod.app_id
+      display_name = mod.display_name
+    }
+  }
 }
 
 # ---------------------------------------------------------------------------
-# App Hosting
+# Hosting (multiple sites)
 # ---------------------------------------------------------------------------
 
-output "app_hosting_name" {
-  description = "App Hosting backend resource name."
-  value       = local.enable_app_hosting ? module.app_hosting[0].name : null
+output "hosting_sites" {
+  description = "Map of Firebase Hosting sites, keyed by site_id. Each value contains app_id and default_url."
+  value = {
+    for site_id, mod in module.hosting : site_id => {
+      app_id      = mod.app_id
+      default_url = mod.default_url
+    }
+  }
 }
 
-output "app_hosting_uri" {
-  description = "App Hosting backend URI."
-  value       = local.enable_app_hosting ? module.app_hosting[0].uri : null
+# ---------------------------------------------------------------------------
+# App Hosting (multiple backends)
+# ---------------------------------------------------------------------------
+
+output "app_hosting_backends" {
+  description = "Map of App Hosting backends, keyed by backend_id. Each value contains resource_name and uri."
+  value = {
+    for backend_id, mod in module.app_hosting : backend_id => {
+      resource_name = mod.resource_name
+      uri           = mod.uri
+    }
+  }
 }
 
 # ---------------------------------------------------------------------------

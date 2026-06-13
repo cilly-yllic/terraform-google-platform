@@ -35,7 +35,7 @@ describe("buildTemplateFiles", () => {
     expect(versions).toContain('source  = "hashicorp/google-beta"');
   });
 
-  it("declares all 22 firebase_platform feature variables", () => {
+  it("declares all 23 firebase_platform feature variables (20 single + 3 list)", () => {
     const { "main.tf": main } = buildTemplateFiles(undefined);
     const features = [
       "firebase",
@@ -43,8 +43,6 @@ describe("buildTemplateFiles", () => {
       "firestore",
       "rtdb",
       "storage",
-      "hosting",
-      "app_hosting",
       "data_connect",
       "fcm",
       "remote_config",
@@ -60,6 +58,10 @@ describe("buildTemplateFiles", () => {
       "eventarc",
       "cloud_run",
       "cloud_functions",
+      // list features (multi-instance)
+      "web_app",
+      "hosting",
+      "app_hosting",
     ];
     for (const k of features) {
       expect(main, `should declare variable ${k}`).toContain(

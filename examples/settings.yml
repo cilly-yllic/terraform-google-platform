@@ -89,8 +89,10 @@ environments:
       storage:
         buckets:
           - name: uploads
+      # 複数 site 持つ project でも書ける形に変更されました。
+      # web_app は省略 (1 つだけなら "default" として auto-create + auto-link)。
       hosting:
-        site_id: my-service-prd-001-web
+        - site_id: my-service-prd-001-web
       fcm: true
       remote_config: true
       app_check: true
@@ -134,7 +136,7 @@ environments:
         databases:
           - database_id: analytics-db
       hosting:
-        site_id: my-service-stg-001-web
+        - site_id: my-service-stg-001-web
       fcm: true
       remote_config: true
       app_check: true
