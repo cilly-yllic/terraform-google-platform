@@ -12,7 +12,7 @@ ${VERSION_PLACEHOLDER}
   firestore       = var.firestore
   rtdb            = var.rtdb
   storage         = var.storage
-  web_app         = var.web_app
+  apps            = var.apps
   hosting         = var.hosting
   app_hosting     = var.app_hosting
   data_connect    = var.data_connect
@@ -71,7 +71,7 @@ variable "storage" {
   default = null
 }
 
-variable "web_app" {
+variable "apps" {
   type    = any
   default = null
 }

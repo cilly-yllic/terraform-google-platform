@@ -69,10 +69,11 @@ const FEATURE_KEYS = [
 ] as const;
 
 // 複数 instance 持てる feature (null | array of objects) を取る key 群。
-// web_app / hosting / app_hosting は同 project 内で複数登録できるため、
+// apps / hosting / app_hosting は同 project 内で複数登録できるため、
 // settings.yml で配列を書いてもらい、Terraform 側で for_each で展開する。
+// apps は type=web/ios/android で discriminate する union 形式。
 const LIST_FEATURE_KEYS = [
-  "web_app",
+  "apps",
   "hosting",
   "app_hosting",
 ] as const;
@@ -132,16 +133,24 @@ function normalizeFeatureFlag(key: string, val: unknown): unknown {
 }
 
 /**
- * Normalize a list-feature value (multi-instance features: web_app / hosting /
+ * Normalize a list-feature value (multi-instance features: apps / hosting /
  * app_hosting)。
  *   null / undefined → null
  *   false / "false" → null  (disable the feature)
- *   array → array (validated as object-array)
+ *   array → array (validated as object-array、apps の場合は type discrimination も check)
  *   その他 → throw
  *
  * 単数 object / true / 文字列の各 shorthand はサポートしない (array にしてから
  * 渡す前提)。
+ *
+ * apps の場合の追加 validation (Terraform module 側でも check されるが、Action
+ * 側で早めに落として fail-fast):
+ *   - 各 entry の type は "web" | "ios" | "android"
+ *   - type=ios なら bundle_id required (空文字でも error)
+ *   - type=android なら package_name required
  */
+const APPS_VALID_TYPES = new Set(["web", "ios", "android"]);
+
 function normalizeListFeatureFlag(key: string, val: unknown): unknown {
   if (val === null || val === undefined) return null;
   if (val === false || val === "false") return null;
@@ -155,12 +164,47 @@ function normalizeListFeatureFlag(key: string, val: unknown): unknown {
           } (${JSON.stringify(item)})`,
         );
       }
+      if (key === "apps") {
+        validateAppEntry(i, item as Record<string, unknown>);
+      }
     }
     return val;
   }
   throw new Error(
     `Invalid value for list-feature key "${key}": expected null or array of objects but got ${typeof val} (${JSON.stringify(val)})`,
   );
+}
+
+function validateAppEntry(
+  index: number,
+  entry: Record<string, unknown>,
+): void {
+  const name = entry.name;
+  if (typeof name !== "string" || name === "") {
+    throw new Error(
+      `apps[${index}]: 'name' is required and must be a non-empty string (got ${JSON.stringify(name)})`,
+    );
+  }
+  const type = entry.type;
+  if (typeof type !== "string" || !APPS_VALID_TYPES.has(type)) {
+    throw new Error(
+      `apps[${index}] (name="${name}"): 'type' must be one of "web" | "ios" | "android" (got ${JSON.stringify(type)})`,
+    );
+  }
+  if (type === "ios") {
+    if (typeof entry.bundle_id !== "string" || entry.bundle_id === "") {
+      throw new Error(
+        `apps[${index}] (name="${name}", type="ios"): 'bundle_id' is required and must be a non-empty string`,
+      );
+    }
+  }
+  if (type === "android") {
+    if (typeof entry.package_name !== "string" || entry.package_name === "") {
+      throw new Error(
+        `apps[${index}] (name="${name}", type="android"): 'package_name' is required and must be a non-empty string`,
+      );
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

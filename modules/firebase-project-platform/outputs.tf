@@ -78,14 +78,36 @@ output "storage_additional_buckets" {
 }
 
 # ---------------------------------------------------------------------------
-# Web App (multiple)
+# Apps (web / iOS / Android, type 別 map で出力)
 # ---------------------------------------------------------------------------
 
 output "web_apps" {
-  description = "Map of Firebase Web Apps, keyed by name. Each value contains app_id and display_name."
+  description = "Map of Firebase Web Apps, keyed by apps[].name (type=web). Each value contains app_id and display_name."
   value = {
-    for name, mod in module.web_app : name => {
+    for name, mod in module.apps_web : name => {
       app_id       = mod.app_id
+      display_name = mod.display_name
+    }
+  }
+}
+
+output "ios_apps" {
+  description = "Map of Firebase Apple Apps, keyed by apps[].name (type=ios). Each value contains app_id, bundle_id, display_name."
+  value = {
+    for name, mod in module.apps_ios : name => {
+      app_id       = mod.app_id
+      bundle_id    = mod.bundle_id
+      display_name = mod.display_name
+    }
+  }
+}
+
+output "android_apps" {
+  description = "Map of Firebase Android Apps, keyed by apps[].name (type=android). Each value contains app_id, package_name, display_name."
+  value = {
+    for name, mod in module.apps_android : name => {
+      app_id       = mod.app_id
+      package_name = mod.package_name
       display_name = mod.display_name
     }
   }

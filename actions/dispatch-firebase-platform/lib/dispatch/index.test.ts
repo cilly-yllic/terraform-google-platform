@@ -102,7 +102,7 @@ describe("buildTerraformVariables", () => {
       "cloud_run",
       "cloud_functions",
       // list features (multi-instance) — default null when omitted
-      "web_app",
+      "apps",
       "hosting",
       "app_hosting",
     ];
@@ -151,7 +151,7 @@ describe("buildTerraformVariables", () => {
 
   it("escapes Terraform interpolation in string values", () => {
     const vars = buildTerraformVariables("p", {
-      hosting: [{ site_id: "use-${var.danger}", web_app: "main" }],
+      hosting: [{ site_id: "use-${var.danger}", app: "main" }],
     });
     const h = vars.find((v) => v.key === "hosting");
     expect(h?.value).toContain('"use-$${var.danger}"');
@@ -163,23 +163,26 @@ describe("buildTerraformVariables", () => {
     ).toThrow(/expected null, boolean, or object but got array/);
   });
 
-  it("renders list-feature values (web_app / hosting / app_hosting) as HCL arrays", () => {
+  it("renders list-feature values (apps / hosting / app_hosting) as HCL arrays", () => {
     const vars = buildTerraformVariables("p", {
-      web_app: [{ name: "main" }, { name: "admin", display_name: "Admin" }],
+      apps: [
+        { name: "main", type: "web" },
+        { name: "admin", type: "web", display_name: "Admin" },
+      ],
       hosting: [{ site_id: "mooodone-prod" }],
       app_hosting: [
-        { backend_id: "api", location: "asia-northeast1", web_app: "main" },
+        { backend_id: "api", location: "asia-northeast1", app: "main" },
       ],
     });
-    const w = vars.find((v) => v.key === "web_app");
+    const w = vars.find((v) => v.key === "apps");
     expect(w?.value).toBe(
-      '[{ "name" = "main" }, { "name" = "admin", "display_name" = "Admin" }]',
+      '[{ "name" = "main", "type" = "web" }, { "name" = "admin", "type" = "web", "display_name" = "Admin" }]',
     );
     const h = vars.find((v) => v.key === "hosting");
     expect(h?.value).toBe('[{ "site_id" = "mooodone-prod" }]');
     const a = vars.find((v) => v.key === "app_hosting");
     expect(a?.value).toBe(
-      '[{ "backend_id" = "api", "location" = "asia-northeast1", "web_app" = "main" }]',
+      '[{ "backend_id" = "api", "location" = "asia-northeast1", "app" = "main" }]',
     );
   });
 
@@ -194,8 +197,58 @@ describe("buildTerraformVariables", () => {
 
   it("throws when list-feature array contains non-object items", () => {
     expect(() =>
-      buildTerraformVariables("p", { web_app: ["not-an-object"] }),
+      buildTerraformVariables("p", { apps: ["not-an-object"] }),
     ).toThrow(/at index 0: expected an object/);
+  });
+
+  it("throws when apps[].type is missing or invalid", () => {
+    expect(() =>
+      buildTerraformVariables("p", { apps: [{ name: "main" }] }),
+    ).toThrow(/apps\[0\] \(name="main"\): 'type' must be one of/);
+    expect(() =>
+      buildTerraformVariables("p", { apps: [{ name: "main", type: "flutter" }] }),
+    ).toThrow(/apps\[0\] \(name="main"\): 'type' must be one of/);
+  });
+
+  it("throws when apps[].name is missing", () => {
+    expect(() =>
+      buildTerraformVariables("p", { apps: [{ type: "web" }] }),
+    ).toThrow(/apps\[0\]: 'name' is required/);
+  });
+
+  it("throws when type=ios but bundle_id is missing", () => {
+    expect(() =>
+      buildTerraformVariables("p", {
+        apps: [{ name: "main-ios", type: "ios" }],
+      }),
+    ).toThrow(/apps\[0\] \(name="main-ios", type="ios"\): 'bundle_id' is required/);
+  });
+
+  it("throws when type=android but package_name is missing", () => {
+    expect(() =>
+      buildTerraformVariables("p", {
+        apps: [{ name: "main-android", type: "android" }],
+      }),
+    ).toThrow(/apps\[0\] \(name="main-android", type="android"\): 'package_name' is required/);
+  });
+
+  it("accepts valid type=ios / type=android entries with required fields", () => {
+    const vars = buildTerraformVariables("p", {
+      apps: [
+        { name: "main", type: "web" },
+        { name: "main-ios", type: "ios", bundle_id: "com.example.app" },
+        {
+          name: "main-android",
+          type: "android",
+          package_name: "com.example.app",
+        },
+      ],
+    });
+    const a = vars.find((v) => v.key === "apps");
+    expect(a?.value).toContain('"type" = "ios"');
+    expect(a?.value).toContain('"bundle_id" = "com.example.app"');
+    expect(a?.value).toContain('"type" = "android"');
+    expect(a?.value).toContain('"package_name" = "com.example.app"');
   });
 
   it("throws when feature value is a number", () => {
