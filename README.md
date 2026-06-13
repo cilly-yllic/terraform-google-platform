@@ -19,22 +19,35 @@ GCP / Firebase プロジェクトの作成・設定を一元管理する Terrafo
 
 ## Terraform Modules
 
+本リポジトリは Terraform Registry に **1 entry (`cilly-yllic/platform/google`)** として publish され、配下の `modules/<name>` を **subdirectory 参照**で利用する形式です:
+
+```
+registry.terraform.io/modules/cilly-yllic/platform/google
+└── modules/
+    ├── firebase-project-platform   ← サブモジュール
+    └── project-bootstrap            ← サブモジュール
+```
+
 ### `modules/firebase-project-platform`
 
 Firebase / GCP プロジェクトに必要なリソースを **feature variables** で選択的に作成する共通モジュール。
 
-Terraform Registry: `cilly-yllic/firebase-project-platform/google`
-
 ```hcl
 module "firebase_platform" {
-  source = "cilly-yllic/firebase-project-platform/google"
+  source  = "cilly-yllic/platform/google//modules/firebase-project-platform"
+  version = "~> 0.1"   # tag (v0.0.0-rcN) に追従
 
   project_id = "my-project-id"
   region     = "asia-northeast1"
 
   firebase  = true
   firestore = true
-  hosting   = true
+  apps = [
+    { name = "main", type = "web" },
+  ]
+  hosting = [
+    { site_id = "my-project-web" },
+  ]
 }
 ```
 
@@ -44,11 +57,10 @@ module "firebase_platform" {
 
 GCP Project 作成と Terraform 実行用 Service Account 作成・管理を行うモジュール。
 
-Terraform Registry: `cilly-yllic/project-bootstrap/google`
-
 ```hcl
 module "project_bootstrap" {
-  source = "cilly-yllic/project-bootstrap/google"
+  source  = "cilly-yllic/platform/google//modules/project-bootstrap"
+  version = "~> 0.1"
 
   project_id                   = "example-prd-001"
   project_name                 = "Example Production"
@@ -221,29 +233,43 @@ terraform-google-platform/
 
 ## Migration Guide
 
-旧リポジトリからの移行:
+### Terraform Module の source 移行 (v0.0.0-rc6 以降)
 
-### Terraform Module
+旧 Registry entry (個別 publish) から **新 unified entry (subdirectory 参照)** に統一しました。利用側 main.tf の `source` を以下のように書き換えてください:
 
 ```hcl
-# Before (firebase-project-platform)
+# Before (旧個別 Registry entry — publish されていなかったため実際は動かなかった)
 source = "cilly-yllic/firebase-project-platform/google"
-
-# After (本リポジトリ)
-source = "cilly-yllic/firebase-project-platform/google"  # Registry 名は変更なし
-```
-
-```hcl
-# project-bootstrap
 source = "cilly-yllic/project-bootstrap/google"
+
+# After (本リポジトリの統合 Registry entry)
+source  = "cilly-yllic/platform/google//modules/firebase-project-platform"
+version = "~> 0.1"
+
+source  = "cilly-yllic/platform/google//modules/project-bootstrap"
+version = "~> 0.1"
 ```
 
-### GitHub Actions
+### GitHub Actions の uses 行は変わらず
 
 ```yaml
 uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
 uses: cilly-yllic/terraform-google-platform/actions/dispatch-project-bootstrap@main
 ```
+
+### Action template が自動生成する main.tf
+
+Action B / A が TFC workspace に upload する main.tf も自動で新 source 形式 (`cilly-yllic/platform/google//modules/<name>`) を出力します (PR を merge して新 tag を切れば反映)。
+
+---
+
+## Terraform Registry Publish 手順 (リポジトリ管理者向け)
+
+1. https://registry.terraform.io/sign-in で GitHub アカウントでサインイン
+2. `Publish` → `Module` → 該当 repo (`cilly-yllic/terraform-google-platform`) を選択
+3. Registry 上の module 名は `cilly-yllic/platform/google` として登録される (repo 名 `terraform-google-platform` から自動派生)
+4. 以降は新 tag (`v0.0.0-rcN` 等) を push するたびに自動 ingest される
+5. 配下のサブモジュールは利用側の `source` で `//modules/<name>` 参照することで自動的に解決される
 
 ---
 

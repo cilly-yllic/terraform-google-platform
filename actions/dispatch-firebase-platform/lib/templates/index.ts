@@ -1,7 +1,7 @@
 const VERSION_PLACEHOLDER = "##MODULE_VERSION_LINE##";
 
 const MAIN_TF = `module "firebase_platform" {
-  source = "cilly-yllic/firebase-project-platform/google"
+  source = "cilly-yllic/platform/google//modules/firebase-project-platform"
 ${VERSION_PLACEHOLDER}
 
   project_id = var.project_id
@@ -12,7 +12,7 @@ ${VERSION_PLACEHOLDER}
   firestore       = var.firestore
   rtdb            = var.rtdb
   storage         = var.storage
-  web_app         = var.web_app
+  apps            = var.apps
   hosting         = var.hosting
   app_hosting     = var.app_hosting
   data_connect    = var.data_connect
@@ -71,7 +71,7 @@ variable "storage" {
   default = null
 }
 
-variable "web_app" {
+variable "apps" {
   type    = any
   default = null
 }
