@@ -21,6 +21,7 @@ confirm_apply() {
       echo "  - Cloud Run deploy SA: $(deploy_sa_email)"
       echo "  - GitHub WIF Provider: $(github_provider_id) (repo: ${GITHUB_REPOSITORY})"
       echo "  - Additional APIs: ${CLOUD_RUN_DEPLOY_APIS[*]}"
+      echo "  - Runtime secret containers (empty): tfc-notification-secret, github-app-private-key"
     else
       echo "  - Cloud Run deploy resources: (skipped — ENABLE_CLOUD_RUN_DEPLOY_SETUP not set)"
     fi

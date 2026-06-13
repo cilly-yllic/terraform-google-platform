@@ -7,6 +7,9 @@
 #     cloudbuild.builds.editor          : `gcloud builds submit` で Cloud Build job 発行
 #     storage.admin                     : Cloud Build が source upload に GCS bucket を使う
 #     iam.serviceAccountTokenCreator    : runtime SA の token を発行 (Cloud Run service 起動時の impersonation)
+#     secretmanager.secretVersionAdder  : deploy workflow が GitHub Secret から
+#                                         tfc-notification-secret / github-app-private-key の
+#                                         新 version を Secret Manager に push する
 #   Deploy SA → Runtime SA:
 #     iam.serviceAccountUser            : Cloud Run service の `--service-account=<runtime>` 指定用
 #   Runtime SA (project レベル):
@@ -24,6 +27,7 @@ grant_cloud_run_deploy_iam() {
     roles/cloudbuild.builds.editor
     roles/storage.admin
     roles/iam.serviceAccountTokenCreator
+    roles/secretmanager.secretVersionAdder
   )
   for role in "${deploy_project_roles[@]}"; do
     info "  Deploy SA / Project: ${role}"

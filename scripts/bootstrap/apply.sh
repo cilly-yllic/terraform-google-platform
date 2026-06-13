@@ -26,6 +26,7 @@ run_apply() {
     create_cloud_run_runtime_sa
     create_cloud_run_deploy_sa
     grant_cloud_run_deploy_iam
+    create_cloud_run_runtime_secret_containers
     create_github_wif_provider
     grant_github_wif_binding
   fi
