@@ -1,0 +1,111 @@
+name: Initialize / Rotate TFC_NOTIFICATION_SECRET
+
+# ============================================================================
+# ⚠️ これは **reference workflow** です。
+#
+# 本ファイルは `examples/` 配下に置かれており、GitHub Actions には自動拾い
+# 上げ**されません**。本リポジトリで実 secret 管理用途には使われません。
+#
+# 推奨の利用方法:
+#   1. このファイルを fork ユーザーの **private な deploy 用 repo** にコピー
+#      (例: <your-org>/infrastructure 等 — deploy workflow と同じ repo)
+#   2. 配置先: `.github/workflows/init-router-hmac.yml`
+#   3. 必要なら表示テキストや概要コメントを自組織に合わせて調整
+#
+# 詳細: examples/cloud-run-router-deploy/README.md
+# ============================================================================
+#
+# 用途:
+#   cloud-run-router が TFC からの webhook を HMAC 検証するための shared secret
+#   (= GitHub Secret TFC_NOTIFICATION_SECRET) を **本 workflow 経由で生成・登録**する。
+#
+#   生成後の sync to GCP Secret Manager は deploy workflow が担当
+#   (deploy-cloud-run-router.yml の "Sync runtime secrets to GCP Secret Manager" step)。
+#
+# 運用フロー:
+#   1. 初回: rotate=false で実行 → 既存 secret があれば失敗 / なければ新規登録
+#   2. ローテーション: rotate=true で実行 → 強制上書き
+#   3. その後 deploy workflow を起動 → Secret Manager の新 version + Cloud Run redeploy
+#
+# 前提セットアップ:
+#   - 既存の cloud-run-router GitHub App に `Repository permissions → Secrets: Write`
+#     を追加して、本 repo にインストール済み
+#   - 本 repo の Variables に GH_APP_ID 登録済み
+#   - 本 repo の Secrets に GH_APP_PRIVATE_KEY 登録済み
+#     (Repository Secret 用の token 発行に必要、deploy workflow と共用)
+#
+# HMAC ローテーション後の追加対応:
+#   - 既存の TFC Notification の Token は **古い値のまま** なので、
+#     Action A (provision-project workflow) を各 service に対して再実行する
+#     必要がある (現状の Action A は Token update path 未対応のため UI 手動更新が必要)。
+
+on:
+  workflow_dispatch:
+    inputs:
+      rotate:
+        description: "true で rotate (既存 secret を上書き)。false (default) で初回登録のみ。"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: init-router-hmac
+  cancel-in-progress: false
+
+jobs:
+  init-or-rotate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get GitHub App installation token (with Secrets:Write)
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+      - name: Check existing secret state
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          EXISTS=$(gh secret list --repo "${{ github.repository }}" --json name --jq '[.[].name] | contains(["TFC_NOTIFICATION_SECRET"])')
+          if [[ "${EXISTS}" == "true" ]]; then
+            if [[ "${{ inputs.rotate }}" != "true" ]]; then
+              echo "::error::TFC_NOTIFICATION_SECRET already exists. Re-run with rotate=true to overwrite."
+              exit 1
+            fi
+            echo "::notice::TFC_NOTIFICATION_SECRET exists. Will be OVERWRITTEN (rotate=true)."
+          else
+            echo "::notice::TFC_NOTIFICATION_SECRET does not exist. Will be created (first-time init)."
+          fi
+
+      - name: Generate HMAC and set as Repository Secret
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # openssl は ubuntu-latest に preinstalled。32 bytes (= 64 hex chars) は
+          # HMAC-SHA512 用途として十分。
+          HMAC=$(openssl rand -hex 32)
+          printf '%s' "${HMAC}" | gh secret set TFC_NOTIFICATION_SECRET \
+            --repo "${{ github.repository }}" \
+            --body -
+          echo "::notice::TFC_NOTIFICATION_SECRET set on ${{ github.repository }}"
+
+      - name: Write step summary
+        if: success()
+        run: |
+          {
+            echo "## TFC_NOTIFICATION_SECRET ${{ inputs.rotate && 'rotated' || 'initialized' }}"
+            echo ""
+            echo "- **Repository**: \`${{ github.repository }}\`"
+            echo "- **Secret name**: \`TFC_NOTIFICATION_SECRET\`"
+            echo "- **Operation**: ${{ inputs.rotate && '🔄 rotation (overwrote existing)' || '✨ first-time initialization' }}"
+            echo ""
+            echo "### 次のアクション"
+            echo ""
+            echo "1. **Deploy workflow を起動** して新値を GCP Secret Manager に sync + Cloud Run の新 revision を deploy"
+            echo "2. ${{ inputs.rotate && '**Rotation の場合**: 各 service の provision-project workflow を再実行して TFC Notification の Token を新値に更新 (現状の Action A は Token update path 未対応のため、TFC UI からの手動更新も必要な可能性あり)' || '' }}"
+          } >> "${GITHUB_STEP_SUMMARY}"

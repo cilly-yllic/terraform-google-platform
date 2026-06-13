@@ -1,8 +1,15 @@
-# Cloud Run router deploy (reference workflow)
+# Cloud Run router deploy (reference workflows)
 
-`cloud-run-router/` を Cloud Run にデプロイするための GitHub Actions workflow の **reference 実装** です。本リポジトリ内では実行されません (`examples/` 配下にあるため GitHub Actions に自動拾い上げされない)。
+`cloud-run-router/` を Cloud Run にデプロイするための GitHub Actions workflow の **reference 実装** 一式です。本リポジトリ内では実行されません (`examples/` 配下にあるため GitHub Actions に自動拾い上げされない)。
 
 利用者は本 workflow を **自リポジトリの private な deploy 用 repo にコピー** して使うことを想定しています。
+
+含まれる workflow:
+
+| ファイル | 用途 |
+|---------|------|
+| [`deploy-cloud-run-router.yml`](./deploy-cloud-run-router.yml) | タグを指定して Cloud Run に deploy。Build → Sync runtime secrets (GitHub Secrets → Secret Manager) → Deploy → Slack 通知 |
+| [`init-router-hmac.yml`](./init-router-hmac.yml) | TFC HMAC shared secret (`TFC_NOTIFICATION_SECRET`) を CI 内で生成・GitHub Repository Secret に登録 (workflow_dispatch、rotate オプション付き) |
 
 ---
 
@@ -22,17 +29,24 @@ cloud-run-router のソースコードは本リポジトリ (公開) で referen
           ├─ scripts/bootstrap.sh
           └─ examples/
               └─ cloud-run-router-deploy/
-                  ├─ deploy-cloud-run-router.yml  ← これをコピー
-                  └─ README.md                    ← (本ファイル)
+                  ├─ deploy-cloud-run-router.yml   ← コピー
+                  ├─ init-router-hmac.yml          ← コピー
+                  └─ README.md                     ← (本ファイル)
 
 [Private] <your-org>/<your-deploy-repo>            (新規 / 既存 private repo)
           └─ .github/workflows/
-              └─ deploy-cloud-run-router.yml      ← コピー先 + 微修正
-                  ↓
-                  actions/checkout で public repo の指定 tag を取得
-                  → gcloud builds submit (image build & push)
-                  → gcloud run deploy (Cloud Run service 更新)
-                  → Slack 通知
+              ├─ deploy-cloud-run-router.yml        ← コピー先 + 微修正
+              │   actions/checkout で public repo の指定 tag を取得
+              │   → gcloud builds submit (image build & push)
+              │   → Sync GitHub Secrets → GCP Secret Manager
+              │   → gcloud run deploy (Cloud Run service 更新)
+              │   → Slack 通知
+              │
+              └─ init-router-hmac.yml               ← コピー先 (修正不要)
+                  workflow_dispatch で:
+                  openssl で HMAC 生成 → GitHub Repository Secret
+                  TFC_NOTIFICATION_SECRET に登録
+                  (rotate オプション付き)
 ```
 
 ---
@@ -60,11 +74,15 @@ make bootstrap-print-env       # GitHub Variables 用の値を出力
 
 ```bash
 mkdir -p .github/workflows
+# deploy 用 (tag 指定で Cloud Run に deploy)
 curl -O https://raw.githubusercontent.com/cilly-yllic/terraform-google-platform/main/examples/cloud-run-router-deploy/deploy-cloud-run-router.yml
 mv deploy-cloud-run-router.yml .github/workflows/
+# HMAC 自動生成・登録用 (workflow_dispatch)
+curl -O https://raw.githubusercontent.com/cilly-yllic/terraform-google-platform/main/examples/cloud-run-router-deploy/init-router-hmac.yml
+mv init-router-hmac.yml .github/workflows/
 ```
 
-もしくはコピペでも OK。配置後、ファイル先頭の `SOURCE_REPO:` を自分の使う source repo に合わせて変更してください (本リポジトリを fork してる場合は fork 先を指定)。
+もしくはコピペでも OK。配置後、`deploy-cloud-run-router.yml` 先頭の `SOURCE_REPO:` を自分の使う source repo に合わせて変更してください (本リポジトリを fork してる場合は fork 先を指定)。`init-router-hmac.yml` は通常修正不要。
 
 ### 3. private deploy repo の Variables を登録
 
@@ -80,31 +98,44 @@ mv deploy-cloud-run-router.yml .github/workflows/
 
 > **注意**: `GITHUB_APP_ID` という名前は GitHub Actions の予約 prefix `GITHUB_` に当たるため Variable / Secret として作成できません。`GH_APP_ID` で登録し、workflow 内で `--set-env-vars="GITHUB_APP_ID=${{ vars.GH_APP_ID }}"` の形で env 名をリマップします。
 
-### 4. private deploy repo の Secrets を登録
+### 4. private deploy repo の Secrets を登録 (手動)
 
-**Settings → Secrets and variables → Actions → Secrets** に:
+**Settings → Secrets and variables → Actions → Secrets** に以下を登録:
 
-| Secret | 用途 |
-|--------|------|
-| `DEPLOY_WEBHOOK` | Slack Incoming Webhook URL (deploy 成功通知) |
+| Secret | 用途 | 値の入手元 |
+|--------|------|----------|
+| `DEPLOY_WEBHOOK` | Slack Incoming Webhook URL (deploy 成功通知) | Slack App 設定 |
+| `GH_APP_PRIVATE_KEY` | GitHub App Private Key (PEM 文字列) | GitHub App 設定画面で **Generate a private key** → `.pem` ダウンロード → ファイル全文を貼り付け |
 
-### 5. GCP Secret Manager に runtime secret を作成
+> `TFC_NOTIFICATION_SECRET` は **手動登録不要**。次の Step 6 の init workflow で **自動生成・登録** されます。
 
-cloud-run-router の runtime 用 secret を Secret Manager に作成:
+### 5. cloud-run-router GitHub App に Repository Secrets: Write 権限を追加
 
-```bash
-# TFC notification HMAC secret
-gcloud secrets create tfc-notification-secret \
-  --data-file=<(printf '%s' "<your-tfc-hmac-secret>") \
-  --project=<GCP_PROJECT_ID>
+`init-router-hmac.yml` workflow が GitHub Repository Secret に書き込むため、対象の GitHub App に権限追加が必要です。
 
-# GitHub App private key (PEM)
-gcloud secrets create github-app-private-key \
-  --data-file=path/to/github-app-private-key.pem \
-  --project=<GCP_PROJECT_ID>
-```
+1. GitHub App 設定画面 (個人 `https://github.com/settings/apps/<app-name>` または Org `https://github.com/organizations/<org>/settings/apps/<app-name>`) → **Edit**
+2. 左メニュー **Permissions & events** → **Repository permissions** セクション
+3. **Secrets** を **Read and write** に変更
+4. **Save changes**
+5. 画面上部に出る黄色いバナーから **Accept new permissions** をクリック (or `https://github.com/settings/installations` → App → Configure)
 
-`tfc-notification-secret` の値は TFC 側 Notification 設定の Token と必ず一致させてください。
+確認: App の Permissions に以下があれば OK:
+- `Contents: Read and write` (既存)
+- `Secrets: Read and write` (今回追加)
+
+### 6. `init-router-hmac.yml` を実行して TFC_NOTIFICATION_SECRET を生成
+
+private deploy repo の **Actions** タブ → **Initialize / Rotate TFC_NOTIFICATION_SECRET** → **Run workflow**:
+- `rotate`: **false** (default。初回登録)
+- **Run workflow** クリック
+
+完了すると `TFC_NOTIFICATION_SECRET` が Repository Secrets に登録されます (値は表示されません)。
+
+> **Rotation 時**: 同じ workflow を `rotate: true` で再実行。新値で上書きされます。ただし既存の TFC Notification の Token は古いまま残るので、各 service の `provision-project` workflow を再実行して TFC Notification を再作成する必要あり (現状の Action A は Token update 未対応のため、TFC UI からの手動更新も併用)。
+
+### 7. GCP Secret Manager の container は bootstrap.sh で既に作成済み
+
+`tfc-notification-secret` と `github-app-private-key` の **空 container** は `make bootstrap` (Step 1) で自動作成されています。**値の投入は次の deploy workflow** が GitHub Secrets から sync するので、手動 `gcloud secrets create` 等は不要。
 
 ---
 
@@ -122,9 +153,18 @@ gcloud secrets create github-app-private-key \
    - tag を fetch → main 祖先チェック
    - WIF 認証
    - gcloud builds submit でコンテナイメージを build & push
+   - Sync runtime secrets (GitHub Secrets `TFC_NOTIFICATION_SECRET` /
+     `GH_APP_PRIVATE_KEY` → Secret Manager に新 version 追加)
    - gcloud run deploy で Cloud Run を更新 (runtime SA で実行)
    - Slack に Service URL + /webhook endpoint URL を含めて通知
 ```
+
+### Rotation 操作
+
+| Secret | Rotation 手順 |
+|--------|-------------|
+| **TFC_NOTIFICATION_SECRET** (HMAC) | (a) Actions → "Initialize / Rotate TFC_NOTIFICATION_SECRET" → `rotate: true` → Run → (b) Deploy workflow を起動 (Cloud Run の新 revision で新値が反映) → (c) 各 service の provision-project workflow を再実行 (or TFC UI で Notification Token を手動更新) |
+| **GH_APP_PRIVATE_KEY** (PEM) | (a) GitHub App 設定画面で新 private key 生成 → `.pem` ダウンロード → (b) Repository Secret `GH_APP_PRIVATE_KEY` を新値に更新 → (c) Deploy workflow を起動 (Cloud Run の新 revision で新値が反映) → (d) GitHub App 設定で古い private key を Revoke |
 
 ---
 
