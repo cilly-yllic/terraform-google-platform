@@ -59,7 +59,7 @@ describe("buildTemplateFiles", () => {
       "cloud_run",
       "cloud_functions",
       // list features (multi-instance)
-      "web_app",
+      "apps",
       "hosting",
       "app_hosting",
     ];

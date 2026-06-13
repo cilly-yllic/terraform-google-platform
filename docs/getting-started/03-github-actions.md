@@ -42,8 +42,9 @@ environments:
     firebase_platform:
       firebase: true
       firestore: true
-      # hosting / app_hosting は配列で複数 site / backend を持てる。web_app は
-      # 省略時 "default" 名で自動作成、hosting / app_hosting から自動 link される。
+      # apps / hosting / app_hosting は array で複数登録可能。
+      # apps を省略すると "default" 名で type=web を 1 件 auto-create、
+      # hosting / app_hosting の app: 省略時に自動 link される。
       hosting:
         - site_id: my-service-prd-001-web
   dev-001:
