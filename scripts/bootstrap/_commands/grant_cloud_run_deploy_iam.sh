@@ -12,6 +12,15 @@
 #                                         新 version を Secret Manager に push する
 #   Deploy SA → Runtime SA:
 #     iam.serviceAccountUser            : Cloud Run service の `--service-account=<runtime>` 指定用
+#   Deploy SA → Cloud Build runner SA (Compute default / legacy cloudbuild):
+#     iam.serviceAccountUser            : `gcloud builds submit` が build job を Cloud Build
+#                                         runner SA として起動するため、deploy 主体は
+#                                         runner SA に "act as" する権限が必要。
+#                                         2024-04 以降の project は Compute Engine default SA
+#                                         (`<PROJECT_NUMBER>-compute@developer.gserviceaccount.com`)
+#                                         を runner として使う。古い project は legacy
+#                                         `<PROJECT_NUMBER>@cloudbuild.gserviceaccount.com`。
+#                                         両方に binding を試みる (存在しない方は skip)。
 #   Runtime SA (project レベル):
 #     secretmanager.secretAccessor      : Cloud Run service runtime での secret 読み取り
 grant_cloud_run_deploy_iam() {
@@ -43,6 +52,33 @@ grant_cloud_run_deploy_iam() {
     --member="${deploy_member}" \
     --role="roles/iam.serviceAccountUser" \
     --quiet
+
+  # Cloud Build runner SA への iam.serviceAccountUser 付与。
+  # 2024-04 以降の project は Compute Engine default SA を build runner に
+  # 使うので必須。legacy cloudbuild SA は古い project 向け (存在しない場合は skip)。
+  local project_number
+  project_number="$(gcloud projects describe "${BOOTSTRAP_PROJECT_ID}" \
+    --format='value(projectNumber)')"
+
+  local compute_default_sa="${project_number}-compute@developer.gserviceaccount.com"
+  info "  Deploy SA / Compute default SA (Cloud Build runner): roles/iam.serviceAccountUser"
+  if ! gcloud iam service-accounts add-iam-policy-binding "${compute_default_sa}" \
+    --project="${BOOTSTRAP_PROJECT_ID}" \
+    --member="${deploy_member}" \
+    --role="roles/iam.serviceAccountUser" \
+    --quiet 2>/dev/null; then
+    info "    (Compute default SA not found — skipped)"
+  fi
+
+  local cloudbuild_default_sa="${project_number}@cloudbuild.gserviceaccount.com"
+  info "  Deploy SA / Cloud Build legacy SA: roles/iam.serviceAccountUser"
+  if ! gcloud iam service-accounts add-iam-policy-binding "${cloudbuild_default_sa}" \
+    --project="${BOOTSTRAP_PROJECT_ID}" \
+    --member="${deploy_member}" \
+    --role="roles/iam.serviceAccountUser" \
+    --quiet 2>/dev/null; then
+    info "    (legacy cloudbuild SA not found — skipped)"
+  fi
 
   local runtime_project_roles=(
     roles/secretmanager.secretAccessor
