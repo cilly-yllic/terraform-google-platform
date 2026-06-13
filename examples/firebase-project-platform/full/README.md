@@ -114,7 +114,7 @@ Rewrite these in `main.tf` before running for real:
 - `project_id` (`"my-full-project"` → real project ID)
 - `billing_account` (`"XXXXXX-XXXXXX-XXXXXX"` → real billing account ID)
 - `users[*].email` (replace the `example.com` placeholders)
-- `hosting.site_id` / `data_connect.service_id` (values that require global uniqueness)
+- `hosting[].site_id` / `data_connect.service_id` (values that require global uniqueness)
 
 <details><summary>Ja</summary>
 
@@ -123,7 +123,7 @@ Rewrite these in `main.tf` before running for real:
 - `project_id` (`"my-full-project"` → 実 project ID)
 - `billing_account` (`"XXXXXX-XXXXXX-XXXXXX"` → 実 billing account ID)
 - `users[*].email` (テンプレートの `example.com` を実 email に)
-- `hosting.site_id` / `data_connect.service_id` (グローバル一意である必要のあるもの)
+- `hosting[].site_id` / `data_connect.service_id` (グローバル一意である必要のあるもの)
 
 </details>
 
