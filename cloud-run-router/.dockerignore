@@ -1,0 +1,17 @@
+# Build context から除外することで Cloud Build に送信する tarball を最小化。
+node_modules/
+dist/
+.git/
+.github/
+.idea/
+.vscode/
+*.log
+.env
+.env.*
+.envrc
+coverage/
+.nyc_output/
+test/
+vitest.config.ts
+.oxfmtrc.json
+README.md

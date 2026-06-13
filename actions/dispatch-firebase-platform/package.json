@@ -5,7 +5,7 @@
   "description": "GitHub Action: Dispatch TFC Run for firebase-project-platform",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "build": "ncc build src/index.ts -o dist --license licenses.txt",
