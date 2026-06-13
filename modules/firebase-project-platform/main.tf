@@ -33,14 +33,14 @@
 
 locals {
   # -- enable flags ----------------------------------------------------------
-  enable_firebase        = var.firebase != null
-  enable_authentication  = var.authentication != null
-  enable_firestore       = var.firestore != null
-  enable_rtdb            = var.rtdb != null
-  enable_storage         = var.storage != null
+  enable_firebase       = var.firebase != null
+  enable_authentication = var.authentication != null
+  enable_firestore      = var.firestore != null
+  enable_rtdb           = var.rtdb != null
+  enable_storage        = var.storage != null
   # hosting / app_hosting は list が来る → 空 list or null で disable 判定
-  enable_hosting         = var.hosting != null && length(local.hosting_list) > 0
-  enable_app_hosting     = var.app_hosting != null && length(local.app_hosting_list) > 0
+  enable_hosting     = var.hosting != null && length(local.hosting_list) > 0
+  enable_app_hosting = var.app_hosting != null && length(local.app_hosting_list) > 0
   # web_app は user が明示する or hosting/app_hosting がいる時に auto-enable
   enable_web_app = (
     (var.web_app != null && length(local.web_app_list_explicit) > 0) ||
