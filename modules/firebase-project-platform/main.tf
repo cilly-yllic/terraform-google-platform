@@ -38,8 +38,14 @@ locals {
   enable_firestore       = var.firestore != null
   enable_rtdb            = var.rtdb != null
   enable_storage         = var.storage != null
-  enable_hosting         = var.hosting != null
-  enable_app_hosting     = var.app_hosting != null
+  # hosting / app_hosting は list が来る → 空 list or null で disable 判定
+  enable_hosting         = var.hosting != null && length(local.hosting_list) > 0
+  enable_app_hosting     = var.app_hosting != null && length(local.app_hosting_list) > 0
+  # web_app は user が明示する or hosting/app_hosting がいる時に auto-enable
+  enable_web_app = (
+    (var.web_app != null && length(local.web_app_list_explicit) > 0) ||
+    local.web_app_auto_default_needed
+  )
   enable_data_connect    = var.data_connect != null
   enable_fcm             = var.fcm != null
   enable_remote_config   = var.remote_config != null
@@ -73,13 +79,9 @@ locals {
     var.storage == true ? {} : var.storage
   ) : {}
 
-  hosting_cfg = local.enable_hosting ? (
-    var.hosting == true ? {} : var.hosting
-  ) : {}
-
-  app_hosting_cfg = local.enable_app_hosting ? (
-    var.app_hosting == true ? {} : var.app_hosting
-  ) : {}
+  # hosting / app_hosting / web_app は list 化される (詳細は別 locals block)
+  # 既存 cfg 形式の hosting / app_hosting は無くなったが、他の location 自動引き継ぎは
+  # for_each 内で each.value を使う形で解決する。
 
   data_connect_cfg = local.enable_data_connect ? (
     var.data_connect == true ? {} : var.data_connect
@@ -99,6 +101,76 @@ locals {
 }
 
 # ---------------------------------------------------------------------------
+# Locals – web_app / hosting / app_hosting 正規化 (list 化、auto-default、
+# for_each 用 map 生成)。設計詳細:
+#   - web_app は array of {name, display_name?} で来る。null/空なら、hosting や
+#     app_hosting がいる場合に限り `default` という名前で 1 件 auto-create する。
+#   - hosting は array of {site_id, web_app?}。for_each キーは site_id。
+#   - app_hosting は array of {backend_id, location?, web_app?, app_id?,
+#     service_account?, serving_locality?}。for_each キーは backend_id。
+#   - web_app への参照 (h.web_app / a.web_app) は web_app が 1 件しかない時のみ
+#     省略可。複数あって省略すると precondition で error。
+#   - app_hosting の app_id (raw 外部 pin) と web_app 参照は排他。両方書くと error。
+# ---------------------------------------------------------------------------
+
+locals {
+  # 入力を list に正規化 (null → 空 list)
+  web_app_list_explicit = var.web_app == null ? [] : [
+    for w in var.web_app : {
+      name         = w.name
+      display_name = try(w.display_name, "")
+    }
+  ]
+
+  hosting_list = var.hosting == null ? [] : [
+    for h in var.hosting : {
+      site_id = h.site_id
+      web_app = try(h.web_app, "")
+    }
+  ]
+
+  app_hosting_list = var.app_hosting == null ? [] : [
+    for a in var.app_hosting : {
+      backend_id       = a.backend_id
+      location         = try(a.location, "") != "" ? a.location : var.region
+      web_app          = try(a.web_app, "")
+      app_id           = try(a.app_id, "")
+      service_account  = try(a.service_account, "")
+      serving_locality = try(a.serving_locality, "GLOBAL_ACCESS")
+    }
+  ]
+
+  # web_app が空 & hosting/app_hosting が外部 pin で完結していない場合は default を auto-create
+  hosting_needs_web_app = length([
+    for h in local.hosting_list : h if true
+  ]) > 0
+  app_hosting_needs_web_app = length([
+    for a in local.app_hosting_list : a if a.app_id == "" # 外部 pin でない backend
+  ]) > 0
+  web_app_auto_default_needed = (
+    length(local.web_app_list_explicit) == 0 &&
+    (local.hosting_needs_web_app || local.app_hosting_needs_web_app)
+  )
+
+  web_app_list = local.web_app_auto_default_needed ? [
+    { name = "default", display_name = "" }
+  ] : local.web_app_list_explicit
+
+  # for_each 用の map (key = name / site_id / backend_id)
+  web_app_map     = { for w in local.web_app_list : w.name => w }
+  hosting_map     = { for h in local.hosting_list : h.site_id => h }
+  app_hosting_map = { for a in local.app_hosting_list : a.backend_id => a }
+
+  # default web_app key の選定 (=「省略時の単一解決先」)。web_app_list が 1 件のときのみ意味を持つ。
+  web_app_default_key = length(local.web_app_list) == 1 ? local.web_app_list[0].name : ""
+
+  # app_hosting で default SA を必要とする backend が 1 つでもあれば共有 SA を作成する
+  app_hosting_default_sa_needed = length([
+    for a in local.app_hosting_list : a if a.service_account == ""
+  ]) > 0
+}
+
+# ---------------------------------------------------------------------------
 # Locals – API auto-determination from enable flags
 # ---------------------------------------------------------------------------
 
@@ -110,6 +182,10 @@ locals {
 
   conditional_apis = concat(
     local.enable_firebase ? [
+      "firebase.googleapis.com",
+    ] : [],
+    # web_app だけ enable しても firebase API は必須
+    local.enable_web_app ? [
       "firebase.googleapis.com",
     ] : [],
     local.enable_authentication ? [
@@ -290,32 +366,128 @@ module "storage" {
 }
 
 # ---------------------------------------------------------------------------
-# Firebase Hosting
+# Firebase Web App (registration)
+#
+# google_firebase_web_app は app_id (`1:XXX:web:abc`) を発行する登録 resource。
+# Hosting site / App Hosting backend がリンクする先になる。複数定義可。
 # ---------------------------------------------------------------------------
 
-module "hosting" {
-  count   = local.enable_hosting ? 1 : 0
-  source  = "./modules/hosting"
-  project = var.project_id
-  site_id = try(local.hosting_cfg.site_id, "")
+module "web_app" {
+  for_each     = local.web_app_map
+  source       = "./modules/web-app"
+  project      = var.project_id
+  name         = each.value.name
+  display_name = each.value.display_name
 
   depends_on = [google_project_service.this, module.firebase]
 }
 
 # ---------------------------------------------------------------------------
-# Firebase App Hosting
+# Firebase Hosting (multiple sites)
+#
+# 各 site は site_id (= URL subdomain) で identify。web_app への参照は
+# - web_app field 指定があればそれを採用
+# - 省略の場合、web_app が 1 件しかなければそれを採用 (web_app_default_key)
+# - web_app が複数で省略は precondition で error
 # ---------------------------------------------------------------------------
 
-module "app_hosting" {
-  count            = local.enable_app_hosting ? 1 : 0
-  source           = "./modules/app-hosting"
-  project          = var.project_id
-  location         = try(local.app_hosting_cfg.location, "") != "" ? local.app_hosting_cfg.location : var.region
-  app_id           = try(local.app_hosting_cfg.app_id, "")
-  service_account  = try(local.app_hosting_cfg.service_account, "")
-  serving_locality = try(local.app_hosting_cfg.serving_locality, "GLOBAL_ACCESS")
+# hosting の web_app 参照を plan-time validate (module block では lifecycle 使え
+# ないので terraform_data で代用)。失敗時の error は親 module 側に出る。
+resource "terraform_data" "validate_hosting_web_app_refs" {
+  for_each = local.hosting_map
+  input    = each.key
 
-  depends_on = [google_project_service.this, module.firebase]
+  lifecycle {
+    precondition {
+      condition     = each.value.web_app != "" ? contains(keys(local.web_app_map), each.value.web_app) : length(local.web_app_map) == 1
+      error_message = "hosting[site_id=${each.key}]: web_app reference '${each.value.web_app}' not found, or web_app omitted while multiple web_app entries exist (ambiguous)."
+    }
+  }
+}
+
+module "hosting" {
+  for_each = local.hosting_map
+  source   = "./modules/hosting"
+  project  = var.project_id
+  site_id  = each.value.site_id
+  app_id = module.web_app[
+    each.value.web_app != "" ? each.value.web_app : local.web_app_default_key
+  ].app_id
+
+  depends_on = [
+    google_project_service.this,
+    module.firebase,
+    module.web_app,
+    terraform_data.validate_hosting_web_app_refs,
+  ]
+}
+
+# ---------------------------------------------------------------------------
+# Firebase App Hosting (multiple backends)
+#
+# default SA (firebase-app-hosting-compute) は backend 1 つでも default SA 利用が
+# あれば project 単位で 1 個作成して共有する。custom SA を全 backend に指定して
+# いる場合は default SA は作らない。
+# ---------------------------------------------------------------------------
+
+resource "google_service_account" "app_hosting_default" {
+  count                        = local.app_hosting_default_sa_needed ? 1 : 0
+  project                      = var.project_id
+  account_id                   = "firebase-app-hosting-compute"
+  display_name                 = "Firebase App Hosting compute service account"
+  create_ignore_already_exists = true
+
+  depends_on = [google_project_service.this]
+}
+
+resource "google_project_iam_member" "app_hosting_runner" {
+  count   = local.app_hosting_default_sa_needed ? 1 : 0
+  project = var.project_id
+  role    = "roles/firebaseapphosting.computeRunner"
+  member  = google_service_account.app_hosting_default[0].member
+}
+
+# app_hosting の参照整合性を plan-time validate (module block では lifecycle が
+# 使えないので terraform_data で代用)。排他 check + web_app 参照解決可能性 check。
+resource "terraform_data" "validate_app_hosting_refs" {
+  for_each = local.app_hosting_map
+  input    = each.key
+
+  lifecycle {
+    # app_id (外部 pin) と web_app (参照) は同時指定不可
+    precondition {
+      condition     = !(each.value.app_id != "" && each.value.web_app != "")
+      error_message = "app_hosting[backend_id=${each.key}]: cannot specify both 'app_id' (external pin) and 'web_app' (reference). Use one."
+    }
+    # 外部 pin でなければ web_app の参照解決可能性 check
+    precondition {
+      condition = each.value.app_id != "" ? true : (
+        each.value.web_app != "" ? contains(keys(local.web_app_map), each.value.web_app) : length(local.web_app_map) == 1
+      )
+      error_message = "app_hosting[backend_id=${each.key}]: web_app reference '${each.value.web_app}' not found, or web_app omitted while multiple web_app entries exist (ambiguous)."
+    }
+  }
+}
+
+module "app_hosting" {
+  for_each   = local.app_hosting_map
+  source     = "./modules/app-hosting"
+  project    = var.project_id
+  backend_id = each.value.backend_id
+  location   = each.value.location
+  app_id = each.value.app_id != "" ? each.value.app_id : module.web_app[
+    each.value.web_app != "" ? each.value.web_app : local.web_app_default_key
+  ].app_id
+  service_account  = each.value.service_account != "" ? each.value.service_account : google_service_account.app_hosting_default[0].email
+  serving_locality = each.value.serving_locality
+
+  depends_on = [
+    google_project_service.this,
+    module.firebase,
+    module.web_app,
+    google_project_iam_member.app_hosting_runner,
+    terraform_data.validate_app_hosting_refs,
+  ]
 }
 
 # ---------------------------------------------------------------------------

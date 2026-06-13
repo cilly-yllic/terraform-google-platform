@@ -29,7 +29,33 @@ module "firebase_platform" {
       export_platform = "cloud_run"
     }
   }
-  hosting = { site_id = "my-full-project-web" }
+  # Web App は省略可 (hosting / app_hosting がいるので "default" 名で自動作成される)。
+  # 明示するなら以下のように複数定義もできる:
+  #   web_app = [
+  #     { name = "main", display_name = "Main" },
+  #     { name = "admin", display_name = "Admin Console" },
+  #   ]
+
+  # 複数 hosting site の例。web_app 単数なら参照省略可。
+  hosting = [
+    { site_id = "my-full-project-web" },
+    { site_id = "my-full-project-staging" },
+  ]
+
+  # 複数 App Hosting backend の例。同じく web_app 単数なら参照省略可。
+  app_hosting = [
+    {
+      backend_id = "api"
+      location   = "asia-northeast1"
+    },
+    {
+      backend_id = "jobs"
+      location   = "us-central1"
+      # 外部 Web App を pin したい時は web_app の代わりに app_id を指定:
+      # app_id = "1:XXXXX:web:abc123"
+    },
+  ]
+
   data_connect = {
     location   = "asia-northeast1"
     service_id = "my-full-project-dc"

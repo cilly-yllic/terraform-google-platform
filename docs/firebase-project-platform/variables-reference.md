@@ -151,34 +151,58 @@ The default bucket (`{project_id}.firebasestorage.app`) is **always created** wi
 
 </details>
 
-### `hosting`
+### `web_app`
+
+List of Firebase Web App registrations. Each entry produces a `google_firebase_web_app`. The auto-generated `app_id` (`1:XXX:web:abc...`) is linked from any matching `hosting[]` / `app_hosting[]` entry.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `site_id` | `string` | `var.project_id` | Hosting site ID. Empty falls back to project_id. |
+| `name` | `string` | (required) | Internal reference name. `hosting[].web_app` / `app_hosting[].web_app` で参照される key。Rename = destroy-recreate なので immutable 扱い。 |
+| `display_name` | `string` | `name` 流用 | Firebase Console 表示名 |
 
-Creates both a Web App and a Hosting site.
+If `web_app` is omitted but `hosting` or `app_hosting` is present, a single entry named `default` is auto-created.
 
 <details><summary>Ja</summary>
 
-Web App と Hosting site の両方を作成する。
+複数 Web App を登録できる list。各 entry が `google_firebase_web_app` を 1 つ作る。発行された `app_id` は名前一致する `hosting[]` / `app_hosting[]` から参照される。
+
+`web_app` を完全に省略しても、`hosting` / `app_hosting` が指定されていれば `default` 名で 1 件自動作成される。
+
+</details>
+
+### `hosting`
+
+List of Firebase Hosting sites.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `site_id` | `string` | (required) | Globally unique site ID (URL は `<site_id>.web.app`) |
+| `web_app` | `string` | (single web_app 時のみ省略可) | 紐付ける `web_app[].name`。複数 web_app があるなら明示必須 (省略は plan-time error) |
+
+<details><summary>Ja</summary>
+
+複数 Hosting site を登録できる list。`web_app` 省略時、`web_app` が 1 件しかなければ自動でそれに link、複数あるなら plan-time error。
 
 </details>
 
 ### `app_hosting`
 
+List of Firebase App Hosting backends.
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
+| `backend_id` | `string` | (required) | Backend ID (project-unique, Firebase Console title)。`[a-z][a-z0-9-]{2,30}[a-z0-9]` |
 | `location` | `string` | `var.region` | backend location |
-| `app_id` | `string` | (required, usually the `app_id` from `hosting`) | Firebase Web App ID |
-| `service_account` | `string` | (auto-created) | Compute SA email. Empty creates `firebase-app-hosting-compute` and grants `roles/firebaseapphosting.computeRunner`. |
+| `web_app` | `string` | (single web_app 時のみ省略可) | 紐付ける `web_app[].name`。`app_id` と排他 |
+| `app_id` | `string` | (省略可) | 外部 Web App を pin したい場合のみ指定。`web_app` と排他 (両方書くと plan-time error) |
+| `service_account` | `string` | (auto-created) | Compute SA email。Empty なら project 共有の `firebase-app-hosting-compute` SA を 1 つだけ自動作成して全 backend で共有 |
 | `serving_locality` | `string` | `"GLOBAL_ACCESS"` | `GLOBAL_ACCESS` / `REGION_LOCKED` |
-
-Backend ID is fixed at `{project_id}-app-hosting`.
 
 <details><summary>Ja</summary>
 
-backend ID は `{project_id}-app-hosting` 固定。
+複数 App Hosting backend を登録できる list。`backend_id` がそのまま Firebase Console のタイトル + terraform 上の backend ID として使われる。
+
+`service_account` を全 backend で省略すれば、project 単位で 1 個の共有 SA (`firebase-app-hosting-compute`) を作って全 backend で使い回す。個別に分けたい場合は entry ごとに指定。
 
 </details>
 
