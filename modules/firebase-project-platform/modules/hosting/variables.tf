@@ -4,7 +4,11 @@ variable "project" {
 }
 
 variable "site_id" {
-  description = "Firebase Hosting site ID. If empty, defaults to project ID."
+  description = "Firebase Hosting site ID (= subdomain). Globally unique."
   type        = string
-  default     = ""
+}
+
+variable "app_id" {
+  description = "Firebase Web App ID to link this hosting site to."
+  type        = string
 }
