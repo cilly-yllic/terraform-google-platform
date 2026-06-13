@@ -39,6 +39,25 @@
 #   and torn down. Recommendation: add production envs to `retained_envs`
 #   the moment they're provisioned, as a safety net against accidental
 #   removal from `environments:`.
+#
+# firebase_platform.web_app / hosting / app_hosting (array スキーマ)
+#   いずれも複数 entry を 1 project 内に登録できる array 型。
+#   web_app:
+#     - name (内部参照キー、rename = destroy-recreate なので immutable 扱い)
+#     - display_name (optional, Firebase Console 表示用)
+#   hosting:
+#     - site_id (URL の subdomain, globally unique)
+#     - web_app (どの web_app に link するか。web_app が 1 件しか無いなら省略可)
+#   app_hosting:
+#     - backend_id (Firebase Console title, project-unique)
+#     - location (省略時は var.region)
+#     - web_app (link 先, web_app 単数なら省略可)
+#     - app_id (外部 Web App を pin する場合のみ、web_app と排他)
+#     - service_account (省略時は project 共有の default SA を 1 個 auto-create)
+#     - serving_locality ("GLOBAL_ACCESS" or "REGION_LOCKED", default 前者)
+#   ※ web_app 自体を省略しても hosting / app_hosting があれば "default" 名で
+#     1 件 auto-create + 自動 link される。複数 web_app + 参照省略は plan-time
+#     error (silent reference flip 防止)。
 # =============================================================================
 
 service: my-service
@@ -59,7 +78,11 @@ _anchors:
       location: asia-northeast1
       type: FIRESTORE_NATIVE
     storage: null
+    # 開発環境は Hosting / App Hosting 無し。本番側で複数 site / 多 backend を
+    # 検証する例は prd-001 を参照。
+    web_app: null
     hosting: null
+    app_hosting: null
     fcm: true
     remote_config: true
     crashlytics: true
@@ -73,6 +96,11 @@ environments:
 
   # ---------------------------------------------------------------------------
   # prd-001 — production. project_id = my-service-prd-001
+  #
+  # 多 web_app + 多 hosting + 多 app_hosting を活用したケース。
+  # 1 project の中で main (ユーザー向け) と admin (運用向け) の 2 アプリを
+  # 同居させる構成 (Firebase Console / IAM / プロジェクトを分けるまでもない
+  # 規模感の時に有効)。
   # ---------------------------------------------------------------------------
   prd-001:
     status: active
@@ -89,10 +117,41 @@ environments:
       storage:
         buckets:
           - name: uploads
-      # 複数 site 持つ project でも書ける形に変更されました。
-      # web_app は省略 (1 つだけなら "default" として auto-create + auto-link)。
+
+      # Firebase Web App 登録 (analytics / auth 紐付け用)。
+      # 複数定義すると hosting / app_hosting 側で `web_app: <name>` で
+      # link 先を選べる。display_name は Firebase Console 表示名。
+      web_app:
+        - name: main
+          display_name: "Main Web App"
+        - name: admin
+          display_name: "Admin Console"
+
+      # Hosting site (静的ホスティング)。site_id がそのまま URL の subdomain
+      # (globally unique)。1 project に複数 site OK、各 site は別の web_app
+      # にも link 可能。
       hosting:
-        - site_id: my-service-prd-001-web
+        - site_id: my-service-prd-001-web      # https://my-service-prd-001-web.web.app
+          web_app: main
+        - site_id: my-service-prd-001-admin    # https://my-service-prd-001-admin.web.app
+          web_app: admin
+
+      # App Hosting backend (Cloud Run ベースの動的ホスティング)。
+      # backend_id がそのまま Firebase Console のタイトル + terraform 上の ID。
+      # default SA (firebase-app-hosting-compute) は project 単位 1 個を全
+      # backend で共有 (service_account を全 backend で省略する場合)。
+      app_hosting:
+        - backend_id: api                       # API backend (multi-region でなくて OK)
+          location: asia-northeast1
+          web_app: main
+        - backend_id: jobs                      # 非同期 worker (region 違いも OK)
+          location: us-central1
+          web_app: main
+          serving_locality: REGION_LOCKED
+        - backend_id: admin-api                 # admin 用 backend → admin web_app に link
+          location: asia-northeast1
+          web_app: admin
+
       fcm: true
       remote_config: true
       app_check: true
@@ -135,8 +194,15 @@ environments:
         type: FIRESTORE_NATIVE
         databases:
           - database_id: analytics-db
+
+      # ↓ シンプル構成: web_app を省略すると "default" 名で auto-create + auto-link
+      # される。hosting / app_hosting の `web_app:` も省略可 (web_app 1 件のみ)。
       hosting:
         - site_id: my-service-stg-001-web
+      app_hosting:
+        - backend_id: api
+          location: asia-northeast1
+
       fcm: true
       remote_config: true
       app_check: true
