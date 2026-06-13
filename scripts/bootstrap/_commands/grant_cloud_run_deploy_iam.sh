@@ -6,6 +6,11 @@
 #     artifactregistry.writer           : container image を push
 #     cloudbuild.builds.editor          : `gcloud builds submit` で Cloud Build job 発行
 #     storage.admin                     : Cloud Build が source upload に GCS bucket を使う
+#     logging.viewer                    : `gcloud builds submit` は build 起動後、完了まで
+#                                         Cloud Logging から build log を polling する。
+#                                         この権限が無いと build 自体は走るが gcloud CLI 側で
+#                                         "can only stream logs if you are Viewer/Owner" となり
+#                                         exit 1 で deploy workflow が失敗する。
 #     iam.serviceAccountTokenCreator    : runtime SA の token を発行 (Cloud Run service 起動時の impersonation)
 #     secretmanager.secretVersionAdder  : deploy workflow が GitHub Secret から
 #                                         tfc-notification-secret / github-app-private-key の
@@ -35,6 +40,7 @@ grant_cloud_run_deploy_iam() {
     roles/artifactregistry.writer
     roles/cloudbuild.builds.editor
     roles/storage.admin
+    roles/logging.viewer
     roles/iam.serviceAccountTokenCreator
     roles/secretmanager.secretVersionAdder
   )
