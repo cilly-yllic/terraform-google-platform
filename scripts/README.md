@@ -271,7 +271,7 @@ Cloud Run service が runtime で読む 2 つの secret (GCP Secret Manager の 
 
 ```
 [GitHub Org-level Secrets]
-   WEBHOOK_SECRET        (= TFC HMAC shared secret)
+   TFC_NOTIFICATION_SECRET        (= TFC HMAC shared secret)
    GH_APP_PRIVATE_KEY    (= GitHub App PEM)
         │ visibility=selected
         ├─ deploy repo (your-org/<deploy-repo>)
@@ -281,7 +281,7 @@ Cloud Run service が runtime で読む 2 つの secret (GCP Secret Manager の 
         │ [Cloud Run service] TFC_NOTIFICATION_SECRET / GITHUB_APP_PRIVATE_KEY env
         │
         └─ project repos (your-org/service1, /service2, ...)
-              ↓ Action A が secrets.WEBHOOK_SECRET を TFC Notification Token として登録
+              ↓ Action A が secrets.TFC_NOTIFICATION_SECRET を TFC Notification Token として登録
           [TFC Workspace] Notification (HMAC で webhook 署名)
 ```
 
@@ -289,7 +289,7 @@ Cloud Run service が runtime で読む 2 つの secret (GCP Secret Manager の 
 
 | 作業 | 場所 | 方法 |
 |------|------|------|
-| 1. `WEBHOOK_SECRET` を GitHub Secrets に登録 | org-level (推奨) | `openssl rand -hex 32` で値生成 → GitHub UI / `gh secret set --org <org> --visibility selected --repos <deploy-repo>,<svc1>,<svc2>` |
+| 1. `TFC_NOTIFICATION_SECRET` を GitHub Secrets に登録 | org-level (推奨) | `openssl rand -hex 32` で値生成 → GitHub UI / `gh secret set --org <org> --visibility selected --repos <deploy-repo>,<svc1>,<svc2>` |
 | 2. `GH_APP_PRIVATE_KEY` を GitHub Secrets に登録 | org-level (推奨) | GitHub App 設定で生成した `.pem` の内容を GitHub Secret に貼り付け |
 | 3. bootstrap.sh で Secret Manager container を作成 (opt-in 経由で自動) | GCP | `make bootstrap` (`ENABLE_CLOUD_RUN_DEPLOY_SETUP=true`) |
 | 4. deploy SA に `secretVersionAdder` 付与 (opt-in 経由で自動) | GCP | 上記と同じく `make bootstrap` |
@@ -303,10 +303,10 @@ deploy workflow ([`examples/cloud-run-router-deploy/deploy-cloud-run-router.yml`
 ```yaml
 - name: Sync runtime secrets to Secret Manager
   env:
-    WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+    TFC_NOTIFICATION_SECRET: ${{ secrets.TFC_NOTIFICATION_SECRET }}
     GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
   run: |
-    printf '%s' "${WEBHOOK_SECRET}"      | gcloud secrets versions add tfc-notification-secret \
+    printf '%s' "${TFC_NOTIFICATION_SECRET}"      | gcloud secrets versions add tfc-notification-secret \
       --project="${{ vars.GCP_PROJECT_ID }}" --data-file=-
     printf '%s' "${GH_APP_PRIVATE_KEY}"  | gcloud secrets versions add github-app-private-key \
       --project="${{ vars.GCP_PROJECT_ID }}" --data-file=-
@@ -319,7 +319,7 @@ deploy workflow ([`examples/cloud-run-router-deploy/deploy-cloud-run-router.yml`
 | Secret | Rotation 手順 |
 |--------|-------------|
 | **GH_APP_PRIVATE_KEY (PEM)** | (a) GitHub App 設定で新 private key 生成 → `.pem` ダウンロード → (b) GitHub Secret `GH_APP_PRIVATE_KEY` を新値に更新 → (c) deploy を実行 (revision 更新) → 完了 ✓ |
-| **WEBHOOK_SECRET (HMAC)** | (a) `openssl rand -hex 32` で新値生成 → (b) GitHub Secret `WEBHOOK_SECRET` を新値に更新 → (c) deploy を実行 → Cloud Run runtime は新値で動く ✓ ※ ただし **既存 TFC Notification の Token は古い値のまま** なので、Action A を各 project repo で再実行して Notification を上書きする必要がある (現状の Action A は idempotent create のみで Token update path 未対応 — TFC UI で手動更新 or Action A 拡張が必要) |
+| **TFC_NOTIFICATION_SECRET (HMAC)** | (a) `openssl rand -hex 32` で新値生成 → (b) GitHub Secret `TFC_NOTIFICATION_SECRET` を新値に更新 → (c) deploy を実行 → Cloud Run runtime は新値で動く ✓ ※ ただし **既存 TFC Notification の Token は古い値のまま** なので、Action A を各 project repo で再実行して Notification を上書きする必要がある (現状の Action A は idempotent create のみで Token update path 未対応 — TFC UI で手動更新 or Action A 拡張が必要) |
 
 ### 検証 (`make bootstrap-print-env`)
 
@@ -334,7 +334,7 @@ deploy workflow ([`examples/cloud-run-router-deploy/deploy-cloud-run-router.yml`
   github-app-private-key         ✗ 未設定  → deploy workflow を一度実行すれば版が追加される
 
 ============================================
- WEBHOOK_SECRET sync targets (.env)
+ TFC_NOTIFICATION_SECRET sync targets (.env)
 ============================================
 
   Mode: org-level (GH_ORG=your-org, visibility=selected)
@@ -378,10 +378,10 @@ make set-github-app-private-key PEM=path/to/key.pem
 ```bash
 # (推奨) org-level secret: visibility=selected で対象 repo を限定
 GH_ORG="your-org"
-WEBHOOK_SECRET_REPOS="your-org/service1 your-org/service2"
+TFC_NOTIFICATION_SECRET_REPOS="your-org/service1 your-org/service2"
 
 # (fallback) repo-level secret: GH_ORG を未設定にすると各 repo に個別 set
-# WEBHOOK_SECRET_REPOS="your-org/service1 your-org/service2"
+# TFC_NOTIFICATION_SECRET_REPOS="your-org/service1 your-org/service2"
 ```
 
 ---

@@ -6,7 +6,7 @@
 # This script is no longer the recommended flow.
 #
 # The deploy workflow (examples/cloud-run-router-deploy/deploy-cloud-run-router.yml
-# and the equivalent in your private deploy repo) now syncs WEBHOOK_SECRET and
+# and the equivalent in your private deploy repo) now syncs TFC_NOTIFICATION_SECRET and
 # GH_APP_PRIVATE_KEY from GitHub Secrets to GCP Secret Manager automatically
 # on each deploy. GitHub Secret is the single source of truth.
 #
@@ -24,7 +24,7 @@
 # 用途:
 #   - GCP Secret Manager の `tfc-notification-secret` を作成・rotate・sync
 #   - 同じ値を Action A が読む各 project repo の GitHub Secret
-#     `WEBHOOK_SECRET` にも同期 (`.env` の `WEBHOOK_SECRET_REPOS` で指定)
+#     `TFC_NOTIFICATION_SECRET` にも同期 (`.env` の `TFC_NOTIFICATION_SECRET_REPOS` で指定)
 #
 # usage: scripts/router-hmac.sh <setup|rotate|sync>
 #
@@ -35,7 +35,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ENV_FILE="${REPO_ROOT}/.env"
 
 SECRET_NAME="tfc-notification-secret"
-GH_SECRET_NAME="WEBHOOK_SECRET"
+GH_SECRET_NAME="TFC_NOTIFICATION_SECRET"
 
 info()  { echo "[INFO]  $*"; }
 error() { echo "[ERROR] $*" >&2; exit 1; }
@@ -57,8 +57,8 @@ check_commands() {
       error "Required command not found: ${cmd}"
     fi
   done
-  if [[ -n "${WEBHOOK_SECRET_REPOS:-}" ]] && ! command -v gh &>/dev/null; then
-    error "WEBHOOK_SECRET_REPOS is set but 'gh' CLI not found. Install gh and run 'gh auth login'."
+  if [[ -n "${TFC_NOTIFICATION_SECRET_REPOS:-}" ]] && ! command -v gh &>/dev/null; then
+    error "TFC_NOTIFICATION_SECRET_REPOS is set but 'gh' CLI not found. Install gh and run 'gh auth login'."
   fi
 }
 
@@ -94,8 +94,8 @@ read_latest_value() {
 
 sync_to_github_repos() {
   local value="$1"
-  if [[ -z "${WEBHOOK_SECRET_REPOS:-}" ]]; then
-    info "WEBHOOK_SECRET_REPOS not set in .env — skipping GitHub Secret sync."
+  if [[ -z "${TFC_NOTIFICATION_SECRET_REPOS:-}" ]]; then
+    info "TFC_NOTIFICATION_SECRET_REPOS not set in .env — skipping GitHub Secret sync."
     info "  → 個別 repo に同期する場合: gh secret set ${GH_SECRET_NAME} --repo <owner/repo> --body \"\$VALUE\""
     return
   fi
@@ -119,7 +119,7 @@ sync_via_org_secret() {
   local value="$1"
   # space-separated → comma-separated (gh CLI の --repos は CSV)
   local repos_csv
-  repos_csv=$(echo "${WEBHOOK_SECRET_REPOS}" | tr -s ' ' ',' | sed 's/^,//;s/,$//')
+  repos_csv=$(echo "${TFC_NOTIFICATION_SECRET_REPOS}" | tr -s ' ' ',' | sed 's/^,//;s/,$//')
   info "Setting org-level ${GH_SECRET_NAME} on GitHub org '${GH_ORG}' (visibility=selected)"
   info "  Selected repos: ${repos_csv}"
   printf '%s' "${value}" | gh secret set "${GH_SECRET_NAME}" \
@@ -132,7 +132,7 @@ sync_via_org_secret() {
 sync_via_repo_secrets() {
   local value="$1"
   local repo
-  for repo in ${WEBHOOK_SECRET_REPOS}; do
+  for repo in ${TFC_NOTIFICATION_SECRET_REPOS}; do
     info "Setting repo-level ${GH_SECRET_NAME} on GitHub repo: ${repo}"
     # --body - で stdin から値を取る (argv に値が入らないので少し安全)。
     printf '%s' "${value}" | gh secret set "${GH_SECRET_NAME}" --repo "${repo}" --body -
@@ -152,7 +152,7 @@ cmd_setup() {
   create_secret_container
   add_secret_version "${hmac}"
   sync_to_github_repos "${hmac}"
-  info "Setup completed. HMAC stored in Secret Manager and synced to ${WEBHOOK_SECRET_REPOS:-(no repos)}"
+  info "Setup completed. HMAC stored in Secret Manager and synced to ${TFC_NOTIFICATION_SECRET_REPOS:-(no repos)}"
 }
 
 cmd_rotate() {
@@ -167,7 +167,7 @@ cmd_rotate() {
   hmac=$(generate_hmac)
   add_secret_version "${hmac}"
   sync_to_github_repos "${hmac}"
-  info "Rotation completed. New version added to Secret Manager and synced to ${WEBHOOK_SECRET_REPOS:-(no repos)}"
+  info "Rotation completed. New version added to Secret Manager and synced to ${TFC_NOTIFICATION_SECRET_REPOS:-(no repos)}"
   info "  → Cloud Run service が新 version を参照するように redeploy も実行してください (revision を更新)"
 }
 
@@ -178,14 +178,14 @@ cmd_sync() {
   if ! secret_exists; then
     error "Secret '${SECRET_NAME}' does not exist yet. Use 'setup' first."
   fi
-  if [[ -z "${WEBHOOK_SECRET_REPOS:-}" ]]; then
-    error "WEBHOOK_SECRET_REPOS is not set in .env. Add it before running 'sync'."
+  if [[ -z "${TFC_NOTIFICATION_SECRET_REPOS:-}" ]]; then
+    error "TFC_NOTIFICATION_SECRET_REPOS is not set in .env. Add it before running 'sync'."
   fi
 
   local hmac
   hmac=$(read_latest_value)
   sync_to_github_repos "${hmac}"
-  info "Sync completed. Existing latest value pushed to ${WEBHOOK_SECRET_REPOS}"
+  info "Sync completed. Existing latest value pushed to ${TFC_NOTIFICATION_SECRET_REPOS}"
 }
 
 show_help() {
@@ -196,26 +196,26 @@ Manage the Cloud Run router's TFC HMAC shared secret.
 
 SUBCOMMANDS
   setup    Initial creation: generate HMAC, create Secret Manager container,
-           add first version, sync to WEBHOOK_SECRET_REPOS GitHub repos.
+           add first version, sync to TFC_NOTIFICATION_SECRET_REPOS GitHub repos.
            Fails if the secret already exists.
 
   rotate   Generate a NEW HMAC, add as new version to the existing container,
-           re-sync to WEBHOOK_SECRET_REPOS GitHub repos.
+           re-sync to TFC_NOTIFICATION_SECRET_REPOS GitHub repos.
 
-  sync     Read the existing latest version and push to WEBHOOK_SECRET_REPOS
+  sync     Read the existing latest version and push to TFC_NOTIFICATION_SECRET_REPOS
            GitHub repos. Useful when adding a new repo to the list without
            rotating the secret.
 
 ENVIRONMENT (loaded from .env)
   BOOTSTRAP_PROJECT_ID    GCP Project that holds Secret Manager (required)
-  WEBHOOK_SECRET_REPOS    Space-separated list of GitHub repos
+  TFC_NOTIFICATION_SECRET_REPOS    Space-separated list of GitHub repos
                           (e.g. "your-org/svc1 your-org/svc2") to which
-                          WEBHOOK_SECRET should be synced. Optional for
+                          TFC_NOTIFICATION_SECRET should be synced. Optional for
                           'setup' / 'rotate', required for 'sync'.
   GH_ORG                  (optional) GitHub Organization name. When set,
-                          WEBHOOK_SECRET is registered as an ORG-level
+                          TFC_NOTIFICATION_SECRET is registered as an ORG-level
                           secret with visibility=selected, listing the repos
-                          in WEBHOOK_SECRET_REPOS. When unset, falls back to
+                          in TFC_NOTIFICATION_SECRET_REPOS. When unset, falls back to
                           per-repo secrets. Org-level is recommended (single
                           rotation point, lower drift risk) but requires
                           org admin permissions on the GitHub side.
@@ -228,7 +228,7 @@ print_deprecation_warning() {
 ============================================================================
 ⚠️  DEPRECATED: scripts/router-hmac.sh
 ============================================================================
-The deploy workflow now syncs WEBHOOK_SECRET from GitHub Secrets to GCP
+The deploy workflow now syncs TFC_NOTIFICATION_SECRET from GitHub Secrets to GCP
 Secret Manager automatically on each deploy. GitHub Secret is the single
 source of truth.
 

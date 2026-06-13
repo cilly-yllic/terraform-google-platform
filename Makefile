@@ -23,7 +23,7 @@ create-billing-account-print-env:
 # --- Cloud Run router runtime secrets ---
 
 # Initial setup: generate HMAC, register in Secret Manager,
-# sync to WEBHOOK_SECRET_REPOS GitHub repos.
+# sync to TFC_NOTIFICATION_SECRET_REPOS GitHub repos.
 setup-router-hmac:
 	bash scripts/router-hmac.sh setup
 
@@ -33,7 +33,7 @@ setup-router-hmac:
 rotate-router-hmac:
 	bash scripts/router-hmac.sh rotate
 
-# Sync existing latest value to WEBHOOK_SECRET_REPOS GitHub repos
+# Sync existing latest value to TFC_NOTIFICATION_SECRET_REPOS GitHub repos
 # (useful after adding a new repo to the list without rotating the secret).
 sync-router-hmac:
 	bash scripts/router-hmac.sh sync
