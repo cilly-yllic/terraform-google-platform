@@ -10,7 +10,7 @@ describe("buildTemplateFiles", () => {
   it("references the firebase-project-platform module", () => {
     const { "main.tf": main } = buildTemplateFiles(undefined);
     expect(main).toContain(
-      'source = "cilly-yllic/firebase-project-platform/google"',
+      'source = "cilly-yllic/platform/google//modules/firebase-project-platform"',
     );
   });
 
@@ -59,7 +59,7 @@ describe("buildTemplateFiles", () => {
       "cloud_run",
       "cloud_functions",
       // list features (multi-instance)
-      "web_app",
+      "apps",
       "hosting",
       "app_hosting",
     ];
