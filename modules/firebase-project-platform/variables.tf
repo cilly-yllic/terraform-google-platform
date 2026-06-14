@@ -351,6 +351,18 @@ variable "ci_service_account" {
       account_id       = SA ID (default: "ci-deploy")
       display_name     = display name (default: "CI/CD Deployment")
       additional_roles = extra roles to grant beyond auto-determined (default: [])
+      wif              = optional WIF binding (default: null = no binding).
+                         指定すると CI SA に roles/iam.workloadIdentityUser を
+                         attribute-based principalSet で bind する。
+                         project-bootstrap が用意済みの WIF Pool を参照する想定:
+        pool_resource_name = "projects/{bootstrap_pn}/locations/global/workloadIdentityPools/{pool}"
+        principals = [
+          { attribute = "repository",          value = "myorg/myrepo" },     # GitHub Actions
+          { attribute = "terraform_workspace", value = "svc-prd-001" },      # Terraform Cloud
+          { attribute = "project_path",        value = "mygroup/myproject" } # GitLab CI
+        ]
+        # attribute 名は WIF Provider 側の attribute mapping (assertion.xxx → attribute.xxx)
+        # に揃える。同じ (attribute, value) は自動 dedup される。
   EOT
   type        = any
   default     = null

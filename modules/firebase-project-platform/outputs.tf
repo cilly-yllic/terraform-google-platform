@@ -174,6 +174,11 @@ output "ci_service_account_roles" {
   value       = module.iam.ci_service_account_roles
 }
 
+output "ci_service_account_wif_members" {
+  description = "WIF principalSet members bound to the CI service account (empty list when wif is not configured)."
+  value       = module.iam.ci_service_account_wif_members
+}
+
 output "service_account_emails" {
   description = "Created service account emails."
   value       = module.iam.service_account_emails
