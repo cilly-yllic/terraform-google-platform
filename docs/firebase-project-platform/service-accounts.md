@@ -96,6 +96,21 @@ ci_service_account = {
 }
 ```
 
+`settings.yml` 経由で書く場合は `${BOOTSTRAP_PROJECT_NUMBER}` placeholder を使って bootstrap project number を yml に literal で書かずに orchestrator Secret から注入できる:
+
+```yaml
+firebase_platform:
+  ci_service_account:
+    account_id: ci-deploy
+    wif:
+      pool_resource_name: "projects/${BOOTSTRAP_PROJECT_NUMBER}/locations/global/workloadIdentityPools/terraform-cloud"
+      principals:
+        - { attribute: repository,          value: "myorg/${service}" }
+        - { attribute: terraform_workspace, value: "${service}-${env}" }
+```
+
+`${BOOTSTRAP_PROJECT_NUMBER}` は dispatch-firebase-platform Action の `bootstrap_project_number` input から展開される (詳細は [action README](../../actions/dispatch-firebase-platform/README.md#settingsyml-placeholder-expansion))。
+
 各 entry は `roles/iam.workloadIdentityUser` を CI SA の `google_service_account_iam_member` として bind する。`member` は
 
 ```

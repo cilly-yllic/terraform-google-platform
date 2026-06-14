@@ -125,4 +125,56 @@ describe("08-placeholder-all-fields", () => {
     expect(allValues).not.toContain("${service}");
     expect(allValues).not.toContain("${env}");
   });
+
+  // 後方互換: 08-fixture は `${BOOTSTRAP_PROJECT_NUMBER}` を参照していないので
+  // bootstrap_project_number を渡さなくても (=旧 caller 相当) 正常に通る。
+  it("既存 fixture (BOOTSTRAP 未参照) は bootstrapProjectNumber 未指定でも pass", async () => {
+    const { vars } = await loadAndBuild(
+      "08-placeholder-all-fields.yml",
+      "dev-001",
+      "graphql-svc-dev-001",
+      // bootstrapProjectNumber を渡さない (= Action input 未指定相当)
+    );
+    expect(vars.length).toBeGreaterThan(0);
+  });
+});
+
+describe("09-bootstrap-project-number", () => {
+  it("ci_service_account.wif.pool_resource_name で ${BOOTSTRAP_PROJECT_NUMBER} が展開される", async () => {
+    const { vars } = await loadAndBuild(
+      "09-bootstrap-project-number.yml",
+      "dev-001",
+      "cmonoth-dev-001",
+      { bootstrapProjectNumber: "836996693576" },
+    );
+    const ciSa = getVar(vars, "ci_service_account");
+    expect(ciSa).toContain(
+      '"pool_resource_name" = "projects/836996693576/locations/global/workloadIdentityPools/terraform-cloud"',
+    );
+    // 同 yml 内で ${service} / ${env} も併用して動くこと
+    expect(ciSa).toContain('"value" = "MoooDoNE/cmonoth"');
+    expect(ciSa).toContain('"value" = "cmonoth-dev-001"');
+  });
+
+  it("BOOTSTRAP_PROJECT_NUMBER 参照ありで input 未指定 → fail fast (壊れた literal を流さない)", async () => {
+    await expect(
+      loadAndBuild(
+        "09-bootstrap-project-number.yml",
+        "dev-001",
+        "cmonoth-dev-001",
+        // bootstrapProjectNumber を渡さない → throw 期待
+      ),
+    ).rejects.toThrow(/BOOTSTRAP_PROJECT_NUMBER/);
+  });
+
+  it("BOOTSTRAP_PROJECT_NUMBER 参照ありで input が空文字 → fail fast", async () => {
+    await expect(
+      loadAndBuild(
+        "09-bootstrap-project-number.yml",
+        "dev-001",
+        "cmonoth-dev-001",
+        { bootstrapProjectNumber: "" },
+      ),
+    ).rejects.toThrow(/BOOTSTRAP_PROJECT_NUMBER/);
+  });
 });
