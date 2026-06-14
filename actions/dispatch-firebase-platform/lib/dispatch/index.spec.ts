@@ -87,6 +87,154 @@ describe("expandFirebasePlatformPlaceholders", () => {
     expect(input.foo).toBe("${service}");
     expect(out.foo).toBe("graphql-svc");
   });
+
+  // -------------------------------------------------------------------------
+  // Per-field expansion tests
+  //
+  // 「この field に placeholder を書いて良い」ことを明示的に lock-in する。
+  // 「placeholder が動くかどうかを覚えてなくて毎回 docs を見る」を防ぐ目的。
+  // -------------------------------------------------------------------------
+
+  it("expands in apps[].display_name (cosmetic)", () => {
+    const out = expandFirebasePlatformPlaceholders(
+      {
+        apps: [
+          { name: "main", type: "web", display_name: "${service} ${env} Main" },
+        ],
+      },
+      ctx,
+    );
+    expect(
+      (out.apps as Array<{ display_name: string }>)[0].display_name,
+    ).toBe("graphql-svc dev-001 Main");
+  });
+
+  it("expands in hosting[].site_id (globally unique)", () => {
+    const out = expandFirebasePlatformPlaceholders(
+      { hosting: [{ site_id: "${service}-${env}-web", app: "main" }] },
+      ctx,
+    );
+    expect((out.hosting as Array<{ site_id: string }>)[0].site_id).toBe(
+      "graphql-svc-dev-001-web",
+    );
+  });
+
+  it("expands in app_hosting[].backend_id (project-unique)", () => {
+    const out = expandFirebasePlatformPlaceholders(
+      {
+        app_hosting: [
+          {
+            backend_id: "${service}-${env}-api",
+            location: "asia-northeast1",
+            app: "main",
+          },
+        ],
+      },
+      ctx,
+    );
+    expect(
+      (out.app_hosting as Array<{ backend_id: string }>)[0].backend_id,
+    ).toBe("graphql-svc-dev-001-api");
+  });
+
+  it("expands in storage.buckets[].name (project_id auto-prefix なし時の典型)", () => {
+    const out = expandFirebasePlatformPlaceholders(
+      {
+        storage: {
+          buckets: [{ name: "${service}-${env}-cdn-assets", raw_name: true }],
+        },
+      },
+      ctx,
+    );
+    expect(
+      (out.storage as { buckets: Array<{ name: string }> }).buckets[0].name,
+    ).toBe("graphql-svc-dev-001-cdn-assets");
+  });
+
+  it("expands in storage.firestore_backup.bucket_name", () => {
+    const out = expandFirebasePlatformPlaceholders(
+      {
+        storage: {
+          firestore_backup: {
+            bucket_name: "${service}-${env}-firestore-backup",
+          },
+        },
+      },
+      ctx,
+    );
+    expect(
+      (out.storage as { firestore_backup: { bucket_name: string } })
+        .firestore_backup.bucket_name,
+    ).toBe("graphql-svc-dev-001-firestore-backup");
+  });
+
+  it("expands in firestore[].database_id (但し '(default)' は固定文字列なのでそのまま)", () => {
+    const out = expandFirebasePlatformPlaceholders(
+      {
+        firestore: [
+          { database_id: "(default)" },
+          { database_id: "${env}-analytics" },
+        ],
+      },
+      ctx,
+    );
+    const fs = out.firestore as Array<{ database_id: string }>;
+    expect(fs[0].database_id).toBe("(default)");
+    expect(fs[1].database_id).toBe("dev-001-analytics");
+  });
+
+  it("expands in data_connect[].service_id / cloud_sql.instance_id / cloud_sql.database", () => {
+    const out = expandFirebasePlatformPlaceholders(
+      {
+        data_connect: [
+          {
+            service_id: "${env}-main",
+            location: "asia-northeast1",
+            cloud_sql: {
+              instance_id: "${service}-${env}-shared-fdc",
+              database: "${env}-main",
+            },
+          },
+        ],
+      },
+      ctx,
+    );
+    const dc = out.data_connect as Array<{
+      service_id: string;
+      cloud_sql: { instance_id: string; database: string };
+    }>;
+    expect(dc[0].service_id).toBe("dev-001-main");
+    expect(dc[0].cloud_sql.instance_id).toBe("graphql-svc-dev-001-shared-fdc");
+    expect(dc[0].cloud_sql.database).toBe("dev-001-main");
+  });
+
+  it("expands within YAML <<: anchor merge result (Action 側で merge 後に走査するため)", () => {
+    // YAML parser が <<: を merge し終わった後の object 構造を simulate する。
+    // anchor を共有して env だけ override する典型パターンを per-field test として lock-in。
+    const out = expandFirebasePlatformPlaceholders(
+      {
+        data_connect: [
+          {
+            service_id: "main",
+            cloud_sql: {
+              instance_id: "${service}-${env}-shared-fdc", // anchor 由来
+              database: "main", // anchor 由来
+              tier: "db-f1-micro", // env で override (dev は small)
+            },
+          },
+        ],
+      },
+      ctx,
+    );
+    const cs = (
+      out.data_connect as Array<{
+        cloud_sql: { instance_id: string; database: string; tier: string };
+      }>
+    )[0].cloud_sql;
+    expect(cs.instance_id).toBe("graphql-svc-dev-001-shared-fdc");
+    expect(cs.database).toBe("main");
+    expect(cs.tier).toBe("db-f1-micro");
+  });
 });
 
 describe("expandWorkspaceName", () => {
