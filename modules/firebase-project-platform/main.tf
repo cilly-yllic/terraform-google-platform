@@ -787,6 +787,19 @@ locals {
     local.enable_cloud_run ? ["roles/run.admin"] : [],
     try(local.ci_sa_cfg.additional_roles, []),
   )) : []
+
+  # wif binding 設定の正規化。指定が無ければ null (submodule で binding 作らない)。
+  # 指定がある場合は principals[] を {attribute, value} object list に整える。
+  ci_sa_wif_raw = try(local.ci_sa_cfg.wif, null)
+  ci_sa_wif = local.ci_sa_wif_raw == null ? null : {
+    pool_resource_name = local.ci_sa_wif_raw.pool_resource_name
+    principals = [
+      for p in local.ci_sa_wif_raw.principals : {
+        attribute = p.attribute
+        value     = p.value
+      }
+    ]
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -803,6 +816,7 @@ module "iam" {
     account_id   = try(local.ci_sa_cfg.account_id, "ci-deploy")
     display_name = try(local.ci_sa_cfg.display_name, "CI/CD Deployment")
     roles        = local.ci_sa_auto_roles
+    wif          = local.ci_sa_wif
   } : null
 
   depends_on = [google_project_service.this]
