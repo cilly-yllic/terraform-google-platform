@@ -48,10 +48,8 @@ export function resolveAutoApply(
 const FEATURE_KEYS = [
   "firebase",
   "authentication",
-  "firestore",
   "rtdb",
   "storage",
-  "data_connect",
   "fcm",
   "remote_config",
   "app_check",
@@ -76,6 +74,8 @@ const LIST_FEATURE_KEYS = [
   "apps",
   "hosting",
   "app_hosting",
+  "firestore",
+  "data_connect",
 ] as const;
 
 const PASSTHROUGH_KEYS = [
@@ -167,12 +167,66 @@ function normalizeListFeatureFlag(key: string, val: unknown): unknown {
       if (key === "apps") {
         validateAppEntry(i, item as Record<string, unknown>);
       }
+      if (key === "firestore") {
+        validateFirestoreEntry(i, item as Record<string, unknown>);
+      }
+      if (key === "data_connect") {
+        validateDataConnectEntry(i, item as Record<string, unknown>);
+      }
     }
     return val;
   }
   throw new Error(
     `Invalid value for list-feature key "${key}": expected null or array of objects but got ${typeof val} (${JSON.stringify(val)})`,
   );
+}
+
+const FIRESTORE_VALID_TYPES = new Set(["FIRESTORE_NATIVE", "DATASTORE_MODE"]);
+
+function validateFirestoreEntry(
+  index: number,
+  entry: Record<string, unknown>,
+): void {
+  const databaseId = entry.database_id;
+  if (typeof databaseId !== "string" || databaseId === "") {
+    throw new Error(
+      `firestore[${index}]: 'database_id' is required and must be a non-empty string (got ${JSON.stringify(databaseId)})`,
+    );
+  }
+  if (entry.type !== undefined && !FIRESTORE_VALID_TYPES.has(entry.type as string)) {
+    throw new Error(
+      `firestore[${index}] (database_id="${databaseId}"): 'type' must be "FIRESTORE_NATIVE" or "DATASTORE_MODE" (got ${JSON.stringify(entry.type)})`,
+    );
+  }
+}
+
+function validateDataConnectEntry(
+  index: number,
+  entry: Record<string, unknown>,
+): void {
+  const serviceId = entry.service_id;
+  if (typeof serviceId !== "string" || serviceId === "") {
+    throw new Error(
+      `data_connect[${index}]: 'service_id' is required and must be a non-empty string (got ${JSON.stringify(serviceId)})`,
+    );
+  }
+  const cloudSql = entry.cloud_sql;
+  if (cloudSql === null || typeof cloudSql !== "object" || Array.isArray(cloudSql)) {
+    throw new Error(
+      `data_connect[${index}] (service_id="${serviceId}"): 'cloud_sql' is required and must be an object`,
+    );
+  }
+  const cs = cloudSql as Record<string, unknown>;
+  if (typeof cs.instance_id !== "string" || cs.instance_id === "") {
+    throw new Error(
+      `data_connect[${index}] (service_id="${serviceId}"): 'cloud_sql.instance_id' is required and must be a non-empty string`,
+    );
+  }
+  if (typeof cs.database !== "string" || cs.database === "") {
+    throw new Error(
+      `data_connect[${index}] (service_id="${serviceId}"): 'cloud_sql.database' is required and must be a non-empty string`,
+    );
+  }
 }
 
 function validateAppEntry(

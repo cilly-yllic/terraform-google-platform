@@ -76,17 +76,15 @@ describe("buildTerraformVariables", () => {
     });
   });
 
-  it("emits all 23 feature keys (20 single + 3 list) even when firebase_platform is empty", () => {
+  it("emits all 23 feature keys (18 single + 5 list) even when firebase_platform is empty", () => {
     const vars = buildTerraformVariables("p", {});
-    // 1 project_id + 20 single-feature keys + 3 list-feature keys = 24
+    // 1 project_id + 18 single-feature keys + 5 list-feature keys = 24
     expect(vars).toHaveLength(24);
     const featureKeys = [
       "firebase",
       "authentication",
-      "firestore",
       "rtdb",
       "storage",
-      "data_connect",
       "fcm",
       "remote_config",
       "app_check",
@@ -105,6 +103,8 @@ describe("buildTerraformVariables", () => {
       "apps",
       "hosting",
       "app_hosting",
+      "firestore",
+      "data_connect",
     ];
     for (const k of featureKeys) {
       const v = vars.find((x) => x.key === k);
@@ -117,25 +117,23 @@ describe("buildTerraformVariables", () => {
     const vars = buildTerraformVariables("p", {
       firebase: true,
       authentication: "true",
-      firestore: false,
       rtdb: "false",
       storage: null,
     });
     const byKey = Object.fromEntries(vars.map((v) => [v.key, v.value]));
     expect(byKey.firebase).toBe("true");
     expect(byKey.authentication).toBe("true");
-    expect(byKey.firestore).toBe("null"); // false → null
     expect(byKey.rtdb).toBe("null"); // "false" → null
     expect(byKey.storage).toBe("null");
   });
 
   it("renders object feature values as HCL maps", () => {
     const vars = buildTerraformVariables("p", {
-      firestore: { location: "asia-northeast1", type: "FIRESTORE_NATIVE" },
+      storage: { buckets: [{ name: "icons" }] },
     });
-    const fs = vars.find((v) => v.key === "firestore");
+    const fs = vars.find((v) => v.key === "storage");
     expect(fs?.value).toBe(
-      '{ "location" = "asia-northeast1", "type" = "FIRESTORE_NATIVE" }',
+      '{ "buckets" = [{ "name" = "icons" }] }',
     );
   });
 
@@ -255,6 +253,85 @@ describe("buildTerraformVariables", () => {
     expect(() => buildTerraformVariables("p", { firebase: 42 })).toThrow(
       /got number/,
     );
+  });
+
+  it("validates firestore[].database_id required", () => {
+    expect(() =>
+      buildTerraformVariables("p", {
+        firestore: [{ location: "asia-northeast1" }],
+      }),
+    ).toThrow(/firestore\[0\]: 'database_id' is required/);
+  });
+
+  it("validates firestore[].type allowed values", () => {
+    expect(() =>
+      buildTerraformVariables("p", {
+        firestore: [{ database_id: "x", type: "BOGUS" }],
+      }),
+    ).toThrow(/firestore\[0\] \(database_id="x"\): 'type' must be/);
+  });
+
+  it("validates data_connect[].service_id + cloud_sql required", () => {
+    expect(() =>
+      buildTerraformVariables("p", {
+        data_connect: [{ location: "asia-northeast1" }],
+      }),
+    ).toThrow(/data_connect\[0\]: 'service_id' is required/);
+    expect(() =>
+      buildTerraformVariables("p", {
+        data_connect: [{ service_id: "main" }],
+      }),
+    ).toThrow(/data_connect\[0\] \(service_id="main"\): 'cloud_sql' is required/);
+    expect(() =>
+      buildTerraformVariables("p", {
+        data_connect: [
+          { service_id: "main", cloud_sql: { database: "main" } },
+        ],
+      }),
+    ).toThrow(/'cloud_sql\.instance_id' is required/);
+    expect(() =>
+      buildTerraformVariables("p", {
+        data_connect: [
+          {
+            service_id: "main",
+            cloud_sql: { instance_id: "shared", database: "" },
+          },
+        ],
+      }),
+    ).toThrow(/'cloud_sql\.database' is required/);
+  });
+
+  it("accepts valid firestore + data_connect entries", () => {
+    const vars = buildTerraformVariables("p", {
+      firestore: [
+        { database_id: "(default)", location: "asia-northeast1" },
+        { database_id: "analytics", location: "us-central1", type: "FIRESTORE_NATIVE" },
+      ],
+      data_connect: [
+        {
+          service_id: "main",
+          location: "asia-northeast1",
+          cloud_sql: {
+            instance_id: "shared-fdc",
+            database: "main",
+            tier: "db-f1-micro",
+          },
+        },
+        {
+          service_id: "analytics",
+          cloud_sql: {
+            instance_id: "shared-fdc",
+            database: "analytics",
+          },
+        },
+      ],
+    });
+    const fs = vars.find((v) => v.key === "firestore");
+    expect(fs?.value).toContain('"database_id" = "(default)"');
+    expect(fs?.value).toContain('"database_id" = "analytics"');
+    const dc = vars.find((v) => v.key === "data_connect");
+    expect(dc?.value).toContain('"service_id" = "main"');
+    expect(dc?.value).toContain('"instance_id" = "shared-fdc"');
   });
 
   it("emits passthrough keys only when present", () => {

@@ -8,14 +8,18 @@ module "firebase_platform" {
   # Firebase core
   firebase       = true
   authentication = true
-  firestore = {
-    location = "asia-northeast1"
-    type     = "FIRESTORE_NATIVE"
-    databases = [
-      { database_id = "analytics-db" },
-      { database_id = "logs-db", location = "us-central1" },
-    ]
-  }
+  # Firestore は array で複数 database を 1 project に持てる。
+  # "(default)" を含めるかは利用者判断 (SDK の default 動作を期待するなら含める)。
+  firestore = [
+    { database_id = "(default)", location = "asia-northeast1", type = "FIRESTORE_NATIVE" },
+    { database_id = "analytics-db", location = "us-central1" },
+    {
+      database_id             = "logs-db"
+      location                = "us-central1"
+      delete_protection_state = "DELETE_PROTECTION_ENABLED"
+      point_in_time_recovery  = true
+    },
+  ]
   rtdb = {
     location = "asia-southeast1"
   }
@@ -71,16 +75,40 @@ module "firebase_platform" {
     },
   ]
 
-  data_connect = {
-    location   = "asia-northeast1"
-    service_id = "my-full-project-dc"
-    cloud_sql = {
-      instance_id      = "my-full-project-fdc"
-      database         = "my-full-project"
-      tier             = "db-f1-micro"
-      database_version = "POSTGRES_15"
-    }
-  }
+  # Data Connect は services array。複数 service が同 cloud_sql.instance_id を
+  # 指せば自動 dedup されて 1 Cloud SQL Instance に集約 (コスト最適化)。
+  # 同 instance_id を共有する entries 間で tier / database_version /
+  # deletion_protection / location は一致必須 (precondition で plan-time check)。
+  data_connect = [
+    {
+      service_id = "main"
+      location   = "asia-northeast1"
+      cloud_sql = {
+        instance_id      = "shared-fdc"
+        database         = "main"
+        tier             = "db-custom-2-4096"
+        database_version = "POSTGRES_15"
+      }
+    },
+    {
+      # 同じ instance_id を指す → 自動で 1 instance に集約、別 database が作られる
+      service_id = "analytics"
+      cloud_sql = {
+        instance_id = "shared-fdc"
+        database    = "analytics"
+      }
+    },
+    {
+      # 別の instance_id → 別の Cloud SQL Instance (別 region で独立)
+      service_id = "jobs"
+      location   = "us-central1"
+      cloud_sql = {
+        instance_id = "jobs-fdc"
+        database    = "jobs"
+        tier        = "db-f1-micro"
+      }
+    },
+  ]
 
   # Firebase extensions
   fcm           = true

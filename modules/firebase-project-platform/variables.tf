@@ -59,19 +59,19 @@ variable "authentication" {
 
 variable "firestore" {
   description = <<-EOT
-    Cloud Firestore.
-    null to disable, true for defaults (default DB only), or object:
-      location                = Default DB location (default: var.region)
-      type                    = FIRESTORE_NATIVE | DATASTORE_MODE (default: "FIRESTORE_NATIVE")
-      delete_protection_state = Default DB protection (default: "DELETE_PROTECTION_DISABLED")
-      point_in_time_recovery  = Default DB PITR (default: false)
-      databases               = Additional databases list. Each:
-        database_id             = Database ID (required)
-        location                = Location (default: same as default DB)
-        type                    = FIRESTORE_NATIVE | DATASTORE_MODE
-        delete_protection_state = Protection state
-        point_in_time_recovery  = PITR enabled
-    Default database is always created. Initial rules (deny all) applied.
+    Cloud Firestore databases (1 project に複数 DB)。
+    null or omitted で disable。
+
+    List of objects:
+      database_id              = 必須。"(default)" を含めるかは利用者判断。
+                                 SDK の default 動作を期待するなら含める。
+      location                 = optional (省略時 var.region)
+      type                     = optional ("FIRESTORE_NATIVE" | "DATASTORE_MODE", default "FIRESTORE_NATIVE")
+      delete_protection_state  = optional ("DELETE_PROTECTION_DISABLED" | "_ENABLED", default disabled)
+      point_in_time_recovery   = optional (bool, default false)
+
+    初期 rules (deny-all) は firestore が 1 件以上あるとき project-level で
+    自動適用される。
   EOT
   type        = any
   default     = null
@@ -178,16 +178,22 @@ variable "app_hosting" {
 
 variable "data_connect" {
   description = <<-EOT
-    Firebase Data Connect.
-    null to disable, true for defaults, or object:
-      location   = Data Connect location (default: var.region)
-      service_id = Data Connect service ID (default: "{project_id}-dataconnect")
-      cloud_sql  = Cloud SQL instance config (optional):
-        instance_id         = Instance name (default: "{project_id}-fdc")
-        database            = Database name (default: project_id)
-        tier                = Machine tier (default: "db-f1-micro")
-        database_version    = PostgreSQL version (default: "POSTGRES_15")
-        deletion_protection = Prevent deletion (default: false)
+    Firebase Data Connect services (1 project に複数 service)。
+    null or omitted で disable。
+
+    List of objects:
+      service_id  = 必須 (project-unique)
+      location    = optional (default: var.region)
+      cloud_sql   = 必須 (Cloud SQL backend が必要):
+        instance_id         = 必須。複数 service が同 instance_id を指せば
+                              自動 dedup して 1 instance に集約 (コスト最適化)
+        database            = 必須 (instance 内の logical database 名)
+        tier                = optional (default "db-f1-micro"、同 instance_id を
+                              共有する entries 間で一致必須)
+        database_version    = optional (default "POSTGRES_15"、同様に一致必須)
+        deletion_protection = optional (default false、同様に一致必須)
+        location            = optional (default はその service の location、
+                              同 instance_id 内で一致必須)
   EOT
   type        = any
   default     = null
