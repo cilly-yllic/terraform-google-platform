@@ -1,0 +1,11 @@
+# Error fixture: type=ios なのに bundle_id 欠落
+service: err-svc
+environments:
+  prd-001:
+    billing_account_id: "AAAA-AAAA-AAAA"
+    firebase_platform:
+      firebase: true
+      apps:
+        - name: main-ios
+          type: ios
+          # bundle_id が欠落

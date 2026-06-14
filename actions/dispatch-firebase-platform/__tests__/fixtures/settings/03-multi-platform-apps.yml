@@ -1,0 +1,26 @@
+# Fixture: Web + iOS + Android apps の同居 (type discriminator)
+service: cross-platform-svc
+environments:
+  prd-001:
+    billing_account_id: "AAAA-AAAA-AAAA"
+    firebase_platform:
+      firebase: true
+      apps:
+        - name: main
+          type: web
+          display_name: "Main Web"
+        - name: main-ios
+          type: ios
+          bundle_id: com.example.main
+          display_name: "Main iOS"
+          app_store_id: "123456789"
+          team_id: "ABCDE12345"
+        - name: main-android
+          type: android
+          package_name: com.example.main
+          display_name: "Main Android"
+          sha1_hashes:
+            - "DA:39:A3:EE:5E:6B:4B:0D:32:55:BF:EF:95:60:18:90:AF:D8:07:09"
+      hosting:
+        - site_id: cross-platform-svc-prd-001
+          app: main

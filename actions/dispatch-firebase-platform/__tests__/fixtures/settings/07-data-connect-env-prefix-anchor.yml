@@ -1,0 +1,50 @@
+# Fixture: anchor で env 跨いで共通化しつつ、`${service}` / `${env}` placeholder で
+# Cloud SQL instance_id だけ env-prefix で分離するパターン。
+service: graphql-svc
+
+_anchors:
+  # Data Connect service の共通部分 (env 跨いで同一)
+  dc_main: &dc_main
+    service_id: main
+    location: asia-northeast1
+  dc_main_cloud_sql: &dc_main_cloud_sql
+    # ${service} と ${env} は Action 側で展開される
+    instance_id: ${service}-${env}-shared-fdc
+    database: main
+    tier: db-custom-2-4096
+    database_version: POSTGRES_15
+
+  dc_analytics: &dc_analytics
+    service_id: analytics
+    location: asia-northeast1
+  dc_analytics_cloud_sql: &dc_analytics_cloud_sql
+    instance_id: ${service}-${env}-shared-fdc   # ← 同 instance を共有
+    database: analytics
+
+environments:
+  dev-001:
+    billing_account_id: "BBBB-BBBB-BBBB"
+    firebase_platform:
+      firebase: true
+      data_connect:
+        - <<: *dc_main
+          cloud_sql:
+            <<: *dc_main_cloud_sql
+            tier: db-f1-micro            # dev は小さく override
+        - <<: *dc_analytics
+          cloud_sql:
+            <<: *dc_analytics_cloud_sql
+
+  prd-001:
+    billing_account_id: "AAAA-AAAA-AAAA"
+    firebase_platform:
+      firebase: true
+      data_connect:
+        - <<: *dc_main
+          cloud_sql:
+            <<: *dc_main_cloud_sql
+            deletion_protection: true    # prd は protect
+        - <<: *dc_analytics
+          cloud_sql:
+            <<: *dc_analytics_cloud_sql
+            deletion_protection: true
