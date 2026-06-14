@@ -44,13 +44,17 @@ Production rules are expected to be deployed via Firebase CLI (`firebase deploy 
 
 ## Bucket naming
 
-- `buckets[].name` is **automatically prefixed with `{project}-`** (e.g. `name = "uploads"` produces a bucket called `{project}-uploads`).
-- Set `buckets[].raw_name = true` to skip the prefix and use `name` verbatim (only when you need globally-unique custom naming).
+GCS bucket は globally unique なので、衝突しない命名を呼び出し側で組み立てる前提。
+
+- `buckets[].name` は **デフォルトでは verbatim** (例: `name = "my-cdn-assets"` → bucket 名は `my-cdn-assets`)。
+- `buckets[].auto_prefix = true` を指定すると **`{project}-{name}`** で組み立てる (例: `name = "uploads"`, `auto_prefix = true` → `{project}-uploads`)。
+- `firestore_backup.bucket_name` も同じセマンティクス。`auto_prefix = true` の時のみ `{project}-` が付与される (default `false`)。
 
 <details><summary>Ja</summary>
 
-- `buckets[].name` は **`{project}-` prefix が自動付与** される (例: `name = "uploads"` → 実際の bucket は `{project}-uploads`)
-- `buckets[].raw_name = true` を指定すると prefix を付けずに `name` をそのまま使う (グローバル一意な命名にしたい場合のみ)
+- `buckets[].name` は **デフォルトでは `name` をそのまま使う** (verbatim)
+- `buckets[].auto_prefix = true` で `{project}-{name}` に組み立てる (project 内で衝突しない短い名前を使いたい場合)
+- `firestore_backup.bucket_name` も対称的に `auto_prefix` を持つ。default は `false`
 
 </details>
 
@@ -60,14 +64,15 @@ Production rules are expected to be deployed via Firebase CLI (`firebase deploy 
 |------|------|---------|-------------|
 | `project` | `string` | (required) | GCP project ID |
 | `location` | `string` | (required) | Default bucket location |
-| `buckets` | `list(object)` | `[]` | Additional buckets. Fields: `name`, `raw_name`, `location`, `storage_class`, `iams[]` |
+| `buckets` | `list(object)` | `[]` | Additional buckets. Fields: `name`, `auto_prefix`, `location`, `storage_class`, `iams[]` |
 | `firestore_backup` | `object \| null` | `null` | Firestore-backup bucket config |
 
 Fields of `firestore_backup`:
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `bucket_name` | `"firestore-backups"` | suffix (`{project}-<suffix>`) |
+| `bucket_name` | `"firestore-backups"` | bucket 名 (verbatim、`auto_prefix=true` で `{project}-` 付与) |
+| `auto_prefix` | `false` | `true` で `{project}-{bucket_name}` に組み立てる |
 | `export_platform` | `"cloud_functions"` | `cloud_functions` / `cloud_run`. Selects which SA is granted bucket-write IAM. |
 | `soft_delete_policy.retention_duration_seconds` | `0` | Soft-delete retention seconds |
 
