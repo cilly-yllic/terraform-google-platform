@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
   terraform-firebase-platform:
@@ -84,7 +84,7 @@ jobs:
         run: terraform validate
 
   action-dispatch-firebase-platform:
-    name: "Action – dispatch-firebase-platform (Lint & Build)"
+    name: "Action – dispatch-firebase-platform (Lint, Test & Build)"
     runs-on: ubuntu-latest
 
     defaults:
@@ -103,6 +103,9 @@ jobs:
 
       - name: tsc --noEmit
         run: npx tsc --noEmit
+
+      - name: vitest (unit tests)
+        run: npm test
 
       - name: ncc build
         run: npm run build

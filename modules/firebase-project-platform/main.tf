@@ -161,10 +161,15 @@ locals {
     }
   ]
 
+  # site_id は globally unique。auto_prefix=true の時のみ `{project_id}-` で包む。
+  # for_each キーは 入力 site_id を維持 (state stability 用、resolved は実際の
+  # google_firebase_hosting_site.site_id に渡す)。
   hosting_list = var.hosting == null ? [] : [
     for h in var.hosting : {
-      site_id = h.site_id
-      app     = try(h.app, "")
+      site_id          = h.site_id
+      auto_prefix      = try(h.auto_prefix, false)
+      resolved_site_id = try(h.auto_prefix, false) ? "${var.project_id}-${h.site_id}" : h.site_id
+      app              = try(h.app, "")
     }
   ]
 
@@ -516,7 +521,8 @@ module "hosting" {
   for_each = local.hosting_map
   source   = "./modules/hosting"
   project  = var.project_id
-  site_id  = each.value.site_id
+  # auto_prefix=true の時は `{project_id}-{site_id}` が実際の Hosting site ID。
+  site_id = each.value.resolved_site_id
   app_id = module.apps_web[
     each.value.app != "" ? each.value.app : local.apps_web_default_key
   ].app_id

@@ -76,14 +76,17 @@ describe("08-placeholder-all-fields", () => {
     expect(appHosting).toContain('"backend_id" = "graphql-svc-dev-001-api"');
   });
 
-  it("storage.buckets[].name (raw_name=true) + firestore_backup.bucket_name で展開される", async () => {
+  it("storage.buckets[].name + firestore_backup.bucket_name で展開される", async () => {
     const { vars } = await loadAndBuild(
       "08-placeholder-all-fields.yml",
       "dev-001",
       "graphql-svc-dev-001",
     );
     const storage = getVar(vars, "storage");
-    expect(storage).toContain('"name" = "uploads"'); // raw_name=false の方は素通し
+    // auto_prefix=true の方は base name のまま (実 bucket 名は TF 側で {project}- を被せる)
+    expect(storage).toContain('"name" = "uploads"');
+    expect(storage).toContain('"auto_prefix" = true');
+    // ${service}/${env} 展開で globally unique を作るパターン
     expect(storage).toContain('"name" = "graphql-svc-dev-001-cdn-assets"');
     expect(storage).toContain(
       '"bucket_name" = "graphql-svc-dev-001-firestore-backup"',
