@@ -18,6 +18,7 @@ import {
 } from "../lib/settings/index.js";
 import {
   expandWorkspaceName,
+  expandFirebasePlatformPlaceholders,
   resolveAutoApply,
   buildTerraformVariables,
   buildEnvVariables,
@@ -117,7 +118,14 @@ async function run(): Promise<void> {
     for (const env of targets) {
       try {
         const envEntry = extractEnvironment(settings, env);
-        const firebasePlatform = extractFirebasePlatform(settings, env);
+        const firebasePlatformRaw = extractFirebasePlatform(settings, env);
+        // `${service}` / `${env}` placeholder を全 string 値で展開する。
+        // 主用途: anchor で共通化しつつ Cloud SQL instance_id 等を env-prefix
+        // で分離するパターン。
+        const firebasePlatform = expandFirebasePlatformPlaceholders(
+          firebasePlatformRaw,
+          { service: settings.service, env },
+        );
         core.info(
           `[${env}] firebase_platform keys: ${Object.keys(firebasePlatform).join(", ")}`,
         );

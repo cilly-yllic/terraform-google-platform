@@ -2,6 +2,71 @@ import type { VariableSpec } from "../tfc/index.js";
 import type { FirebasePlatformConfig, Settings } from "../settings/index.js";
 
 // ---------------------------------------------------------------------------
+// settings.yml placeholder 展開 (`${service}` / `${env}`)
+//
+// 用途: 同 service 配下で env を跨いで anchor を共有しつつ、env 固有の値
+// (例: Cloud SQL instance_id) だけ env-prefix で分離したい時に使う。
+//
+// 展開対象:
+//   - `${service}` → settings.service の値 (例: "graphql-svc")
+//   - `${env}`     → 現在の env key (例: "dev-001")
+//
+// 適用範囲: firebase_platform 配下の **string 値のみ** を再帰的に走査して
+// 置換する (object のキーは対象外、number/bool/null はそのまま)。
+//
+// 未知の placeholder (例: `${foo}`) はそのまま残るので、後段の HCL render で
+// terraform 用に `$${...}` にエスケープされる。
+// ---------------------------------------------------------------------------
+
+export interface PlaceholderContext {
+  service: string;
+  env: string;
+}
+
+const expandStringPlaceholders = (
+  val: string,
+  ctx: PlaceholderContext,
+): string =>
+  val
+    .replace(/\$\{service\}/g, ctx.service)
+    .replace(/\$\{env\}/g, ctx.env);
+
+const deepExpandPlaceholders = (
+  val: unknown,
+  ctx: PlaceholderContext,
+): unknown => {
+  if (typeof val === "string") return expandStringPlaceholders(val, ctx);
+  if (Array.isArray(val)) return val.map((v) => deepExpandPlaceholders(v, ctx));
+  if (val !== null && typeof val === "object") {
+    return Object.fromEntries(
+      Object.entries(val as Record<string, unknown>).map(([k, v]) => [
+        k,
+        deepExpandPlaceholders(v, ctx),
+      ]),
+    );
+  }
+  return val;
+};
+
+/**
+ * firebase_platform 全体の string 値を再帰走査して `${service}` / `${env}` を
+ * ctx の値で置換する。返り値は新オブジェクト (input は不変)。
+ *
+ * 例:
+ *   expandFirebasePlatformPlaceholders(
+ *     { data_connect: [{ cloud_sql: { instance_id: "${service}-${env}-fdc" } }] },
+ *     { service: "graphql-svc", env: "dev-001" }
+ *   )
+ *   →
+ *   { data_connect: [{ cloud_sql: { instance_id: "graphql-svc-dev-001-fdc" } }] }
+ */
+export const expandFirebasePlatformPlaceholders = (
+  firebasePlatform: FirebasePlatformConfig,
+  ctx: PlaceholderContext,
+): FirebasePlatformConfig =>
+  deepExpandPlaceholders(firebasePlatform, ctx) as FirebasePlatformConfig;
+
+// ---------------------------------------------------------------------------
 // Workspace name expansion
 // ---------------------------------------------------------------------------
 

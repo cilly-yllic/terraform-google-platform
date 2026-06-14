@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   expandWorkspaceName,
+  expandFirebasePlatformPlaceholders,
   resolveAutoApply,
   buildTerraformVariables,
   buildEnvVariables,
@@ -12,6 +13,81 @@ import {
   buildMarkerTag,
   deriveEnvFromWorkspaceName,
 } from "./index.js";
+
+describe("expandFirebasePlatformPlaceholders", () => {
+  const ctx = { service: "graphql-svc", env: "dev-001" };
+
+  it("expands ${service} / ${env} in string values", () => {
+    const out = expandFirebasePlatformPlaceholders(
+      { foo: "${service}-${env}-fdc" },
+      ctx,
+    );
+    expect(out.foo).toBe("graphql-svc-dev-001-fdc");
+  });
+
+  it("recurses into nested objects and arrays", () => {
+    const out = expandFirebasePlatformPlaceholders(
+      {
+        data_connect: [
+          {
+            service_id: "main",
+            cloud_sql: {
+              instance_id: "${service}-${env}-shared-fdc",
+              database: "main",
+            },
+          },
+        ],
+      },
+      ctx,
+    );
+    expect(
+      (out.data_connect as Array<{ cloud_sql: { instance_id: string } }>)[0]
+        .cloud_sql.instance_id,
+    ).toBe("graphql-svc-dev-001-shared-fdc");
+  });
+
+  it("leaves number / bool / null values untouched", () => {
+    const out = expandFirebasePlatformPlaceholders(
+      {
+        firebase: true,
+        version: 1,
+        nothing: null,
+        nested: { count: 42, flag: false },
+      },
+      ctx,
+    );
+    expect(out.firebase).toBe(true);
+    expect(out.version).toBe(1);
+    expect(out.nothing).toBeNull();
+    expect((out.nested as Record<string, unknown>).count).toBe(42);
+    expect((out.nested as Record<string, unknown>).flag).toBe(false);
+  });
+
+  it("leaves unknown placeholders untouched (passes through to HCL escape)", () => {
+    const out = expandFirebasePlatformPlaceholders(
+      { foo: "literal-${unknown}-text" },
+      ctx,
+    );
+    expect(out.foo).toBe("literal-${unknown}-text");
+  });
+
+  it("does not mutate object keys (only values)", () => {
+    const out = expandFirebasePlatformPlaceholders(
+      { "${service}-key": "value" } as Record<string, unknown>,
+      ctx,
+    );
+    expect(Object.keys(out as Record<string, unknown>)).toContain(
+      "${service}-key",
+    );
+  });
+
+  it("does not mutate the input object", () => {
+    const input = { foo: "${service}" };
+    const out = expandFirebasePlatformPlaceholders(input, ctx);
+    expect(input.foo).toBe("${service}");
+    expect(out.foo).toBe("graphql-svc");
+  });
+});
 
 describe("expandWorkspaceName", () => {
   it("replaces {service} and {environment} placeholders", () => {

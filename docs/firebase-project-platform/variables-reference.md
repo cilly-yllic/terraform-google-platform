@@ -10,6 +10,61 @@ Complete reference for each feature variable's nested structure and defaults. Fo
 
 ---
 
+## settings.yml placeholders (`${service}` / `${env}`)
+
+dispatch-firebase-platform Action は settings.yml を読んだ後、`firebase_platform` 配下の **全 string 値**を再帰走査して以下の placeholder を展開する:
+
+| placeholder | 展開される値 |
+|-------------|------------|
+| `${service}` | settings.yml の top-level `service:` 値 |
+| `${env}` | 現在 dispatch 中の env key (例: `dev-001`) |
+
+主用途は、YAML anchor で env を跨いで config を共有しつつ、env 固有の値 (Cloud SQL `instance_id` 等) だけ env-prefix で分離するパターン:
+
+```yaml
+service: graphql-svc
+
+_anchors:
+  dc_main_cloud_sql: &dc_main_cloud_sql
+    instance_id: ${service}-${env}-shared-fdc   # ← Action で展開
+    database: main
+    tier: db-custom-2-4096
+
+environments:
+  dev-001:
+    firebase_platform:
+      data_connect:
+        - service_id: main
+          cloud_sql:
+            <<: *dc_main_cloud_sql
+            tier: db-f1-micro             # dev は小さく override
+  prd-001:
+    firebase_platform:
+      data_connect:
+        - service_id: main
+          cloud_sql:
+            <<: *dc_main_cloud_sql        # 同 anchor を共有
+            deletion_protection: true     # prd は protect
+```
+
+→ 展開結果:
+- dev-001 の `instance_id` = `graphql-svc-dev-001-shared-fdc`
+- prd-001 の `instance_id` = `graphql-svc-prd-001-shared-fdc`
+
+### 仕様
+
+- 展開対象は **string 値のみ**。object のキー / number / boolean / null はそのまま
+- 未知の placeholder (例: `${unknown}`) はそのまま残る → 後段の HCL render で terraform 用に `$${...}` にエスケープされる (terraform interpolation との混同なし)
+- 入力 object は不変 (新オブジェクトを返す)
+
+<details><summary>Ja</summary>
+
+env 跨いで anchor を共有しながら env-specific な値 (instance_id 等) だけ分けたい時に使う placeholder 機構。`${service}` / `${env}` のみサポート、他の `${...}` は terraform 用にスルー & エスケープ。
+
+</details>
+
+---
+
 ## Three-pattern values
 
 Every feature variable accepts one of:

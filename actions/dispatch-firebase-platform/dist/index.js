@@ -40558,6 +40558,35 @@ function extractFirebasePlatform(settings, env) {
 }
 
 ;// CONCATENATED MODULE: ./lib/dispatch/index.ts
+const expandStringPlaceholders = (val, ctx) => val
+    .replace(/\$\{service\}/g, ctx.service)
+    .replace(/\$\{env\}/g, ctx.env);
+const deepExpandPlaceholders = (val, ctx) => {
+    if (typeof val === "string")
+        return expandStringPlaceholders(val, ctx);
+    if (Array.isArray(val))
+        return val.map((v) => deepExpandPlaceholders(v, ctx));
+    if (val !== null && typeof val === "object") {
+        return Object.fromEntries(Object.entries(val).map(([k, v]) => [
+            k,
+            deepExpandPlaceholders(v, ctx),
+        ]));
+    }
+    return val;
+};
+/**
+ * firebase_platform 全体の string 値を再帰走査して `${service}` / `${env}` を
+ * ctx の値で置換する。返り値は新オブジェクト (input は不変)。
+ *
+ * 例:
+ *   expandFirebasePlatformPlaceholders(
+ *     { data_connect: [{ cloud_sql: { instance_id: "${service}-${env}-fdc" } }] },
+ *     { service: "graphql-svc", env: "dev-001" }
+ *   )
+ *   →
+ *   { data_connect: [{ cloud_sql: { instance_id: "graphql-svc-dev-001-fdc" } }] }
+ */
+const expandFirebasePlatformPlaceholders = (firebasePlatform, ctx) => deepExpandPlaceholders(firebasePlatform, ctx);
 // ---------------------------------------------------------------------------
 // Workspace name expansion
 // ---------------------------------------------------------------------------
@@ -41348,7 +41377,11 @@ async function run() {
         for (const env of targets) {
             try {
                 const envEntry = extractEnvironment(settings, env);
-                const firebasePlatform = extractFirebasePlatform(settings, env);
+                const firebasePlatformRaw = extractFirebasePlatform(settings, env);
+                // `${service}` / `${env}` placeholder を全 string 値で展開する。
+                // 主用途: anchor で共通化しつつ Cloud SQL instance_id 等を env-prefix
+                // で分離するパターン。
+                const firebasePlatform = expandFirebasePlatformPlaceholders(firebasePlatformRaw, { service: settings.service, env });
                 core.info(`[${env}] firebase_platform keys: ${Object.keys(firebasePlatform).join(", ")}`);
                 // Derive project_id / SA email
                 const projectId = `${service}-${env}`;

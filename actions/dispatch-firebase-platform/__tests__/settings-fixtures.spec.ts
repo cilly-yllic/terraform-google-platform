@@ -5,7 +5,10 @@ import {
   loadSettings,
   extractFirebasePlatform,
 } from "../lib/settings/index.js";
-import { buildTerraformVariables } from "../lib/dispatch/index.js";
+import {
+  buildTerraformVariables,
+  expandFirebasePlatformPlaceholders,
+} from "../lib/dispatch/index.js";
 
 // ---------------------------------------------------------------------------
 // fixture-based integration tests
@@ -30,7 +33,12 @@ const loadAndBuild = async (
   projectId: string,
 ) => {
   const settings = await loadSettings(`${FIXTURES_DIR}/${fixture}`);
-  const fp = extractFirebasePlatform(settings, env);
+  const raw = extractFirebasePlatform(settings, env);
+  // 実 src/index.ts と同じ pipeline: placeholder 展開 → HCL build。
+  const fp = expandFirebasePlatformPlaceholders(raw, {
+    service: settings.service,
+    env,
+  });
   return {
     settings,
     fp,
@@ -186,6 +194,37 @@ describe("settings.yml fixtures — happy path", () => {
     const dev002Fs = getVar(dev002.vars, "firestore");
     expect(dev002Fs).toContain('"location" = "us-central1"');
     expect(dev002Fs).not.toContain('"location" = "asia-northeast1"');
+  });
+
+  it("07-data-connect-env-prefix-anchor: ${service}/${env} placeholder で instance_id を env-prefix 分離", async () => {
+    // dev-001: ${service}-${env}-shared-fdc → graphql-svc-dev-001-shared-fdc に展開
+    const dev = await loadAndBuild(
+      "07-data-connect-env-prefix-anchor.yml",
+      "dev-001",
+      "graphql-svc-dev-001",
+    );
+    const devDc = getVar(dev.vars, "data_connect");
+    expect(devDc).toContain('"instance_id" = "graphql-svc-dev-001-shared-fdc"');
+    expect(devDc).not.toContain("${service}");
+    expect(devDc).not.toContain("${env}");
+    // dev は small tier override
+    expect(devDc).toContain('"tier" = "db-f1-micro"');
+    expect(devDc).not.toContain('"deletion_protection" = true');
+
+    // prd-001: 同じ template が prd-001 prefix で展開
+    const prd = await loadAndBuild(
+      "07-data-connect-env-prefix-anchor.yml",
+      "prd-001",
+      "graphql-svc-prd-001",
+    );
+    const prdDc = getVar(prd.vars, "data_connect");
+    expect(prdDc).toContain('"instance_id" = "graphql-svc-prd-001-shared-fdc"');
+    expect(prdDc).not.toContain("dev-001");
+    // prd は deletion_protection on
+    expect(prdDc).toContain('"deletion_protection" = true');
+    // tier override 無し → base の db-custom-2-4096
+    expect(prdDc).toContain('"tier" = "db-custom-2-4096"');
+    expect(prdDc).not.toContain('"tier" = "db-f1-micro"');
   });
 });
 
