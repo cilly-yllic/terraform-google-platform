@@ -235,6 +235,69 @@ describe("expandFirebasePlatformPlaceholders", () => {
     expect(cs.database).toBe("main");
     expect(cs.tier).toBe("db-f1-micro");
   });
+
+  // ---------------------------------------------------------------------------
+  // ${BOOTSTRAP_PROJECT_NUMBER} (external 注入系) の per-function lock-in
+  // ---------------------------------------------------------------------------
+
+  it("expands ${BOOTSTRAP_PROJECT_NUMBER} when ctx.bootstrapProjectNumber is provided", () => {
+    const out = expandFirebasePlatformPlaceholders(
+      {
+        ci_service_account: {
+          wif: {
+            pool_resource_name:
+              "projects/${BOOTSTRAP_PROJECT_NUMBER}/locations/global/workloadIdentityPools/terraform-cloud",
+          },
+        },
+      },
+      { ...ctx, bootstrapProjectNumber: "836996693576" },
+    );
+    expect(
+      (
+        out.ci_service_account as {
+          wif: { pool_resource_name: string };
+        }
+      ).wif.pool_resource_name,
+    ).toBe(
+      "projects/836996693576/locations/global/workloadIdentityPools/terraform-cloud",
+    );
+  });
+
+  it("throws when ${BOOTSTRAP_PROJECT_NUMBER} is referenced but bootstrapProjectNumber is undefined (fail-fast)", () => {
+    expect(() =>
+      expandFirebasePlatformPlaceholders(
+        {
+          ci_service_account: {
+            wif: {
+              pool_resource_name:
+                "projects/${BOOTSTRAP_PROJECT_NUMBER}/locations/global/workloadIdentityPools/x",
+            },
+          },
+        },
+        ctx, // bootstrapProjectNumber 未指定
+      ),
+    ).toThrow(/BOOTSTRAP_PROJECT_NUMBER/);
+  });
+
+  it("throws when ${BOOTSTRAP_PROJECT_NUMBER} is referenced but bootstrapProjectNumber is empty string (fail-fast)", () => {
+    expect(() =>
+      expandFirebasePlatformPlaceholders(
+        { foo: "projects/${BOOTSTRAP_PROJECT_NUMBER}/locations/global/..." },
+        { ...ctx, bootstrapProjectNumber: "" },
+      ),
+    ).toThrow(/BOOTSTRAP_PROJECT_NUMBER/);
+  });
+
+  it("does NOT throw when bootstrapProjectNumber is undefined but yml does not reference it (backward compat)", () => {
+    // 旧 caller (= placeholder 未使用) が引き続き動くことを lock-in。
+    const out = expandFirebasePlatformPlaceholders(
+      { firebase: true, hosting: [{ site_id: "${service}-${env}-web" }] },
+      ctx, // bootstrapProjectNumber 未指定
+    );
+    expect(
+      (out.hosting as Array<{ site_id: string }>)[0].site_id,
+    ).toBe("graphql-svc-dev-001-web");
+  });
 });
 
 describe("expandWorkspaceName", () => {
