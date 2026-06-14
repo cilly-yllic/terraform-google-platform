@@ -1,0 +1,26 @@
+# Fixture: 複数 web app + 複数 hosting site (各 site が別 app に link)
+service: multi-svc
+environments:
+  prd-001:
+    billing_account_id: "AAAA-AAAA-AAAA"
+    firebase_platform:
+      firebase: true
+      apps:
+        - name: main
+          type: web
+          display_name: "Main Web App"
+        - name: admin
+          type: web
+          display_name: "Admin Console"
+      hosting:
+        - site_id: multi-svc-prd-001-web
+          app: main
+        - site_id: multi-svc-prd-001-admin
+          app: admin
+      app_hosting:
+        - backend_id: api
+          location: asia-northeast1
+          app: main
+        - backend_id: admin-api
+          location: asia-northeast1
+          app: admin

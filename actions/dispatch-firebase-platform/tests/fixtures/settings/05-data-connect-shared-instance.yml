@@ -1,0 +1,28 @@
+# Fixture: Data Connect で共有 Cloud SQL Instance (Pattern Y) + 独立 Instance (Pattern X) のミックス
+service: graphql-svc
+environments:
+  prd-001:
+    billing_account_id: "AAAA-AAAA-AAAA"
+    firebase_platform:
+      firebase: true
+      data_connect:
+        # ↓ 同 instance_id → 自動 dedup されて 1 Cloud SQL Instance に集約
+        - service_id: main
+          location: asia-northeast1
+          cloud_sql:
+            instance_id: shared-fdc
+            database: main
+            tier: db-custom-2-4096
+            database_version: POSTGRES_15
+        - service_id: analytics
+          location: asia-northeast1
+          cloud_sql:
+            instance_id: shared-fdc
+            database: analytics
+        # ↓ 別 instance_id (別 region で独立)
+        - service_id: jobs
+          location: us-central1
+          cloud_sql:
+            instance_id: jobs-fdc
+            database: jobs
+            tier: db-f1-micro

@@ -1,0 +1,12 @@
+# Fixture: 最小構成 (web app 1 つ + hosting 1 つ)
+service: minimal-svc
+environments:
+  prd-001:
+    billing_account_id: "AAAA-AAAA-AAAA"
+    firebase_platform:
+      firebase: true
+      apps:
+        - name: main
+          type: web
+      hosting:
+        - site_id: minimal-svc-prd-001-web
