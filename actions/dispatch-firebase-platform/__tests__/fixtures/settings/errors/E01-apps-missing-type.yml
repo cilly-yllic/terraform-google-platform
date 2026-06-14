@@ -1,0 +1,10 @@
+# Error fixture: apps[].type を省略 → buildTerraformVariables で plan-time error
+service: err-svc
+environments:
+  prd-001:
+    billing_account_id: "AAAA-AAAA-AAAA"
+    firebase_platform:
+      firebase: true
+      apps:
+        - name: main
+          # type が欠落

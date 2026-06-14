@@ -1,0 +1,11 @@
+# Error fixture: data_connect[].cloud_sql 欠落 (必須 field)
+service: err-svc
+environments:
+  prd-001:
+    billing_account_id: "AAAA-AAAA-AAAA"
+    firebase_platform:
+      firebase: true
+      data_connect:
+        - service_id: main
+          location: asia-northeast1
+          # cloud_sql が欠落

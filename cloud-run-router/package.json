@@ -12,10 +12,10 @@
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "oxlint src test",
+    "lint": "oxlint src __tests__",
     "typecheck": "tsc --noEmit",
-    "fmt": "oxfmt src test",
-    "fmt:check": "oxfmt --check src test"
+    "fmt": "oxfmt src __tests__",
+    "fmt:check": "oxfmt --check src __tests__"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
