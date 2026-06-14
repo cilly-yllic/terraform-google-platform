@@ -301,3 +301,69 @@ jobs:
 - **API-driven Workspace:** VCS 連携なしの API-driven workspace を作成・管理する。main.tf / versions.tf は Action 同梱で、dispatch のたびに Configuration Version として upload される。
 - **GCP リソースは一切触らない:** B は TFC workspace の lifecycle と中身（variable / Run）のみを管理。GCP project / SA / IAM の destroy は Action A の `for_each` 差分に委譲。これにより A の state を汚染することなく B が workspace を自由に force-delete できる。
 - **タグ命名:** リコンシリエーション用タグは `firebase-platform-{service}` 固定。複数 service を同じ TFC org に同居させても互いに巻き込まない。
+
+---
+
+## settings.yml placeholder expansion
+
+`firebase_platform` 配下の全 string 値を再帰走査して以下の placeholder を展開する。env を跨いで anchor 共有しつつ、env 固有の値や組織共通インフラ識別子だけを分離する用途。
+
+### 命名規約
+
+| 種別 | 規約 | 値の由来 |
+|---|---|---|
+| YAML-internal placeholder | **lowercase** (例: `${service}` / `${env}`) | service repo の yml SoT (settings.service / 現 env key) |
+| External-injected placeholder | **UPPERCASE prefix** (例: `${BOOTSTRAP_PROJECT_NUMBER}`) | orchestrator 側 Secret から Action input 経由で注入 |
+
+利用者が yml を読んだ瞬間に「yml-internal か / 外部注入か」を区別できる。
+
+### サポート placeholder
+
+| Placeholder | 展開される値 | 必須度 |
+|---|---|---|
+| `${service}` | `settings.service` | 常時利用可 |
+| `${env}` | 現 env key (例 `dev-001`) | 常時利用可 |
+| `${BOOTSTRAP_PROJECT_NUMBER}` | Action input `bootstrap_project_number` | 参照する場合のみ input 必須 |
+
+### `${BOOTSTRAP_PROJECT_NUMBER}` の使い方
+
+orchestrator workflow から `bootstrap_project_number` input に Secret を渡して、service repo の `settings.yml` ではインフラ識別子を literal で書かずに placeholder を埋め込む。
+
+```yaml
+# orchestrator workflow
+- uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
+  with:
+    service: cmonoth
+    environments: '["dev-001"]'
+    tfc_org: my-tfc-org
+    bootstrap_project_number: ${{ secrets.GCP_PROJECT_NUMBER }}
+    tfc_token: ${{ secrets.TFC_TOKEN }}
+```
+
+```yaml
+# service repo settings.yml
+service: cmonoth
+environments:
+  dev-001:
+    firebase_platform:
+      ci_service_account:
+        account_id: ci-deploy
+        wif:
+          # ${BOOTSTRAP_PROJECT_NUMBER} は Action 側で展開される
+          pool_resource_name: "projects/${BOOTSTRAP_PROJECT_NUMBER}/locations/global/workloadIdentityPools/terraform-cloud"
+          principals:
+            - { attribute: repository, value: "MoooDoNE/${service}" }
+            - { attribute: terraform_workspace, value: "${service}-${env}" }
+```
+
+### Fail-fast
+
+`settings.yml` で `${BOOTSTRAP_PROJECT_NUMBER}` を **参照しているのに input が空文字 / 未指定** の場合、Action は expand 段階で **fail-fast** で停止する (`projects//locations/...` のような壊れた literal を後続の TFC variable sync に流さない)。逆に **input を指定しても yml で参照していなければ無視** されるので、後方互換は維持される。
+
+### 設計選択ログ (個別 input vs 汎用 map)
+
+- 現状 external 注入が必要な placeholder は `BOOTSTRAP_PROJECT_NUMBER` の 1 件のみ
+- `BOOTSTRAP_POOL_ID` (`terraform-cloud`) / `BOOTSTRAP_PROVIDER_ID` (`github-actions`) は project-bootstrap 規約で固定値想定なので、可変化の現実的需要が薄い
+- YAGNI 観点で「将来増えるかも」を理由に汎用 map (`external_placeholders: map<string,string>`) にするのは過剰
+- **個別 input** の方が schema 明示・型安全・consumer の発見性 (action.yml `inputs` 一覧で見える) で優位
+- **refactor トリガー**: external 値が **3 件超** に増える / consumer ごとの任意拡張要件が出る → その時点で `external_placeholders` map に refactor

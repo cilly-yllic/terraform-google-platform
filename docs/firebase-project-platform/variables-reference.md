@@ -10,14 +10,19 @@ Complete reference for each feature variable's nested structure and defaults. Fo
 
 ---
 
-## settings.yml placeholders (`${service}` / `${env}`)
+## settings.yml placeholders (`${service}` / `${env}` / `${BOOTSTRAP_*}`)
 
 dispatch-firebase-platform Action は settings.yml を読んだ後、`firebase_platform` 配下の **全 string 値**を再帰走査して以下の placeholder を展開する:
 
-| placeholder | 展開される値 |
-|-------------|------------|
-| `${service}` | settings.yml の top-level `service:` 値 |
-| `${env}` | 現在 dispatch 中の env key (例: `dev-001`) |
+| placeholder | 展開される値 | 由来 |
+|-------------|------------|------|
+| `${service}` | settings.yml の top-level `service:` 値 | yml-internal (lowercase = service repo SoT) |
+| `${env}` | 現在 dispatch 中の env key (例: `dev-001`) | yml-internal |
+| `${BOOTSTRAP_PROJECT_NUMBER}` | Action input `bootstrap_project_number` の値 | external 注入 (UPPERCASE prefix = orchestrator Secret) |
+
+**命名規約**: lowercase = yml 内由来 / UPPERCASE prefix = orchestrator から Action input 経由で注入されるインフラ識別子。yml を読んだ瞬間に「どこから来る値か」が分かるようにしている。
+
+**fail-fast**: `${BOOTSTRAP_PROJECT_NUMBER}` を参照しているのに Action input が空 / 未指定の場合は展開段階で throw (壊れた literal を後段に流さない)。詳細は [action README](../../actions/dispatch-firebase-platform/README.md#settingsyml-placeholder-expansion) を参照。
 
 ### よく使う展開箇所
 

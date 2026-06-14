@@ -1,0 +1,26 @@
+# Fixture: `${BOOTSTRAP_PROJECT_NUMBER}` placeholder の展開検証。
+#
+# `ci_service_account.wif.pool_resource_name` のような「組織共通のインフラ識別子」
+# を service repo の yml に literal で書きたくないケース。
+# orchestrator workflow が Action input `bootstrap_project_number` 経由で
+# Secret から値を注入し、Action がここで展開する。
+#
+# 命名規約:
+#   - lowercase (`${service}` / `${env}`) … yml 内由来 (service repo の SoT)
+#   - UPPERCASE prefix (`${BOOTSTRAP_*}`) … 外部注入 (Action input / Secret)
+service: cmonoth
+
+environments:
+  dev-001:
+    billing_account_id: "BBBB-BBBB-BBBB"
+    firebase_platform:
+      firebase: true
+      ci_service_account:
+        account_id: ci-deploy
+        wif:
+          # ${BOOTSTRAP_PROJECT_NUMBER} は Action input から注入される
+          pool_resource_name: "projects/${BOOTSTRAP_PROJECT_NUMBER}/locations/global/workloadIdentityPools/terraform-cloud"
+          principals:
+            # 同 yml 内で ${service} / ${env} と組み合わせて使う典型パターン
+            - { attribute: repository,          value: "MoooDoNE/${service}" }
+            - { attribute: terraform_workspace, value: "${service}-${env}" }

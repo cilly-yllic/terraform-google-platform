@@ -23,17 +23,23 @@ const FIXTURES_DIR = resolve(__dirname, "fixtures/settings");
 /**
  * fixture を読んで loadSettings → expandFirebasePlatformPlaceholders →
  * buildTerraformVariables の pipeline を通す。実 src/index.ts と同じ順序。
+ *
+ * `bootstrapProjectNumber` は Action input から来る外部注入値の simulation。
+ * 省略時は undefined (= input 未指定相当)。yml が `${BOOTSTRAP_PROJECT_NUMBER}`
+ * を参照していれば fail-fast 経路に乗る。
  */
 export const loadAndBuild = async (
   fixture: string,
   env: string,
   projectId: string,
+  opts: { bootstrapProjectNumber?: string } = {},
 ) => {
   const settings = await loadSettings(`${FIXTURES_DIR}/${fixture}`);
   const raw = extractFirebasePlatform(settings, env);
   const fp = expandFirebasePlatformPlaceholders(raw, {
     service: settings.service,
     env,
+    bootstrapProjectNumber: opts.bootstrapProjectNumber,
   });
   return {
     settings,

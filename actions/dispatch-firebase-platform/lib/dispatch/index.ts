@@ -2,34 +2,71 @@ import type { VariableSpec } from "../tfc/index.js";
 import type { FirebasePlatformConfig, Settings } from "../settings/index.js";
 
 // ---------------------------------------------------------------------------
-// settings.yml placeholder 展開 (`${service}` / `${env}`)
+// settings.yml placeholder 展開 (`${service}` / `${env}` + 外部注入系)
 //
 // 用途: 同 service 配下で env を跨いで anchor を共有しつつ、env 固有の値
 // (例: Cloud SQL instance_id) だけ env-prefix で分離したい時に使う。
+// + ci_service_account.wif.pool_resource_name のように bootstrap project 由来の
+// インフラ識別子も placeholder 化したいケースに対応 (`${BOOTSTRAP_PROJECT_NUMBER}`)。
 //
 // 展開対象:
-//   - `${service}` → settings.service の値 (例: "graphql-svc")
-//   - `${env}`     → 現在の env key (例: "dev-001")
+//   - `${service}` → settings.service の値 (例: "graphql-svc") — yml-internal
+//   - `${env}`     → 現在の env key (例: "dev-001")              — yml-internal
+//   - `${BOOTSTRAP_PROJECT_NUMBER}` → Action input
+//                                    bootstrap_project_number     — external 注入
+//
+// 命名規約:
+//   - lowercase (`${service}` / `${env}`) … yml 内由来 (= service repo の SoT)
+//   - UPPERCASE prefix (`${BOOTSTRAP_*}`) … 外部 (orchestrator / secret) から
+//     Action input 経由で注入されるインフラ識別子
+//   利用者が yml を読んだ瞬間に「これは yml-internal か / 外部注入か」を区別できる。
 //
 // 適用範囲: firebase_platform 配下の **string 値のみ** を再帰的に走査して
 // 置換する (object のキーは対象外、number/bool/null はそのまま)。
 //
 // 未知の placeholder (例: `${foo}`) はそのまま残るので、後段の HCL render で
 // terraform 用に `$${...}` にエスケープされる。
+//
+// fail-fast: yml が `${BOOTSTRAP_PROJECT_NUMBER}` を参照しているのに ctx で
+// 値が空 (= Action input 未指定 or 空文字) の場合は展開時点で throw する。
+// 展開後の `projects//locations/...` のような壊れた literal を Action 後続
+// (TFC variable sync など) に流さない。
+//
+// 設計選択 (個別 input vs 汎用 map): 現状外部注入の placeholder は
+// `BOOTSTRAP_PROJECT_NUMBER` の 1 件のみ。`BOOTSTRAP_POOL_ID` /
+// `BOOTSTRAP_PROVIDER_ID` は project-bootstrap 規約で固定値想定なので
+// 可変化の現実的な理由が薄い。3 件超に増えたら `external_placeholders:
+// Record<string,string>` に refactor する (YAGNI)。
 // ---------------------------------------------------------------------------
 
 export interface PlaceholderContext {
   service: string;
   env: string;
+  // 外部注入系 (UPPERCASE prefix の `${BOOTSTRAP_*}`)。
+  // 未指定 (undefined / "") かつ yml が参照していれば expand 時に throw する。
+  bootstrapProjectNumber?: string;
 }
+
+const BOOTSTRAP_PROJECT_NUMBER_TOKEN = "${BOOTSTRAP_PROJECT_NUMBER}";
 
 const expandStringPlaceholders = (
   val: string,
   ctx: PlaceholderContext,
-): string =>
-  val
+): string => {
+  // fail-fast: 参照あり & 未注入 → 後段に壊れた literal を流さない。
+  if (val.includes(BOOTSTRAP_PROJECT_NUMBER_TOKEN) && !ctx.bootstrapProjectNumber) {
+    throw new Error(
+      `settings.yml references \${BOOTSTRAP_PROJECT_NUMBER} but the dispatch-firebase-platform Action did not receive a non-empty 'bootstrap_project_number' input. Pass it via 'with.bootstrap_project_number' (typically from a repo/org Secret like GCP_PROJECT_NUMBER).`,
+    );
+  }
+  return val
     .replace(/\$\{service\}/g, ctx.service)
-    .replace(/\$\{env\}/g, ctx.env);
+    .replace(/\$\{env\}/g, ctx.env)
+    .replace(
+      /\$\{BOOTSTRAP_PROJECT_NUMBER\}/g,
+      ctx.bootstrapProjectNumber ?? "",
+    );
+};
 
 const deepExpandPlaceholders = (
   val: unknown,
