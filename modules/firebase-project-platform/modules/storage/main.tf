@@ -46,9 +46,11 @@ resource "google_firebaserules_release" "storage" {
 # ---------------------------------------------------------------------------
 
 locals {
+  # for_each キーは 入力 name (state stability のため)。resolved_name は
+  # auto_prefix=true の時に `{project}-` で包んだ最終 bucket 名。
   additional_buckets = {
     for b in var.buckets : b.name => {
-      resolved_name = b.raw_name ? b.name : "${var.project}-${b.name}"
+      resolved_name = b.auto_prefix ? "${var.project}-${b.name}" : b.name
       location      = b.location != "" ? b.location : var.location
       storage_class = b.storage_class != "" ? b.storage_class : "REGIONAL"
       iams          = b.iams
@@ -107,9 +109,11 @@ locals {
 }
 
 resource "google_storage_bucket" "firestore_backup" {
-  count         = var.firestore_backup != null ? 1 : 0
-  project       = var.project
-  name          = "${var.project}-${var.firestore_backup.bucket_name}"
+  count   = var.firestore_backup != null ? 1 : 0
+  project = var.project
+  # auto_prefix=true の時のみ `{project}-` を付与 (buckets[] と同じセマンティクス)。
+  # count=0 の時は本ブロックは instantiate されないので var.firestore_backup の null 参照は起きない。
+  name          = var.firestore_backup.auto_prefix ? "${var.project}-${var.firestore_backup.bucket_name}" : var.firestore_backup.bucket_name
   location      = var.location
   storage_class = "STANDARD"
 

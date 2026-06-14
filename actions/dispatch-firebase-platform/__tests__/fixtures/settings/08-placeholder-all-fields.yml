@@ -5,7 +5,8 @@
 #   - hosting[].site_id        : globally unique なので env / service prefix がほぼ必須
 #   - apps[].display_name      : Firebase Console での見分け用 (cosmetic)
 #   - app_hosting[].backend_id : project-unique。env を含めて区別しやすく
-#   - storage.buckets[].name   : project_id auto-prefix なし時 (raw_name=true) は env で分離
+#   - storage.buckets[].name   : globally unique。env / service prefix で衝突回避
+#                                (短い base name 派は auto_prefix=true で project_id を被せる)
 #   - storage.firestore_backup.bucket_name : firestore backup 用 GCS バケット名
 #   - firestore[].database_id  : 任意 (\"(default)\" は固定文字列なのでそのまま)
 #   - data_connect[].cloud_sql.instance_id / database / service_id 等
@@ -38,9 +39,9 @@ environments:
 
       storage:
         buckets:
-          - name: uploads                                # auto-prefix (project_id-uploads)
-          - name: ${service}-${env}-cdn-assets           # raw_name で env 含む明示名
-            raw_name: true
+          - name: uploads                                # auto_prefix=true で {project_id}-uploads
+            auto_prefix: true
+          - name: ${service}-${env}-cdn-assets           # ${service}/${env} 展開で globally unique を作る
         firestore_backup:
           bucket_name: ${service}-${env}-firestore-backup
           export_platform: cloud_run

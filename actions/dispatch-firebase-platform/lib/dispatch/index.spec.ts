@@ -137,11 +137,11 @@ describe("expandFirebasePlatformPlaceholders", () => {
     ).toBe("graphql-svc-dev-001-api");
   });
 
-  it("expands in storage.buckets[].name (project_id auto-prefix なし時の典型)", () => {
+  it("expands in storage.buckets[].name (globally unique なので ${service}/${env} 展開で衝突回避するパターン)", () => {
     const out = expandFirebasePlatformPlaceholders(
       {
         storage: {
-          buckets: [{ name: "${service}-${env}-cdn-assets", raw_name: true }],
+          buckets: [{ name: "${service}-${env}-cdn-assets" }],
         },
       },
       ctx,
