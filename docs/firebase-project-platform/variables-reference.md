@@ -411,6 +411,20 @@ Setting `cloud_run` / `cloud_functions` to `true` also makes them participate in
 | `account_id` | `string` | `"ci-deploy"` | SA ID |
 | `display_name` | `string` | `"CI/CD Deployment"` | display name |
 | `additional_roles` | `list(string)` | `[]` | Roles to grant in addition to the auto-derived set |
+| `wif` | `object \| null` | `null` | Optional Workload Identity Federation binding (see below) |
+
+#### `wif` sub-object (optional)
+
+省略すれば WIF binding は作らない (= SA key などで運用)。指定すれば project-bootstrap が用意済みの WIF Pool 上の attribute-based principalSet に対して `roles/iam.workloadIdentityUser` を bind する。
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `pool_resource_name` | `string` | (required) | `projects/{bootstrap_pn}/locations/global/workloadIdentityPools/{pool_id}` 形式 |
+| `principals` | `list(object)` | (required) | `{attribute, value}` ペアの list (provider-agnostic) |
+| `principals[].attribute` | `string` | (required) | WIF Provider の attribute name (例: `repository` / `terraform_workspace` / `project_path`) |
+| `principals[].value` | `string` | (required) | attribute の値 (例: `myorg/myrepo` / `svc-prd-001`) |
+
+詳細は [service-accounts.md#workload-identity-federation-optional](./service-accounts.md#workload-identity-federation-optional) 参照。
 
 The roles set is auto-derived from feature flags. See [service-accounts.md](./service-accounts.md).
 
