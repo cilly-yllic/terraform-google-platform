@@ -19,7 +19,35 @@ dispatch-firebase-platform Action は settings.yml を読んだ後、`firebase_p
 | `${service}` | settings.yml の top-level `service:` 値 |
 | `${env}` | 現在 dispatch 中の env key (例: `dev-001`) |
 
-主用途は、YAML anchor で env を跨いで config を共有しつつ、env 固有の値 (Cloud SQL `instance_id` 等) だけ env-prefix で分離するパターン:
+### よく使う展開箇所
+
+**globally unique 制約があるフィールド** (env / service prefix を入れないと衝突する):
+
+| field | 使い方 |
+|-------|--------|
+| `hosting[].site_id` | `${service}-${env}-web` (Firebase Hosting site は globally unique) |
+| `storage.buckets[].name` (raw_name=true 時) | `${service}-${env}-cdn-assets` (GCS bucket は globally unique) |
+| `storage.firestore_backup.bucket_name` | `${service}-${env}-firestore-backup` |
+
+**project-unique 制約があるフィールド** (区別のため env を入れたい):
+
+| field | 使い方 |
+|-------|--------|
+| `app_hosting[].backend_id` | `${service}-${env}-api` |
+| `firestore[].database_id` | `${env}-analytics` (`"(default)"` は固定文字列なのでそのまま) |
+| `data_connect[].service_id` | `main` (固定でも可) |
+| `data_connect[].cloud_sql.instance_id` | `${service}-${env}-shared-fdc` |
+| `data_connect[].cloud_sql.database` | `${env}-main` |
+
+**cosmetic フィールド** (Firebase Console での見分け用):
+
+| field | 使い方 |
+|-------|--------|
+| `apps[].display_name` | `"${service} ${env} Main"` (App Store / Play Store とは別、Firebase Console 表示のみ) |
+
+### 主用途
+
+YAML anchor で env を跨いで config を共有しつつ、env 固有の値 (Cloud SQL `instance_id` 等) だけ env-prefix で分離するパターン:
 
 ```yaml
 service: graphql-svc
