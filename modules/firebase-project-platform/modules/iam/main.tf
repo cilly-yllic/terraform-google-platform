@@ -59,6 +59,39 @@ resource "google_project_iam_member" "ci_role" {
 }
 
 # ---------------------------------------------------------------------------
+# CI SA WIF binding (optional)
+#
+# 外部 CI (GitHub Actions / Terraform Cloud / GitLab CI 等) から CI SA を
+# OIDC + Workload Identity Federation で impersonate する場合に使う。
+# project-bootstrap が用意した WIF Pool を参照し、その上の attribute-based
+# principalSet を `roles/iam.workloadIdentityUser` で bind する。
+#
+# `wif = null` (default) なら binding は作らない。
+# principals[].attribute は WIF Provider の attribute mapping で公開されている
+# 名前 (例: github=`repository`, tfc=`terraform_workspace`)。
+# ---------------------------------------------------------------------------
+
+locals {
+  # for_each キーは "{attribute}/{value}" で安定化。
+  # 同一 (attribute, value) が複数指定されても自動的に 1 binding に集約される。
+  ci_wif_principals = (
+    var.ci_service_account != null && try(var.ci_service_account.wif, null) != null
+    ? {
+      for p in var.ci_service_account.wif.principals :
+      "${p.attribute}/${p.value}" => p
+    }
+    : {}
+  )
+}
+
+resource "google_service_account_iam_member" "ci_wif" {
+  for_each           = local.ci_wif_principals
+  service_account_id = google_service_account.ci[0].name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "principalSet://iam.googleapis.com/${var.ci_service_account.wif.pool_resource_name}/attribute.${each.value.attribute}/${each.value.value}"
+}
+
+# ---------------------------------------------------------------------------
 # Service Accounts (manual)
 # ---------------------------------------------------------------------------
 

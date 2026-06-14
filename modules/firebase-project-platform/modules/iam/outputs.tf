@@ -18,6 +18,11 @@ output "ci_service_account_roles" {
   value       = var.ci_service_account != null ? var.ci_service_account.roles : []
 }
 
+output "ci_service_account_wif_members" {
+  description = "WIF principalSet members bound to the CI service account (empty when wif is not configured)."
+  value       = [for v in google_service_account_iam_member.ci_wif : v.member]
+}
+
 output "service_account_emails" {
   description = "Created service account emails."
   value       = { for k, v in google_service_account.this : k => v.email }
