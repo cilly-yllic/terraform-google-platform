@@ -226,6 +226,51 @@ describe("settings.yml fixtures — happy path", () => {
     expect(prdDc).toContain('"tier" = "db-custom-2-4096"');
     expect(prdDc).not.toContain('"tier" = "db-f1-micro"');
   });
+
+  it("08-placeholder-all-fields: ${service}/${env} を主要 field 全体で展開", async () => {
+    const { vars } = await loadAndBuild(
+      "08-placeholder-all-fields.yml",
+      "dev-001",
+      "graphql-svc-dev-001",
+    );
+
+    // apps[].display_name (cosmetic)
+    const apps = getVar(vars, "apps");
+    expect(apps).toContain('"display_name" = "graphql-svc dev-001 Main"');
+    expect(apps).toContain('"display_name" = "graphql-svc dev-001 Admin"');
+
+    // hosting[].site_id (globally unique なので env / service prefix が事実上必須)
+    const hosting = getVar(vars, "hosting");
+    expect(hosting).toContain('"site_id" = "graphql-svc-dev-001-web"');
+    expect(hosting).toContain('"site_id" = "graphql-svc-dev-001-admin"');
+
+    // app_hosting[].backend_id (project-unique)
+    const appHosting = getVar(vars, "app_hosting");
+    expect(appHosting).toContain('"backend_id" = "graphql-svc-dev-001-api"');
+
+    // storage.buckets[].name (raw_name=true で env を含むパターン)
+    const storage = getVar(vars, "storage");
+    expect(storage).toContain('"name" = "uploads"'); // raw_name=false はそのまま
+    expect(storage).toContain('"name" = "graphql-svc-dev-001-cdn-assets"');
+    expect(storage).toContain(
+      '"bucket_name" = "graphql-svc-dev-001-firestore-backup"',
+    );
+
+    // firestore[].database_id ("(default)" はそのまま、別 DB は env-prefix)
+    const firestore = getVar(vars, "firestore");
+    expect(firestore).toContain('"database_id" = "(default)"');
+    expect(firestore).toContain('"database_id" = "dev-001-analytics"');
+
+    // data_connect[].cloud_sql の各 field
+    const dc = getVar(vars, "data_connect");
+    expect(dc).toContain('"instance_id" = "graphql-svc-dev-001-shared-fdc"');
+    expect(dc).toContain('"database" = "dev-001-main"');
+
+    // 全 var で placeholder が残っていないことの sanity check
+    const allValues = vars.map((v) => v.value).join("\n");
+    expect(allValues).not.toContain("${service}");
+    expect(allValues).not.toContain("${env}");
+  });
 });
 
 // ---------------------------------------------------------------------------
