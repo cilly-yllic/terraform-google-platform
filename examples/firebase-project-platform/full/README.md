@@ -37,7 +37,7 @@ Configuration with every feature on. Exercises Firebase core / extensions / GCP 
 | Category | Resource |
 |----------|----------|
 | API enablement | 30+ APIs (feature on/off + `iap.googleapis.com`) |
-| Firebase core | Firebase project / Identity Platform / Firestore default + 2 databases (`analytics-db`, `logs-db`) / RTDB / Hosting site + Web App / Storage default + 2 buckets (`uploads`, `icons`) + Firestore-backup bucket / Data Connect service + Cloud SQL instance |
+| Firebase core | Firebase project / Identity Platform / Firestore default + 2 databases (`analytics-db`, `logs-db`) / RTDB / Hosting site + Web App / Storage default + 2 buckets (`{project_id}-uploads`, `{project_id}-icons`, `auto_prefix=true`) + Firestore-backup bucket (`{project_id}-firestore-backups`) / Data Connect service + Cloud SQL instance |
 | Firebase extensions | FCM / Remote Config / App Check / Crashlytics / Performance / Analytics / Extensions all API-enabled |
 | GCP services | Secret Manager / Cloud Tasks / Cloud Scheduler / Pub/Sub / Eventarc / Cloud Run / Cloud Functions all API-enabled |
 | IAM | 2 user bindings + CI SA (`ci-deploy` + auto roles + `roles/viewer`) + additional SA (`app-runtime`) |

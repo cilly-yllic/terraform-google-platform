@@ -93,16 +93,16 @@ variable "storage" {
     Cloud Storage for Firebase.
     null to disable, true for defaults (default bucket only), or object:
       buckets = list of additional buckets. Each bucket:
-        name          = bucket name (auto-prefixed with {project_id}-)
-        raw_name      = true to skip auto-prefix (default: false)
+        name          = bucket name (verbatim; globally unique なので衝突注意)
+        auto_prefix   = true で `{project_id}-{name}` に組み立てる (default: false)
         location      = bucket location (default: var.region)
         storage_class = storage class (default: "REGIONAL")
         iams          = list of IAM bindings (optional). Each:
           role    = IAM role
           members = list of members
       firestore_backup = Firestore backup bucket config (optional):
-        true or string (bucket name suffix). Creates bucket with:
-          autoclass, 7-year lifecycle, export IAM auto-configured.
+        bucket_name     = bucket 名 (verbatim、auto_prefix=true で `{project_id}-` 付与)
+        auto_prefix     = true で `{project_id}-{bucket_name}` に組み立てる (default: false)
         export_platform = "cloud_functions" | "cloud_run" (default: "cloud_functions")
     Default bucket is always created when storage is enabled.
   EOT
@@ -148,10 +148,12 @@ variable "hosting" {
     null or omitted で disable。
 
     List of objects:
-      site_id = Hosting site ID (globally unique, URL の subdomain になる)
-      app     = 紐付ける apps[].name (optional, type=web のみ参照可)
-                ・type=web の apps が 1 件しか無い時は省略可 (auto-default)
-                ・複数 / 0 件で省略 / 不在の名前 / 非 web type を参照 = plan-time error
+      site_id     = Hosting site ID (globally unique, URL の subdomain になる)
+                    verbatim で扱う。auto_prefix=true の時のみ `{project_id}-` を付与。
+      auto_prefix = true で `{project_id}-{site_id}` に組み立てる (default: false)
+      app         = 紐付ける apps[].name (optional, type=web のみ参照可)
+                    ・type=web の apps が 1 件しか無い時は省略可 (auto-default)
+                    ・複数 / 0 件で省略 / 不在の名前 / 非 web type を参照 = plan-time error
   EOT
   type        = any
   default     = null

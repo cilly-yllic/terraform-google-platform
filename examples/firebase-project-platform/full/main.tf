@@ -24,12 +24,15 @@ module "firebase_platform" {
     location = "asia-southeast1"
   }
   storage = {
+    # buckets[].name / firestore_backup.bucket_name は globally unique。
+    # 短い base name で衝突回避したい場合は auto_prefix=true で `{project_id}-` を被せる。
     buckets = [
-      { name = "icons" },
-      { name = "uploads" },
+      { name = "icons", auto_prefix = true },   # → "{project_id}-icons"
+      { name = "uploads", auto_prefix = true }, # → "{project_id}-uploads"
     ]
     firestore_backup = {
       bucket_name     = "firestore-backups"
+      auto_prefix     = true
       export_platform = "cloud_run"
     }
   }
