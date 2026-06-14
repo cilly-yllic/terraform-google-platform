@@ -34,19 +34,9 @@ output "auth_config_name" {
 # Firestore
 # ---------------------------------------------------------------------------
 
-output "firestore_default_database" {
-  description = "Default Firestore database resource name."
-  value       = local.enable_firestore ? module.firestore[0].default_database_name : null
-}
-
-output "firestore_default_location" {
-  description = "Default Firestore database location."
-  value       = local.enable_firestore ? module.firestore[0].default_database_location : null
-}
-
-output "firestore_additional_databases" {
-  description = "Additional Firestore database names."
-  value       = local.enable_firestore ? module.firestore[0].additional_databases : {}
+output "firestore_databases" {
+  description = "Map of Firestore databases, keyed by database_id. Each value contains name, location, type."
+  value       = local.enable_firestore ? module.firestore[0].databases : {}
 }
 
 # ---------------------------------------------------------------------------
@@ -145,9 +135,19 @@ output "app_hosting_backends" {
 # Data Connect
 # ---------------------------------------------------------------------------
 
-output "data_connect_name" {
-  description = "Data Connect service resource name."
-  value       = local.enable_data_connect ? module.data_connect[0].name : null
+output "data_connect_services" {
+  description = "Map of Data Connect services, keyed by service_id."
+  value       = local.enable_data_connect ? module.data_connect[0].services : {}
+}
+
+output "data_connect_cloud_sql_instances" {
+  description = "Map of Cloud SQL instances created by Data Connect, keyed by instance_id (deduplicated when multiple services share the same instance)."
+  value       = local.enable_data_connect ? module.data_connect[0].cloud_sql_instances : {}
+}
+
+output "data_connect_cloud_sql_databases" {
+  description = "Map of Cloud SQL databases, keyed by '{instance_id}/{database}'."
+  value       = local.enable_data_connect ? module.data_connect[0].cloud_sql_databases : {}
 }
 
 # ---------------------------------------------------------------------------

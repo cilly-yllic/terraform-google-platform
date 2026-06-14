@@ -1,0 +1,23 @@
+# Fixture: YAML anchor (`<<: *anchor`) で dev 環境間で config 共有 + 上書き
+service: anchored-svc
+_anchors:
+  dev_firebase: &dev_firebase
+    firebase: true
+    authentication: true
+    apps:
+      - name: main
+        type: web
+    firestore:
+      - database_id: "(default)"
+        location: asia-northeast1
+environments:
+  dev-001:
+    billing_account_id: "BBBB-BBBB-BBBB"
+    firebase_platform: *dev_firebase
+  dev-002:
+    billing_account_id: "BBBB-BBBB-BBBB"
+    firebase_platform:
+      <<: *dev_firebase
+      firestore:
+        - database_id: "(default)"
+          location: us-central1

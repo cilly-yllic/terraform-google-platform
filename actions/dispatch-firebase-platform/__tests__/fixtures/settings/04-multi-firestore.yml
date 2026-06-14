@@ -1,0 +1,17 @@
+# Fixture: 複数 Firestore database (default + 別 region の analytics + 保護対象の logs)
+service: data-svc
+environments:
+  prd-001:
+    billing_account_id: "AAAA-AAAA-AAAA"
+    firebase_platform:
+      firebase: true
+      firestore:
+        - database_id: "(default)"
+          location: asia-northeast1
+          type: FIRESTORE_NATIVE
+        - database_id: analytics
+          location: us-central1
+        - database_id: logs
+          location: us-central1
+          delete_protection_state: DELETE_PROTECTION_ENABLED
+          point_in_time_recovery: true

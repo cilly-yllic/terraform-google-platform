@@ -1,0 +1,11 @@
+# Error fixture: type=android なのに package_name 欠落
+service: err-svc
+environments:
+  prd-001:
+    billing_account_id: "AAAA-AAAA-AAAA"
+    firebase_platform:
+      firebase: true
+      apps:
+        - name: main-android
+          type: android
+          # package_name が欠落

@@ -2,6 +2,71 @@ import type { VariableSpec } from "../tfc/index.js";
 import type { FirebasePlatformConfig, Settings } from "../settings/index.js";
 
 // ---------------------------------------------------------------------------
+// settings.yml placeholder 展開 (`${service}` / `${env}`)
+//
+// 用途: 同 service 配下で env を跨いで anchor を共有しつつ、env 固有の値
+// (例: Cloud SQL instance_id) だけ env-prefix で分離したい時に使う。
+//
+// 展開対象:
+//   - `${service}` → settings.service の値 (例: "graphql-svc")
+//   - `${env}`     → 現在の env key (例: "dev-001")
+//
+// 適用範囲: firebase_platform 配下の **string 値のみ** を再帰的に走査して
+// 置換する (object のキーは対象外、number/bool/null はそのまま)。
+//
+// 未知の placeholder (例: `${foo}`) はそのまま残るので、後段の HCL render で
+// terraform 用に `$${...}` にエスケープされる。
+// ---------------------------------------------------------------------------
+
+export interface PlaceholderContext {
+  service: string;
+  env: string;
+}
+
+const expandStringPlaceholders = (
+  val: string,
+  ctx: PlaceholderContext,
+): string =>
+  val
+    .replace(/\$\{service\}/g, ctx.service)
+    .replace(/\$\{env\}/g, ctx.env);
+
+const deepExpandPlaceholders = (
+  val: unknown,
+  ctx: PlaceholderContext,
+): unknown => {
+  if (typeof val === "string") return expandStringPlaceholders(val, ctx);
+  if (Array.isArray(val)) return val.map((v) => deepExpandPlaceholders(v, ctx));
+  if (val !== null && typeof val === "object") {
+    return Object.fromEntries(
+      Object.entries(val as Record<string, unknown>).map(([k, v]) => [
+        k,
+        deepExpandPlaceholders(v, ctx),
+      ]),
+    );
+  }
+  return val;
+};
+
+/**
+ * firebase_platform 全体の string 値を再帰走査して `${service}` / `${env}` を
+ * ctx の値で置換する。返り値は新オブジェクト (input は不変)。
+ *
+ * 例:
+ *   expandFirebasePlatformPlaceholders(
+ *     { data_connect: [{ cloud_sql: { instance_id: "${service}-${env}-fdc" } }] },
+ *     { service: "graphql-svc", env: "dev-001" }
+ *   )
+ *   →
+ *   { data_connect: [{ cloud_sql: { instance_id: "graphql-svc-dev-001-fdc" } }] }
+ */
+export const expandFirebasePlatformPlaceholders = (
+  firebasePlatform: FirebasePlatformConfig,
+  ctx: PlaceholderContext,
+): FirebasePlatformConfig =>
+  deepExpandPlaceholders(firebasePlatform, ctx) as FirebasePlatformConfig;
+
+// ---------------------------------------------------------------------------
 // Workspace name expansion
 // ---------------------------------------------------------------------------
 
@@ -48,10 +113,8 @@ export function resolveAutoApply(
 const FEATURE_KEYS = [
   "firebase",
   "authentication",
-  "firestore",
   "rtdb",
   "storage",
-  "data_connect",
   "fcm",
   "remote_config",
   "app_check",
@@ -76,6 +139,8 @@ const LIST_FEATURE_KEYS = [
   "apps",
   "hosting",
   "app_hosting",
+  "firestore",
+  "data_connect",
 ] as const;
 
 const PASSTHROUGH_KEYS = [
@@ -167,12 +232,66 @@ function normalizeListFeatureFlag(key: string, val: unknown): unknown {
       if (key === "apps") {
         validateAppEntry(i, item as Record<string, unknown>);
       }
+      if (key === "firestore") {
+        validateFirestoreEntry(i, item as Record<string, unknown>);
+      }
+      if (key === "data_connect") {
+        validateDataConnectEntry(i, item as Record<string, unknown>);
+      }
     }
     return val;
   }
   throw new Error(
     `Invalid value for list-feature key "${key}": expected null or array of objects but got ${typeof val} (${JSON.stringify(val)})`,
   );
+}
+
+const FIRESTORE_VALID_TYPES = new Set(["FIRESTORE_NATIVE", "DATASTORE_MODE"]);
+
+function validateFirestoreEntry(
+  index: number,
+  entry: Record<string, unknown>,
+): void {
+  const databaseId = entry.database_id;
+  if (typeof databaseId !== "string" || databaseId === "") {
+    throw new Error(
+      `firestore[${index}]: 'database_id' is required and must be a non-empty string (got ${JSON.stringify(databaseId)})`,
+    );
+  }
+  if (entry.type !== undefined && !FIRESTORE_VALID_TYPES.has(entry.type as string)) {
+    throw new Error(
+      `firestore[${index}] (database_id="${databaseId}"): 'type' must be "FIRESTORE_NATIVE" or "DATASTORE_MODE" (got ${JSON.stringify(entry.type)})`,
+    );
+  }
+}
+
+function validateDataConnectEntry(
+  index: number,
+  entry: Record<string, unknown>,
+): void {
+  const serviceId = entry.service_id;
+  if (typeof serviceId !== "string" || serviceId === "") {
+    throw new Error(
+      `data_connect[${index}]: 'service_id' is required and must be a non-empty string (got ${JSON.stringify(serviceId)})`,
+    );
+  }
+  const cloudSql = entry.cloud_sql;
+  if (cloudSql === null || typeof cloudSql !== "object" || Array.isArray(cloudSql)) {
+    throw new Error(
+      `data_connect[${index}] (service_id="${serviceId}"): 'cloud_sql' is required and must be an object`,
+    );
+  }
+  const cs = cloudSql as Record<string, unknown>;
+  if (typeof cs.instance_id !== "string" || cs.instance_id === "") {
+    throw new Error(
+      `data_connect[${index}] (service_id="${serviceId}"): 'cloud_sql.instance_id' is required and must be a non-empty string`,
+    );
+  }
+  if (typeof cs.database !== "string" || cs.database === "") {
+    throw new Error(
+      `data_connect[${index}] (service_id="${serviceId}"): 'cloud_sql.database' is required and must be a non-empty string`,
+    );
+  }
 }
 
 function validateAppEntry(

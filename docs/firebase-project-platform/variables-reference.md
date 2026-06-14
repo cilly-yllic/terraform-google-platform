@@ -10,6 +10,89 @@ Complete reference for each feature variable's nested structure and defaults. Fo
 
 ---
 
+## settings.yml placeholders (`${service}` / `${env}`)
+
+dispatch-firebase-platform Action は settings.yml を読んだ後、`firebase_platform` 配下の **全 string 値**を再帰走査して以下の placeholder を展開する:
+
+| placeholder | 展開される値 |
+|-------------|------------|
+| `${service}` | settings.yml の top-level `service:` 値 |
+| `${env}` | 現在 dispatch 中の env key (例: `dev-001`) |
+
+### よく使う展開箇所
+
+**globally unique 制約があるフィールド** (env / service prefix を入れないと衝突する):
+
+| field | 使い方 |
+|-------|--------|
+| `hosting[].site_id` | `${service}-${env}-web` (Firebase Hosting site は globally unique) |
+| `storage.buckets[].name` (raw_name=true 時) | `${service}-${env}-cdn-assets` (GCS bucket は globally unique) |
+| `storage.firestore_backup.bucket_name` | `${service}-${env}-firestore-backup` |
+
+**project-unique 制約があるフィールド** (区別のため env を入れたい):
+
+| field | 使い方 |
+|-------|--------|
+| `app_hosting[].backend_id` | `${service}-${env}-api` |
+| `firestore[].database_id` | `${env}-analytics` (`"(default)"` は固定文字列なのでそのまま) |
+| `data_connect[].service_id` | `main` (固定でも可) |
+| `data_connect[].cloud_sql.instance_id` | `${service}-${env}-shared-fdc` |
+| `data_connect[].cloud_sql.database` | `${env}-main` |
+
+**cosmetic フィールド** (Firebase Console での見分け用):
+
+| field | 使い方 |
+|-------|--------|
+| `apps[].display_name` | `"${service} ${env} Main"` (App Store / Play Store とは別、Firebase Console 表示のみ) |
+
+### 主用途
+
+YAML anchor で env を跨いで config を共有しつつ、env 固有の値 (Cloud SQL `instance_id` 等) だけ env-prefix で分離するパターン:
+
+```yaml
+service: graphql-svc
+
+_anchors:
+  dc_main_cloud_sql: &dc_main_cloud_sql
+    instance_id: ${service}-${env}-shared-fdc   # ← Action で展開
+    database: main
+    tier: db-custom-2-4096
+
+environments:
+  dev-001:
+    firebase_platform:
+      data_connect:
+        - service_id: main
+          cloud_sql:
+            <<: *dc_main_cloud_sql
+            tier: db-f1-micro             # dev は小さく override
+  prd-001:
+    firebase_platform:
+      data_connect:
+        - service_id: main
+          cloud_sql:
+            <<: *dc_main_cloud_sql        # 同 anchor を共有
+            deletion_protection: true     # prd は protect
+```
+
+→ 展開結果:
+- dev-001 の `instance_id` = `graphql-svc-dev-001-shared-fdc`
+- prd-001 の `instance_id` = `graphql-svc-prd-001-shared-fdc`
+
+### 仕様
+
+- 展開対象は **string 値のみ**。object のキー / number / boolean / null はそのまま
+- 未知の placeholder (例: `${unknown}`) はそのまま残る → 後段の HCL render で terraform 用に `$${...}` にエスケープされる (terraform interpolation との混同なし)
+- 入力 object は不変 (新オブジェクトを返す)
+
+<details><summary>Ja</summary>
+
+env 跨いで anchor を共有しながら env-specific な値 (instance_id 等) だけ分けたい時に使う placeholder 機構。`${service}` / `${env}` のみサポート、他の `${...}` は terraform 用にスルー & エスケープ。
+
+</details>
+
+---
+
 ## Three-pattern values
 
 Every feature variable accepts one of:
@@ -92,24 +175,21 @@ Identity Platform 設定。
 
 ### `firestore`
 
-The default database is **always created** with a **deny-all** initial ruleset (production rules are expected to be deployed via Firebase CLI).
+List of Firestore databases (1 project に複数 DB)。各 entry が `google_firestore_database` を作る。`"(default)"` を含めるかは利用者判断 (Firebase SDK の default 動作を期待するなら含める)。
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `location` | `string` | `var.region` | Default DB location |
+| `database_id` | `string` | (required) | Database ID。`"(default)"` か任意の名前 |
+| `location` | `string` | `var.region` | DB location (region / multi-region どちらも可) |
 | `type` | `string` | `"FIRESTORE_NATIVE"` | `FIRESTORE_NATIVE` / `DATASTORE_MODE` |
 | `delete_protection_state` | `string` | `"DELETE_PROTECTION_DISABLED"` | `DELETE_PROTECTION_DISABLED` / `DELETE_PROTECTION_ENABLED` |
 | `point_in_time_recovery` | `bool` | `false` | PITR |
-| `databases` | `list(object)` | `[]` | Additional databases |
-| `databases[].database_id` | `string` | (required) | database ID |
-| `databases[].location` | `string` | Same as default DB | location |
-| `databases[].type` | `string` | `"FIRESTORE_NATIVE"` | type |
-| `databases[].delete_protection_state` | `string` | `"DELETE_PROTECTION_DISABLED"` | |
-| `databases[].point_in_time_recovery` | `bool` | `false` | |
+
+`firestore` が 1 件以上ある場合、project-level の **deny-all** initial ruleset が `cloud.firestore` に自動適用される (本番ルールは Firebase CLI で更新する前提)。
 
 <details><summary>Ja</summary>
 
-デフォルト database は **常に作成** され、初期 ruleset として **deny-all** が書き込まれる (本番ルールは Firebase CLI で更新する前提)。
+複数 Firestore database を 1 project に登録できる array。各 entry は対等で、`(default)` も他の DB と同列に扱われる (auto-create はしない、必要なら明示する)。
 
 </details>
 
@@ -217,16 +297,42 @@ List of Firebase App Hosting backends.
 
 ### `data_connect`
 
+List of Data Connect services (1 project に複数 service)。各 service は GraphQL endpoint を持ち、Cloud SQL Instance + Database を backend にする。
+
+#### Service entry
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `location` | `string` | `var.region` | Data Connect service location |
-| `service_id` | `string` | `"{project_id}-dataconnect"` | service ID |
-| `cloud_sql` | `object \| null` | `null` | Cloud SQL instance config (null skips Cloud SQL) |
-| `cloud_sql.instance_id` | `string` | `"{project_id}-fdc"` | instance name |
-| `cloud_sql.database` | `string` | `project_id` | database name |
-| `cloud_sql.tier` | `string` | `"db-f1-micro"` | machine tier |
-| `cloud_sql.database_version` | `string` | `"POSTGRES_15"` | PostgreSQL version |
-| `cloud_sql.deletion_protection` | `bool` | `false` | Destroy protection |
+| `service_id` | `string` | (required) | Data Connect service ID (project-unique) |
+| `location` | `string` | `var.region` | Service location |
+| `cloud_sql` | `object` | (required) | Cloud SQL backend 設定 (Data Connect は backend 必須) |
+
+#### `cloud_sql` sub-object
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `instance_id` | `string` | (required) | Cloud SQL Instance name。**複数 service が同 instance_id を指せば自動 dedup されて 1 instance に集約** (コスト削減) |
+| `database` | `string` | (required) | instance 内の logical database 名。同 instance 内で複数 service が別 database を持てる |
+| `tier` | `string` | `"db-f1-micro"` | machine tier (同 instance_id を共有する entries 間で一致必須) |
+| `database_version` | `string` | `"POSTGRES_15"` | PostgreSQL version (同様に一致必須) |
+| `deletion_protection` | `bool` | `false` | Destroy protection (同様に一致必須) |
+| `location` | `string` | `service.location` 流用 | Cloud SQL Instance region (同 instance_id 内で一致必須) |
+
+#### 共有 instance の挙動
+
+複数 service が同じ `instance_id` を指定すると、module 内部で **deduplicate** されて Cloud SQL Instance が 1 つだけ作成される (コスト最適化、月数千円〜の節約)。
+
+一貫性 validation: 同 `instance_id` を持つ entries 間で `tier` / `database_version` / `deletion_protection` / `location` が全て一致する必要あり (不一致は plan-time precondition error)。
+
+<details><summary>Ja</summary>
+
+複数 Data Connect service を 1 project に登録できる array。各 service は Cloud SQL Instance + Database をセットで持つ。
+
+`cloud_sql.instance_id` が同じ entries は自動で **1 つの Cloud SQL Instance に集約**される (Pattern Y、コスト共有モード)。別 `instance_id` を指定すれば独立 instance (Pattern X、性能/region 分離モード)。
+
+Cloud SQL Instance は 1 つの region / tier / database_version しか持てないため、共有モードで properties が食い違うと precondition で plan-time error になる。
+
+</details>
 
 ---
 
