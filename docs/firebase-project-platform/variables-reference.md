@@ -26,8 +26,10 @@ dispatch-firebase-platform Action は settings.yml を読んだ後、`firebase_p
 | field | 使い方 |
 |-------|--------|
 | `hosting[].site_id` | `${service}-${env}-web` (Firebase Hosting site は globally unique) |
-| `storage.buckets[].name` (raw_name=true 時) | `${service}-${env}-cdn-assets` (GCS bucket は globally unique) |
+| `storage.buckets[].name` | `${service}-${env}-cdn-assets` (GCS bucket は globally unique) |
 | `storage.firestore_backup.bucket_name` | `${service}-${env}-firestore-backup` |
+
+`auto_prefix = true` を指定すると、自動で `{project_id}-` が付与される (= 短い base name で衝突しない命名を作る用途)。逆に `${service}` / `${env}` 展開で衝突回避済みの場合は `auto_prefix` 指定不要 (default `false`)。
 
 **project-unique 制約があるフィールド** (区別のため env を入れたい):
 
@@ -215,13 +217,14 @@ The default bucket (`{project_id}.firebasestorage.app`) is **always created** wi
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `buckets` | `list(object)` | `[]` | Additional buckets |
-| `buckets[].name` | `string` | (required) | bucket name (prefixed with `{project_id}-` by default) |
-| `buckets[].raw_name` | `bool` | `false` | `true` skips the prefix and uses `name` verbatim |
+| `buckets[].name` | `string` | (required) | bucket name (verbatim、globally unique なので呼び出し側で衝突回避を保証) |
+| `buckets[].auto_prefix` | `bool` | `false` | `true` で `{project_id}-{name}` に組み立てる |
 | `buckets[].location` | `string` | `var.region` | bucket location |
 | `buckets[].storage_class` | `string` | `"REGIONAL"` | storage class |
 | `buckets[].iams` | `list(object)` | `[]` | IAM bindings (`role`, `members`) |
 | `firestore_backup` | `object \| null` | `null` | Firestore backup bucket config |
-| `firestore_backup.bucket_name` | `string` | `"firestore-backups"` | suffix (expanded to `{project_id}-<suffix>`) |
+| `firestore_backup.bucket_name` | `string` | `"firestore-backups"` | bucket 名 (verbatim、`auto_prefix=true` で `{project_id}-` 付与) |
+| `firestore_backup.auto_prefix` | `bool` | `false` | `true` で `{project_id}-{bucket_name}` に組み立てる |
 | `firestore_backup.export_platform` | `string` | `"cloud_functions"` | `cloud_functions` / `cloud_run`. Selects which SA receives Firestore-export IAM. |
 | `firestore_backup.soft_delete_policy.retention_duration_seconds` | `number` | `0` | Soft-delete retention seconds (0 disables) |
 
@@ -265,7 +268,8 @@ List of Firebase Hosting sites.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `site_id` | `string` | (required) | Globally unique site ID (URL は `<site_id>.web.app`) |
+| `site_id` | `string` | (required) | Globally unique site ID (URL は `<site_id>.web.app`)。verbatim で扱う。`auto_prefix=true` の時のみ `{project_id}-{site_id}` に組み立てる |
+| `auto_prefix` | `bool` | `false` | `true` で `{project_id}-{site_id}` を最終的な site ID として使う (短い base name で衝突回避したい場合用) |
 | `app` | `string` | (type=web の app が 1 件のみ時に省略可) | 紐付ける `apps[].name`。**type=web のみ参照可**。複数 / 0 件で省略 / 存在しない名前 / 非 web type を指定 = plan-time error |
 
 <details><summary>Ja</summary>
