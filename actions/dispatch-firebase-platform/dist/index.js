@@ -40558,9 +40558,17 @@ function extractFirebasePlatform(settings, env) {
 }
 
 ;// CONCATENATED MODULE: ./lib/dispatch/index.ts
-const expandStringPlaceholders = (val, ctx) => val
-    .replace(/\$\{service\}/g, ctx.service)
-    .replace(/\$\{env\}/g, ctx.env);
+const BOOTSTRAP_PROJECT_NUMBER_TOKEN = "${BOOTSTRAP_PROJECT_NUMBER}";
+const expandStringPlaceholders = (val, ctx) => {
+    // fail-fast: 参照あり & 未注入 → 後段に壊れた literal を流さない。
+    if (val.includes(BOOTSTRAP_PROJECT_NUMBER_TOKEN) && !ctx.bootstrapProjectNumber) {
+        throw new Error(`settings.yml references \${BOOTSTRAP_PROJECT_NUMBER} but the dispatch-firebase-platform Action did not receive a non-empty 'bootstrap_project_number' input. Pass it via 'with.bootstrap_project_number' (typically from a repo/org Secret like GCP_PROJECT_NUMBER).`);
+    }
+    return val
+        .replace(/\$\{service\}/g, ctx.service)
+        .replace(/\$\{env\}/g, ctx.env)
+        .replace(/\$\{BOOTSTRAP_PROJECT_NUMBER\}/g, ctx.bootstrapProjectNumber ?? "");
+};
 const deepExpandPlaceholders = (val, ctx) => {
     if (typeof val === "string")
         return expandStringPlaceholders(val, ctx);
@@ -41378,10 +41386,17 @@ async function run() {
             try {
                 const envEntry = extractEnvironment(settings, env);
                 const firebasePlatformRaw = extractFirebasePlatform(settings, env);
-                // `${service}` / `${env}` placeholder を全 string 値で展開する。
-                // 主用途: anchor で共通化しつつ Cloud SQL instance_id 等を env-prefix
-                // で分離するパターン。
-                const firebasePlatform = expandFirebasePlatformPlaceholders(firebasePlatformRaw, { service: settings.service, env });
+                // `${service}` / `${env}` / `${BOOTSTRAP_PROJECT_NUMBER}` placeholder を
+                // 全 string 値で展開する。
+                // 主用途:
+                //   - `${service}` / `${env}` で anchor 共有 + env-prefix 分離
+                //   - `${BOOTSTRAP_PROJECT_NUMBER}` で ci_service_account.wif.pool_resource_name
+                //     のようなインフラ識別子を yml に書かず Action input 経由で注入
+                const firebasePlatform = expandFirebasePlatformPlaceholders(firebasePlatformRaw, {
+                    service: settings.service,
+                    env,
+                    bootstrapProjectNumber,
+                });
                 core.info(`[${env}] firebase_platform keys: ${Object.keys(firebasePlatform).join(", ")}`);
                 // Derive project_id / SA email
                 const projectId = `${service}-${env}`;

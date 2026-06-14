@@ -119,12 +119,19 @@ async function run(): Promise<void> {
       try {
         const envEntry = extractEnvironment(settings, env);
         const firebasePlatformRaw = extractFirebasePlatform(settings, env);
-        // `${service}` / `${env}` placeholder を全 string 値で展開する。
-        // 主用途: anchor で共通化しつつ Cloud SQL instance_id 等を env-prefix
-        // で分離するパターン。
+        // `${service}` / `${env}` / `${BOOTSTRAP_PROJECT_NUMBER}` placeholder を
+        // 全 string 値で展開する。
+        // 主用途:
+        //   - `${service}` / `${env}` で anchor 共有 + env-prefix 分離
+        //   - `${BOOTSTRAP_PROJECT_NUMBER}` で ci_service_account.wif.pool_resource_name
+        //     のようなインフラ識別子を yml に書かず Action input 経由で注入
         const firebasePlatform = expandFirebasePlatformPlaceholders(
           firebasePlatformRaw,
-          { service: settings.service, env },
+          {
+            service: settings.service,
+            env,
+            bootstrapProjectNumber,
+          },
         );
         core.info(
           `[${env}] firebase_platform keys: ${Object.keys(firebasePlatform).join(", ")}`,
