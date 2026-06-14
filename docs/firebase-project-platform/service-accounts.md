@@ -70,6 +70,63 @@ When `enable_*` is `true` for a given feature, the following are added (deduped 
 
 - `ci_service_account_email` — the created SA's email
 - `ci_service_account_roles` — the actual list of roles granted
+- `ci_service_account_wif_members` — WIF principalSet members bound to the CI SA (`[]` if `wif` is omitted)
+
+### Workload Identity Federation (optional)
+
+外部 CI (GitHub Actions / Terraform Cloud / GitLab CI 等) から CI SA を **OIDC + WIF** で impersonate したい場合に使う。`wif` を省略すれば binding は作られず、従来通り SA key 等の運用に委ねる。
+
+```hcl
+ci_service_account = {
+  account_id = "ci-deploy"
+  wif = {
+    # project-bootstrap が用意した WIF Pool を指す。
+    # 形式: projects/{bootstrap_project_number}/locations/global/workloadIdentityPools/{pool_id}
+    pool_resource_name = "projects/123456789/locations/global/workloadIdentityPools/terraform-cloud"
+
+    # provider-agnostic な (attribute, value) ペアの list。
+    # attribute 名は WIF Provider の attribute mapping で公開している
+    # `attribute.{name}` の `{name}` 部分。
+    principals = [
+      { attribute = "repository",          value = "myorg/myrepo" },          # GitHub Actions
+      { attribute = "terraform_workspace", value = "graphql-svc-prd-001" },   # Terraform Cloud
+      { attribute = "project_path",        value = "mygroup/myproject" },     # GitLab CI
+    ]
+  }
+}
+```
+
+各 entry は `roles/iam.workloadIdentityUser` を CI SA の `google_service_account_iam_member` として bind する。`member` は
+
+```
+principalSet://iam.googleapis.com/{pool_resource_name}/attribute.{attribute}/{value}
+```
+
+の形になる。同じ `(attribute, value)` を複数回指定しても 1 binding に dedup される。
+
+#### Provider 別 attribute 名 (主要)
+
+| Provider | attribute | 例 |
+|---|---|---|
+| GitHub Actions (`google-github-actions/auth@v2`) | `repository` | `myorg/myrepo` |
+| Terraform Cloud / HCP Terraform | `terraform_workspace` | `svc-prd-001` |
+| GitLab CI | `project_path` | `mygroup/myproject` |
+| Bitbucket Pipelines | `workspace` | `myworkspace` |
+
+Pool / Provider の attribute mapping 設計は `docs/project-bootstrap/design/wif-attribute-mapping.md` 参照。新規 attribute を使う場合は Provider 側の attribute mapping にも追加が必要。
+
+#### WIF を使わない場合
+
+`wif = null` (= 省略) で binding は作らない。SA key 発行や別経路の impersonation を運用する想定。
+
+<details><summary>Ja</summary>
+
+- `wif` を指定するだけで CI SA に対する `roles/iam.workloadIdentityUser` binding が作られる
+- `attribute` / `value` の汎用ペアなので、GitHub / TFC / GitLab / 他 OIDC を schema 変更なしでカバー可能
+- 既存の WIF Pool / Provider は project-bootstrap 側で作られている前提 (本モジュールでは新規作成しない)
+- 省略すれば binding は作られないので、従来運用 (key) との互換あり
+
+</details>
 
 ---
 
