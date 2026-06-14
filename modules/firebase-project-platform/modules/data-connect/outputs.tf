@@ -1,19 +1,31 @@
-output "name" {
-  description = "Data Connect service resource name."
-  value       = google_firebase_data_connect_service.this.name
+output "services" {
+  description = "Map of Data Connect services, keyed by service_id."
+  value = {
+    for sid, mod in google_firebase_data_connect_service.this : sid => {
+      resource_name = mod.name
+      location      = mod.location
+    }
+  }
 }
 
-output "cloud_sql_instance_name" {
-  description = "Cloud SQL instance name."
-  value       = var.cloud_sql != null ? google_sql_database_instance.this[0].name : null
+output "cloud_sql_instances" {
+  description = "Map of Cloud SQL instances (deduplicated), keyed by instance_id."
+  value = {
+    for iid, mod in google_sql_database_instance.this : iid => {
+      name             = mod.name
+      connection_name  = mod.connection_name
+      region           = mod.region
+      database_version = mod.database_version
+    }
+  }
 }
 
-output "cloud_sql_connection_name" {
-  description = "Cloud SQL instance connection name."
-  value       = var.cloud_sql != null ? google_sql_database_instance.this[0].connection_name : null
-}
-
-output "cloud_sql_database" {
-  description = "Cloud SQL database name."
-  value       = var.cloud_sql != null ? google_sql_database.this[0].name : null
+output "cloud_sql_databases" {
+  description = "Map of Cloud SQL databases, keyed by '{instance_id}/{database}'."
+  value = {
+    for key, mod in google_sql_database.this : key => {
+      instance = mod.instance
+      name     = mod.name
+    }
+  }
 }

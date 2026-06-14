@@ -79,15 +79,18 @@ _anchors:
   dev_firebase: &dev_firebase
     firebase: true
     authentication: true
+    # firestore は array。"(default)" は SDK の default 動作で必要なら含める。
     firestore:
-      location: asia-northeast1
-      type: FIRESTORE_NATIVE
+      - database_id: "(default)"
+        location: asia-northeast1
+        type: FIRESTORE_NATIVE
     storage: null
-    # 開発環境は Hosting / App Hosting 無し。本番側で複数 site / 多 backend を
-    # 検証する例は prd-001 を参照。
+    # 開発環境は Hosting / App Hosting / Data Connect 無し。
+    # 本番側で多 service / 多 backend を検証する例は prd-001 を参照。
     apps: null
     hosting: null
     app_hosting: null
+    data_connect: null
     fcm: true
     remote_config: true
     crashlytics: true
@@ -115,9 +118,20 @@ environments:
     firebase_platform:
       firebase: true
       authentication: true
+
+      # Firestore database (1 project に複数 DB 可)。"(default)" は SDK の default
+      # 動作で必要なら含める。analytics / logs は別 region で隔離。
       firestore:
-        location: asia-northeast1
-        type: FIRESTORE_NATIVE
+        - database_id: "(default)"
+          location: asia-northeast1
+          type: FIRESTORE_NATIVE
+        - database_id: analytics
+          location: us-central1
+        - database_id: logs
+          location: us-central1
+          delete_protection_state: DELETE_PROTECTION_ENABLED
+          point_in_time_recovery: true
+
       storage:
         buckets:
           - name: uploads
@@ -171,6 +185,30 @@ environments:
           location: asia-northeast1
           app: admin
 
+      # Data Connect services。同 instance_id を指す entries は自動 dedup されて
+      # 1 Cloud SQL Instance に集約 (コスト最適化)。
+      # 共有 instance を使う場合、tier / database_version / deletion_protection /
+      # location は全 entries で一致必須 (precondition で plan-time check)。
+      data_connect:
+        - service_id: main
+          location: asia-northeast1
+          cloud_sql:
+            instance_id: shared-fdc           # ← 同 instance を共有
+            database: main
+            tier: db-custom-2-4096            # instance 単位 → 全 entries 同値
+            database_version: POSTGRES_15
+        - service_id: analytics
+          location: asia-northeast1
+          cloud_sql:
+            instance_id: shared-fdc           # ← 同 instance、別 database
+            database: analytics
+        - service_id: jobs                     # 別 region 用に独立 instance
+          location: us-central1
+          cloud_sql:
+            instance_id: jobs-fdc
+            database: jobs
+            tier: db-f1-micro
+
       fcm: true
       remote_config: true
       app_check: true
@@ -209,10 +247,11 @@ environments:
       firebase: true
       authentication: true
       firestore:
-        location: asia-northeast1
-        type: FIRESTORE_NATIVE
-        databases:
-          - database_id: analytics-db
+        - database_id: "(default)"
+          location: asia-northeast1
+          type: FIRESTORE_NATIVE
+        - database_id: analytics-db
+          location: asia-northeast1
 
       # ↓ シンプル構成: apps を省略すると "default" 名で type=web を 1 件
       # auto-create + auto-link される。hosting / app_hosting の `app:` も
@@ -255,5 +294,6 @@ environments:
     firebase_platform:
       <<: *dev_firebase
       firestore:
-        location: us-central1
-        type: FIRESTORE_NATIVE
+        - database_id: "(default)"
+          location: us-central1
+          type: FIRESTORE_NATIVE

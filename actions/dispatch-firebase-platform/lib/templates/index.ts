@@ -9,12 +9,12 @@ ${VERSION_PLACEHOLDER}
 
   firebase        = var.firebase
   authentication  = var.authentication
-  firestore       = var.firestore
   rtdb            = var.rtdb
   storage         = var.storage
   apps            = var.apps
   hosting         = var.hosting
   app_hosting     = var.app_hosting
+  firestore       = var.firestore
   data_connect    = var.data_connect
   fcm             = var.fcm
   remote_config   = var.remote_config

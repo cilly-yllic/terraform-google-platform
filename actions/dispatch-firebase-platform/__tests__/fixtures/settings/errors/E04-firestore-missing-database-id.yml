@@ -1,0 +1,10 @@
+# Error fixture: firestore[].database_id 欠落
+service: err-svc
+environments:
+  prd-001:
+    billing_account_id: "AAAA-AAAA-AAAA"
+    firebase_platform:
+      firebase: true
+      firestore:
+        - location: asia-northeast1
+          # database_id が欠落

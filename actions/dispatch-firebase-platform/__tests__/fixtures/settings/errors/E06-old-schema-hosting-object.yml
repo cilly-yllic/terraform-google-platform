@@ -1,0 +1,9 @@
+# Error fixture: 旧 schema (rc4 まで) の hosting object 形式 → array 必須なので reject
+service: err-svc
+environments:
+  prd-001:
+    billing_account_id: "AAAA-AAAA-AAAA"
+    firebase_platform:
+      firebase: true
+      hosting:
+        site_id: my-site   # ← 旧 object 形式 (rc5 以降は array 必須)

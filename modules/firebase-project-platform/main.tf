@@ -35,7 +35,7 @@ locals {
   # -- enable flags ----------------------------------------------------------
   enable_firebase       = var.firebase != null
   enable_authentication = var.authentication != null
-  enable_firestore      = var.firestore != null
+  enable_firestore      = var.firestore != null && length(local.firestore_list) > 0
   enable_rtdb           = var.rtdb != null
   enable_storage        = var.storage != null
   # hosting / app_hosting は list が来る → 空 list or null で disable 判定
@@ -46,7 +46,7 @@ locals {
     (var.apps != null && length(local.apps_list_explicit) > 0) ||
     local.apps_auto_default_needed
   )
-  enable_data_connect    = var.data_connect != null
+  enable_data_connect    = var.data_connect != null && length(local.data_connect_list) > 0
   enable_fcm             = var.fcm != null
   enable_remote_config   = var.remote_config != null
   enable_app_check       = var.app_check != null
@@ -67,9 +67,7 @@ locals {
     var.authentication == true ? {} : var.authentication
   ) : {}
 
-  firestore_cfg = local.enable_firestore ? (
-    var.firestore == true ? {} : var.firestore
-  ) : {}
+  # firestore / data_connect は list 化される (詳細は別 locals block)
 
   rtdb_cfg = local.enable_rtdb ? (
     var.rtdb == true ? {} : var.rtdb
@@ -83,9 +81,7 @@ locals {
   # 既存 cfg 形式の hosting / app_hosting は無くなったが、他の location 自動引き継ぎは
   # for_each 内で each.value を使う形で解決する。
 
-  data_connect_cfg = local.enable_data_connect ? (
-    var.data_connect == true ? {} : var.data_connect
-  ) : {}
+  # (data_connect_cfg は廃止、list 形式に正規化)
 
   cloud_tasks_cfg = local.enable_cloud_tasks ? (
     var.cloud_tasks == true ? {} : var.cloud_tasks
@@ -122,6 +118,33 @@ locals {
 # ---------------------------------------------------------------------------
 
 locals {
+  # firestore を list に正規化 (null → 空 list)
+  firestore_list = var.firestore == null ? [] : [
+    for db in var.firestore : {
+      database_id             = db.database_id
+      location                = try(db.location, "")
+      type                    = try(db.type, "FIRESTORE_NATIVE")
+      delete_protection_state = try(db.delete_protection_state, "DELETE_PROTECTION_DISABLED")
+      point_in_time_recovery  = try(db.point_in_time_recovery, false)
+    }
+  ]
+
+  # data_connect を list に正規化 (null → 空 list)
+  data_connect_list = var.data_connect == null ? [] : [
+    for s in var.data_connect : {
+      service_id = s.service_id
+      location   = try(s.location, "")
+      cloud_sql = {
+        instance_id         = s.cloud_sql.instance_id
+        database            = s.cloud_sql.database
+        tier                = try(s.cloud_sql.tier, "db-f1-micro")
+        database_version    = try(s.cloud_sql.database_version, "POSTGRES_15")
+        deletion_protection = try(s.cloud_sql.deletion_protection, false)
+        location            = try(s.cloud_sql.location, "")
+      }
+    }
+  ]
+
   # 入力 apps を list に正規化 (null → 空 list)。type 別 field を全部読み出して
   # 1 つの shape にする (使わない field は空文字 / 空 list として保持)。
   apps_list_explicit = var.apps == null ? [] : [
@@ -360,14 +383,11 @@ module "auth" {
 # ---------------------------------------------------------------------------
 
 module "firestore" {
-  count                   = local.enable_firestore ? 1 : 0
-  source                  = "./modules/firestore"
-  project                 = var.project_id
-  location                = try(local.firestore_cfg.location, "") != "" ? local.firestore_cfg.location : var.region
-  type                    = try(local.firestore_cfg.type, "FIRESTORE_NATIVE")
-  delete_protection_state = try(local.firestore_cfg.delete_protection_state, "DELETE_PROTECTION_DISABLED")
-  point_in_time_recovery  = try(local.firestore_cfg.point_in_time_recovery, false)
-  databases               = try(local.firestore_cfg.databases, [])
+  count            = local.enable_firestore ? 1 : 0
+  source           = "./modules/firestore"
+  project          = var.project_id
+  default_location = var.region
+  databases        = local.firestore_list
 
   depends_on = [google_project_service.this, module.firebase]
 }
@@ -581,12 +601,11 @@ module "app_hosting" {
 # ---------------------------------------------------------------------------
 
 module "data_connect" {
-  count      = local.enable_data_connect ? 1 : 0
-  source     = "./modules/data-connect"
-  project    = var.project_id
-  location   = try(local.data_connect_cfg.location, "") != "" ? local.data_connect_cfg.location : var.region
-  service_id = try(local.data_connect_cfg.service_id, "")
-  cloud_sql  = try(local.data_connect_cfg.cloud_sql, null)
+  count            = local.enable_data_connect ? 1 : 0
+  source           = "./modules/data-connect"
+  project          = var.project_id
+  default_location = var.region
+  services         = local.data_connect_list
 
   depends_on = [google_project_service.this, module.firebase]
 }
