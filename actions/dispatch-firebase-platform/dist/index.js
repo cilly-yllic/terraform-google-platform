@@ -36031,6 +36031,26 @@ async function api(path, opts) {
         return {};
     return (await res.json());
 }
+async function findProjectByName(org, name, token) {
+    const resp = await api(`/organizations/${encodeURIComponent(org)}/projects?filter%5Bnames%5D=${encodeURIComponent(name)}`, { token });
+    if (!Array.isArray(resp.data) || resp.data.length === 0)
+        return null;
+    return resp.data.find((p) => p.attributes.name === name) ?? null;
+}
+async function createProject(org, name, token) {
+    const resp = await api(`/organizations/${encodeURIComponent(org)}/projects`, {
+        method: "POST",
+        token,
+        body: { data: { type: "projects", attributes: { name } } },
+    });
+    return resp.data;
+}
+async function upsertProject(org, name, token) {
+    const existing = await findProjectByName(org, name, token);
+    if (existing)
+        return existing;
+    return createProject(org, name, token);
+}
 async function findWorkspaceByName(org, name, token) {
     try {
         const resp = await api(`/organizations/${encodeURIComponent(org)}/workspaces/${encodeURIComponent(name)}`, { token });
@@ -36043,11 +36063,22 @@ async function findWorkspaceByName(org, name, token) {
         throw err;
     }
 }
-async function createWorkspace(org, attrs, token) {
+async function createWorkspace(org, attrs, token, projectId) {
+    // project への配置は relationships で指定する。未指定だと Default Project
+    // に作られるが、本 action からは常に明示的に project を渡す前提。
+    const payload = {
+        type: "workspaces",
+        attributes: attrs,
+    };
+    if (projectId) {
+        payload.relationships = {
+            project: { data: { id: projectId, type: "projects" } },
+        };
+    }
     const resp = await api(`/organizations/${encodeURIComponent(org)}/workspaces`, {
         method: "POST",
         token,
-        body: { data: { type: "workspaces", attributes: attrs } },
+        body: { data: payload },
     });
     return resp.data;
 }
@@ -36059,12 +36090,37 @@ async function updateWorkspace(workspaceId, attrs, token) {
     });
     return resp.data;
 }
-async function upsertWorkspace(org, attrs, token) {
+/**
+ * workspace の project relationship を別 project に張り替える。
+ * TFC は relationships を含めた workspace PATCH 経由で project を変更できる
+ * (専用の "move" endpoint は無い)。
+ */
+async function moveWorkspaceToProject(workspaceId, projectId, token) {
+    const resp = await api(`/workspaces/${workspaceId}`, {
+        method: "PATCH",
+        token,
+        body: {
+            data: {
+                type: "workspaces",
+                relationships: {
+                    project: { data: { id: projectId, type: "projects" } },
+                },
+            },
+        },
+    });
+    return resp.data;
+}
+async function upsertWorkspace(org, attrs, token, projectId) {
     const existing = await findWorkspaceByName(org, attrs.name, token);
     if (existing) {
+        // project が違えば張り替え (Default Project → 新 project の migration が
+        // これで自動化される)
+        if (projectId && existing.relationships?.project?.data?.id !== projectId) {
+            await moveWorkspaceToProject(existing.id, projectId, token);
+        }
         return updateWorkspace(existing.id, attrs, token);
     }
-    return createWorkspace(org, attrs, token);
+    return createWorkspace(org, attrs, token, projectId);
 }
 /**
  * Additively attach tags to a workspace via the relationships endpoint
@@ -41316,6 +41372,7 @@ async function run() {
         const settingsPath = core.getInput("settings_path");
         const tfcOrg = core.getInput("tfc_org", { required: true });
         const targetWorkspacePattern = core.getInput("target_workspace");
+        const tfcProjectPattern = core.getInput("tfc_project_name");
         const bootstrapProjectId = core.getInput("bootstrap_project_id");
         const bootstrapProjectNumber = core.getInput("bootstrap_project_number", {
             required: true,
@@ -41373,7 +41430,18 @@ async function run() {
             core.info("No envs matched the filters.");
         }
         // -----------------------------------------------------------------------
-        // 4. Loop over target envs — upsert workspace + Run for each
+        // 4. Upsert TFC Project (per service, shared across all env workspaces)
+        // -----------------------------------------------------------------------
+        // service ごとに 1 つの TFC project を upsert し、以降の env workspace は
+        // すべてこの project 配下に集約する。既存 workspace が Default Project
+        // 等に居る場合は upsertWorkspace 内で relationships.project を PATCH して
+        // 自動で migration する。
+        const projectName = expandWorkspaceName(tfcProjectPattern, { service });
+        core.info(`Upserting project: ${projectName}`);
+        const project = await upsertProject(tfcOrg, projectName, tfcToken);
+        core.info(`Project ready: id=${project.id}`);
+        // -----------------------------------------------------------------------
+        // 5. Loop over target envs — upsert workspace + Run for each
         // -----------------------------------------------------------------------
         const markerTag = buildMarkerTag(service);
         const applied = [];
@@ -41417,7 +41485,10 @@ async function run() {
                     environment: env,
                 });
                 core.info(`[${env}] Upserting workspace "${targetName}" (auto-apply=${autoApply})`);
-                const workspace = await upsertWorkspace(tfcOrg, { name: targetName, "auto-apply": autoApply }, tfcToken);
+                // upsertWorkspace は relationships.project を見て、既存 workspace が
+                // 別 project に居る場合は PATCH で project を張り替える (Default
+                // Project → service project の migration もこれで完結する)。
+                const workspace = await upsertWorkspace(tfcOrg, { name: targetName, "auto-apply": autoApply }, tfcToken, project.id);
                 const workspaceId = workspace.id;
                 // Attach marker tag (additive — does not replace user-set tags)
                 await addWorkspaceTags(workspaceId, [markerTag], tfcToken);
