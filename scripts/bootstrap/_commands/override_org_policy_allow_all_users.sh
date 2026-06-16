@@ -20,9 +20,13 @@
 #   GitHub / Stripe webhook receiver と同じ shared-secret パターン。
 #
 # 権限要件:
-#   `roles/orgpolicy.policyAdmin` を bootstrap project (もしくは親 org / folder)
-#   スコープで持つ principal で実行する必要がある。通常 bootstrap を回す
-#   org admin であれば持っている。
+#   `roles/orgpolicy.policyAdmin` を **organization or folder スコープで**
+#   持つ principal で実行する必要がある。このロールは GCP の仕様上
+#   project スコープには付与できない (project レベルに add-iam-policy-binding
+#   で付けようとすると INVALID_ARGUMENT: "Role roles/orgpolicy.policyAdmin
+#   is not supported for this resource" になる)。
+#   通常 bootstrap を回す org / folder admin であれば持っている。
+#   詳細は scripts/README.md 「事前権限 (caller 側)」セクション参照。
 #
 # 冪等性:
 #   `gcloud org-policies set-policy` は同 spec で再実行しても no-op。
