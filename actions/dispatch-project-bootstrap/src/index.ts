@@ -23,6 +23,7 @@ async function run(): Promise<void> {
     const settingsPath = core.getInput("settings_path");
     const tfcOrg = core.getInput("tfc_org", { required: true });
     const tfcWorkspacePattern = core.getInput("tfc_workspace_name");
+    const tfcProjectPattern = core.getInput("tfc_project_name");
     const parentOrgId = core.getInput("parent_organization_id");
     const parentFolderId = core.getInput("parent_folder_id");
     const bootstrapProjectId = core.getInput("bootstrap_project_id");
@@ -92,16 +93,27 @@ async function run(): Promise<void> {
       targetEntries[env] = entry as unknown as Record<string, unknown>;
     }
 
-    // ---- 5. Upsert TFC Workspace ----
+    // ---- 5. Upsert TFC Project + Workspace ----
     const tfc = new TfcClient({ token: tfcToken, org: tfcOrg });
+    const projectName = expandWorkspaceName(tfcProjectPattern, { service });
+    core.info(`Upserting project: ${projectName}`);
+    const project = await tfc.upsertProject(projectName);
+    core.info(`Project ready: id=${project.id}`);
+
     const workspaceName = expandWorkspaceName(tfcWorkspacePattern, { service });
     core.info(`Upserting workspace: ${workspaceName}`);
-
-    const ws = await tfc.upsertWorkspace(workspaceName, {
-      "auto-apply": true,
-      "execution-mode": "remote",
-    });
-    core.info(`Workspace ready: id=${ws.id}`);
+    // upsertWorkspace は既存 workspace の relationships.project が違えば
+    // 自動で PATCH して新 project に移動する (Default Project → 新 project の
+    // migration もこれで完結する)。
+    const ws = await tfc.upsertWorkspace(
+      workspaceName,
+      {
+        "auto-apply": true,
+        "execution-mode": "remote",
+      },
+      project.id
+    );
+    core.info(`Workspace ready: id=${ws.id} project=${project.id}`);
 
     // ---- 6. Notification config ----
     if (enableWebhook) {

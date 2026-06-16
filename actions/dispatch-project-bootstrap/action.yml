@@ -22,6 +22,14 @@ inputs:
   tfc_workspace_name:
     description: "project-factory workspace name pattern (placeholders: {service})"
     default: "project-factory-{service}"
+  tfc_project_name:
+    description: >
+      TFC Project name pattern that all workspaces for this service go under
+      (placeholders: {service}). The Action upserts the project before the
+      workspace and PATCHes existing workspaces' relationships.project so
+      bootstrap and firebase-platform workspaces end up grouped under a
+      single per-service project in the TFC org.
+    default: "{service}"
   parent_organization_id:
     description: "GCP Org ID (use one of organization_id or folder_id)"
     required: false
