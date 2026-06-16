@@ -2,7 +2,12 @@
 # Cloud Run deploy SA / runtime SA に必要な IAM role を付与する。
 #
 #   Deploy SA (project レベル):
-#     run.developer                     : Cloud Run service の deploy / 更新
+#     run.admin                         : Cloud Run service の deploy / 更新 + IAM binding 管理
+#                                         (`gcloud run deploy --allow-unauthenticated` が
+#                                          内部で setIamPolicy を呼び `allUsers → roles/run.invoker`
+#                                          を binding するので `run.services.setIamPolicy` が
+#                                          必要。`roles/run.developer` には含まれないので
+#                                          上位の `roles/run.admin` を付ける)
 #     artifactregistry.writer           : container image を push
 #     cloudbuild.builds.editor          : `gcloud builds submit` で Cloud Build job 発行
 #     storage.admin                     : Cloud Build が source upload に GCS bucket を使う
@@ -31,7 +36,7 @@ grant_cloud_run_deploy_iam() {
   runtime_member="serviceAccount:$(runtime_sa_email)"
 
   local deploy_project_roles=(
-    roles/run.developer
+    roles/run.admin
     roles/artifactregistry.writer
     roles/cloudbuild.builds.editor
     roles/storage.admin
