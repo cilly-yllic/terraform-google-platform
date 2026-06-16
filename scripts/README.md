@@ -291,6 +291,57 @@ GCP_RUNTIME_SERVICE_ACCOUNT=cloud-run-router-runtime@infra-bootstrap.iam.gservic
 
 ---
 
+## Billing IAM 設計
+
+Terraform Project Factory SA が新規 project を作るとき、`billing.resourceAssociations.create` を **対象 billing account に対して** 持っている必要があります (= `roles/billing.user` 相当)。
+
+`make bootstrap` は以下の挙動でこれを満たします:
+
+| 設定パス | 挙動 | カバーされる billing account |
+|---|---|---|
+| `ORGANIZATION_ID` set | **org-level に `roles/billing.user` を grant** | その org が所有する **全 billing account** (inherit) |
+| `FOLDER_ID` only | folder には billing IAM の親子関係が無いので、`.env` の `BILLING_ACCOUNT_ID` のみ per-account grant | 指定の 1 件 |
+
+加えて bootstrap project 本体用 (`.env` の `BILLING_ACCOUNT_ID`) は常に per-account でも grant します (ORG_ID set 時は冗長だが冪等なので no-op、FOLDER_ID-only setup でもブートストラップが回る保険)。
+
+### なぜ org-level grant を推奨するか
+
+サービス側の `settings.yml` には `environments.<env>.billing_account_id` が env ごとに書かれており、開発の進行に合わせて新しい billing account が追加されることがあります。org-level に `roles/billing.user` を上げておけば、**新規 billing account 追加時に再 grant 操作が不要** で運用負担が下がります。
+
+### セキュリティ面
+
+`roles/billing.user` を org-level に grant しても、増える権限は以下に限定されます:
+
+- ✅ `billing.resourceAssociations.create` / delete (project ↔ billing 紐付け)
+- ✅ billing.accounts.get / budgets / credits の **読み取り**
+- ❌ billing account 自体の **作成・削除・更新 不可** (`billing.creator` / `billing.admin` の領分)
+- ❌ payment info の **書き換え不可** (読み取りのみ)
+- ❌ billing account の IAM policy **変更不可**
+
+つまり「project と billing の紐付け」と「読み取り系」のみで、金銭的な操作 (支払い先変更・billing account 自体の削除など) はできません。
+
+加えて、本 SA は元から org-level で `projectCreator` + `projectIamAdmin` を持つ powerful な identity なので、billing.user を追加しても **blast radius は実質的に同等** (project を作れる SA が、付随する billing 連携もできるようになる、というだけ)。
+
+#### 認証バリア (実際の防御線)
+
+- WIF + attribute_condition で MoooDoNE org の TFC workspace 経由しか SA impersonation 不可
+- TFC RBAC で workspace 実行ユーザーを絞れる
+- Cloud Audit Logs で全 billing API call が記録される
+
+外部攻撃者が直接 SA を握ることはほぼ不可能 (TFC 経由必須)。
+
+### 外部 (別 org) billing account を追加する場合
+
+別 org が所有する reseller billing 等は org-level grant では届かないので、`make grant-billing` で個別に付与します:
+
+```bash
+make grant-billing BILLING=01XXXX-XXXXXX-XXXXXX
+```
+
+`scripts/grant-billing.sh` が `.env` の SA email を解決して `roles/billing.user` を per-account 付与します (冪等、何度実行しても安全)。
+
+---
+
 ## Cloud Run router runtime secrets
 
 Cloud Run service が runtime で読む 2 つの secret (GCP Secret Manager の `tfc-notification-secret` と `github-app-private-key`) は **deploy workflow が GitHub Secrets から自動 sync** する設計です。GitHub Secrets が **single source of truth**。
