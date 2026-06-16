@@ -30,6 +30,14 @@ inputs:
       This stage's workspace name pattern.
       Placeholders: {service}, {environment}
     default: "{service}-{environment}"
+  tfc_project_name:
+    description: >
+      TFC Project name pattern that all env workspaces for this service go
+      under (placeholders: {service}). The Action upserts the project once
+      per Run and PATCHes existing workspaces' relationships.project so
+      bootstrap and firebase-platform workspaces end up grouped under a
+      single per-service project in the TFC org.
+    default: "{service}"
   bootstrap_project_id:
     description: "GCP bootstrap project ID for Workload Identity"
     default: "infra-bootstrap"

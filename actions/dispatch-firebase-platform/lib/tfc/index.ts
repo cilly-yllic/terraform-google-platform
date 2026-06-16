@@ -44,6 +44,62 @@ async function api<T>(path: string, opts: RequestOpts): Promise<T> {
 }
 
 // ---------------------------------------------------------------------------
+// Project
+// ---------------------------------------------------------------------------
+
+export interface ProjectData {
+  id: string;
+  attributes: { name: string };
+}
+
+export async function findProjectByName(
+  org: string,
+  name: string,
+  token: string,
+): Promise<ProjectData | null> {
+  // TFC は project リストを `filter[names]=` で絞り込める (per-page max 100、
+  // service ごとに 1 project なので page 不要)。
+  interface Resp {
+    data: ProjectData[];
+  }
+  const resp = await api<Resp>(
+    `/organizations/${encodeURIComponent(org)}/projects?filter%5Bnames%5D=${encodeURIComponent(name)}`,
+    { token },
+  );
+  if (!Array.isArray(resp.data) || resp.data.length === 0) return null;
+  return resp.data.find((p) => p.attributes.name === name) ?? null;
+}
+
+export async function createProject(
+  org: string,
+  name: string,
+  token: string,
+): Promise<ProjectData> {
+  interface Resp {
+    data: ProjectData;
+  }
+  const resp = await api<Resp>(
+    `/organizations/${encodeURIComponent(org)}/projects`,
+    {
+      method: "POST",
+      token,
+      body: { data: { type: "projects", attributes: { name } } },
+    },
+  );
+  return resp.data;
+}
+
+export async function upsertProject(
+  org: string,
+  name: string,
+  token: string,
+): Promise<ProjectData> {
+  const existing = await findProjectByName(org, name, token);
+  if (existing) return existing;
+  return createProject(org, name, token);
+}
+
+// ---------------------------------------------------------------------------
 // Workspace
 // ---------------------------------------------------------------------------
 
@@ -55,9 +111,16 @@ export interface WorkspaceAttributes {
   "execution-mode"?: string;
 }
 
+interface WorkspaceRelationships {
+  project?: {
+    data?: { id: string; type: "projects" } | null;
+  };
+}
+
 interface WorkspaceData {
   id: string;
   attributes: { name: string; [k: string]: unknown };
+  relationships?: WorkspaceRelationships;
 }
 
 export async function findWorkspaceByName(
@@ -86,16 +149,28 @@ export async function createWorkspace(
   org: string,
   attrs: WorkspaceAttributes,
   token: string,
+  projectId?: string,
 ): Promise<WorkspaceData> {
   interface Resp {
     data: WorkspaceData;
+  }
+  // project への配置は relationships で指定する。未指定だと Default Project
+  // に作られるが、本 action からは常に明示的に project を渡す前提。
+  const payload: Record<string, unknown> = {
+    type: "workspaces",
+    attributes: attrs,
+  };
+  if (projectId) {
+    payload.relationships = {
+      project: { data: { id: projectId, type: "projects" } },
+    };
   }
   const resp = await api<Resp>(
     `/organizations/${encodeURIComponent(org)}/workspaces`,
     {
       method: "POST",
       token,
-      body: { data: { type: "workspaces", attributes: attrs } },
+      body: { data: payload },
     },
   );
   return resp.data;
@@ -117,16 +192,50 @@ export async function updateWorkspace(
   return resp.data;
 }
 
+/**
+ * workspace の project relationship を別 project に張り替える。
+ * TFC は relationships を含めた workspace PATCH 経由で project を変更できる
+ * (専用の "move" endpoint は無い)。
+ */
+export async function moveWorkspaceToProject(
+  workspaceId: string,
+  projectId: string,
+  token: string,
+): Promise<WorkspaceData> {
+  interface Resp {
+    data: WorkspaceData;
+  }
+  const resp = await api<Resp>(`/workspaces/${workspaceId}`, {
+    method: "PATCH",
+    token,
+    body: {
+      data: {
+        type: "workspaces",
+        relationships: {
+          project: { data: { id: projectId, type: "projects" } },
+        },
+      },
+    },
+  });
+  return resp.data;
+}
+
 export async function upsertWorkspace(
   org: string,
   attrs: WorkspaceAttributes,
   token: string,
+  projectId?: string,
 ): Promise<WorkspaceData> {
   const existing = await findWorkspaceByName(org, attrs.name, token);
   if (existing) {
+    // project が違えば張り替え (Default Project → 新 project の migration が
+    // これで自動化される)
+    if (projectId && existing.relationships?.project?.data?.id !== projectId) {
+      await moveWorkspaceToProject(existing.id, projectId, token);
+    }
     return updateWorkspace(existing.id, attrs, token);
   }
-  return createWorkspace(org, attrs, token);
+  return createWorkspace(org, attrs, token, projectId);
 }
 
 /**

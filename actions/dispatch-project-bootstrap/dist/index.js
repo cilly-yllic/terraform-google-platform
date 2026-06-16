@@ -30423,6 +30423,32 @@ class TfcClient {
         const json = (await res.json());
         return { data: json.data, status: res.status, headers: res.headers };
     }
+    // --- Project ---
+    async findProjectByName(name) {
+        // TFC は project リストを `filter[names]=` で絞り込める (per-page max 100、
+        // service ごとに 1 project なので page 不要)。同名 project は org 内で
+        // 一意なので最初の hit を返せば良い。
+        const url = `/organizations/${this.org}/projects?filter%5Bnames%5D=${encodeURIComponent(name)}`;
+        const { data } = await this.request("GET", url);
+        if (!Array.isArray(data) || data.length === 0)
+            return null;
+        return data.find((p) => p.attributes.name === name) ?? null;
+    }
+    async createProject(name) {
+        const { data } = await this.request("POST", `/organizations/${this.org}/projects`, {
+            data: {
+                type: "projects",
+                attributes: { name },
+            },
+        });
+        return data;
+    }
+    async upsertProject(name) {
+        const existing = await this.findProjectByName(name);
+        if (existing)
+            return existing;
+        return this.createProject(name);
+    }
     // --- Workspace ---
     async findWorkspaceByName(name) {
         try {
@@ -30435,13 +30461,19 @@ class TfcClient {
             throw e;
         }
     }
-    async createWorkspace(attrs) {
-        const { data } = await this.request("POST", `/organizations/${this.org}/workspaces`, {
-            data: {
-                type: "workspaces",
-                attributes: attrs,
-            },
-        });
+    async createWorkspace(attrs, projectId) {
+        // project への配置は relationships で指定する。未指定だと Default Project
+        // に作られるが、本 action からは常に明示的に project を渡す前提。
+        const payload = {
+            type: "workspaces",
+            attributes: attrs,
+        };
+        if (projectId) {
+            payload.relationships = {
+                project: { data: { id: projectId, type: "projects" } },
+            };
+        }
+        const { data } = await this.request("POST", `/organizations/${this.org}/workspaces`, { data: payload });
         return data;
     }
     async updateWorkspace(workspaceId, attrs) {
@@ -30453,12 +30485,34 @@ class TfcClient {
         });
         return data;
     }
-    async upsertWorkspace(name, attrs = {}) {
+    /**
+     * workspace の project relationship を別 project に張り替える。
+     * TFC は relationships を含めた workspace PATCH 経由で project を変更できる。
+     * (専用の "move" endpoint は無く、PATCH の relationships で表現する)
+     */
+    async moveWorkspaceToProject(workspaceId, projectId) {
+        const { data } = await this.request("PATCH", `/workspaces/${workspaceId}`, {
+            data: {
+                type: "workspaces",
+                relationships: {
+                    project: { data: { id: projectId, type: "projects" } },
+                },
+            },
+        });
+        return data;
+    }
+    async upsertWorkspace(name, attrs = {}, projectId) {
         const existing = await this.findWorkspaceByName(name);
         if (existing) {
+            // 1. project が違えば張り替え (Default Project → 新 project への migration が
+            //    これで自動化される)
+            if (projectId && existing.relationships?.project?.data?.id !== projectId) {
+                await this.moveWorkspaceToProject(existing.id, projectId);
+            }
+            // 2. attributes を更新
             return this.updateWorkspace(existing.id, { ...attrs, name });
         }
-        return this.createWorkspace({ ...attrs, name });
+        return this.createWorkspace({ ...attrs, name }, projectId);
     }
     // --- Variables ---
     async listVariables(workspaceId) {
@@ -30757,6 +30811,7 @@ async function run() {
         const settingsPath = core.getInput("settings_path");
         const tfcOrg = core.getInput("tfc_org", { required: true });
         const tfcWorkspacePattern = core.getInput("tfc_workspace_name");
+        const tfcProjectPattern = core.getInput("tfc_project_name");
         const parentOrgId = core.getInput("parent_organization_id");
         const parentFolderId = core.getInput("parent_folder_id");
         const bootstrapProjectId = core.getInput("bootstrap_project_id");
@@ -30818,15 +30873,22 @@ async function run() {
             const entry = (0, dispatch_1.buildEnvEntry)({ service, env, envConfig });
             targetEntries[env] = entry;
         }
-        // ---- 5. Upsert TFC Workspace ----
+        // ---- 5. Upsert TFC Project + Workspace ----
         const tfc = new tfc_1.TfcClient({ token: tfcToken, org: tfcOrg });
+        const projectName = (0, dispatch_1.expandWorkspaceName)(tfcProjectPattern, { service });
+        core.info(`Upserting project: ${projectName}`);
+        const project = await tfc.upsertProject(projectName);
+        core.info(`Project ready: id=${project.id}`);
         const workspaceName = (0, dispatch_1.expandWorkspaceName)(tfcWorkspacePattern, { service });
         core.info(`Upserting workspace: ${workspaceName}`);
+        // upsertWorkspace は既存 workspace の relationships.project が違えば
+        // 自動で PATCH して新 project に移動する (Default Project → 新 project の
+        // migration もこれで完結する)。
         const ws = await tfc.upsertWorkspace(workspaceName, {
             "auto-apply": true,
             "execution-mode": "remote",
-        });
-        core.info(`Workspace ready: id=${ws.id}`);
+        }, project.id);
+        core.info(`Workspace ready: id=${ws.id} project=${project.id}`);
         // ---- 6. Notification config ----
         if (enableWebhook) {
             if (!cloudRunWebhookUrl) {

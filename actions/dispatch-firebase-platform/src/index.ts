@@ -1,5 +1,6 @@
 import * as core from "@actions/core";
 import {
+  upsertProject,
   upsertWorkspace,
   addWorkspaceTags,
   listWorkspacesByTag,
@@ -42,6 +43,7 @@ async function run(): Promise<void> {
     const settingsPath = core.getInput("settings_path");
     const tfcOrg = core.getInput("tfc_org", { required: true });
     const targetWorkspacePattern = core.getInput("target_workspace");
+    const tfcProjectPattern = core.getInput("tfc_project_name");
     const bootstrapProjectId = core.getInput("bootstrap_project_id");
     const bootstrapProjectNumber = core.getInput("bootstrap_project_number", {
       required: true,
@@ -105,7 +107,19 @@ async function run(): Promise<void> {
     }
 
     // -----------------------------------------------------------------------
-    // 4. Loop over target envs — upsert workspace + Run for each
+    // 4. Upsert TFC Project (per service, shared across all env workspaces)
+    // -----------------------------------------------------------------------
+    // service ごとに 1 つの TFC project を upsert し、以降の env workspace は
+    // すべてこの project 配下に集約する。既存 workspace が Default Project
+    // 等に居る場合は upsertWorkspace 内で relationships.project を PATCH して
+    // 自動で migration する。
+    const projectName = expandWorkspaceName(tfcProjectPattern, { service });
+    core.info(`Upserting project: ${projectName}`);
+    const project = await upsertProject(tfcOrg, projectName, tfcToken);
+    core.info(`Project ready: id=${project.id}`);
+
+    // -----------------------------------------------------------------------
+    // 5. Loop over target envs — upsert workspace + Run for each
     // -----------------------------------------------------------------------
     const markerTag = buildMarkerTag(service);
     const applied: string[] = [];
@@ -162,10 +176,14 @@ async function run(): Promise<void> {
         core.info(
           `[${env}] Upserting workspace "${targetName}" (auto-apply=${autoApply})`,
         );
+        // upsertWorkspace は relationships.project を見て、既存 workspace が
+        // 別 project に居る場合は PATCH で project を張り替える (Default
+        // Project → service project の migration もこれで完結する)。
         const workspace = await upsertWorkspace(
           tfcOrg,
           { name: targetName, "auto-apply": autoApply },
           tfcToken,
+          project.id,
         );
         const workspaceId = workspace.id;
 
