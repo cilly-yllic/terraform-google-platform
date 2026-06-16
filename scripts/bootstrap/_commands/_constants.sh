@@ -25,11 +25,14 @@ REQUIRED_APIS=(
 
 # --- Additional APIs for cloud-run-router deploy ---
 # ENABLE_CLOUD_RUN_DEPLOY_SETUP=true の場合のみ有効化される。
+# orgpolicy は override_org_policy_allow_all_users() が `gcloud org-policies
+# set-policy` を叩くのに必要。
 CLOUD_RUN_DEPLOY_APIS=(
   run.googleapis.com
   artifactregistry.googleapis.com
   cloudbuild.googleapis.com
   secretmanager.googleapis.com
+  orgpolicy.googleapis.com
 )
 
 # --- Required environment variables ---

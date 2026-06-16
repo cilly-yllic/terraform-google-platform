@@ -23,6 +23,10 @@ run_apply() {
   if [[ "${ENABLE_CLOUD_RUN_DEPLOY_SETUP:-false}" == "true" ]]; then
     info "ENABLE_CLOUD_RUN_DEPLOY_SETUP=true — provisioning Cloud Run deploy resources..."
     enable_cloud_run_deploy_apis
+    # `allUsers → roles/run.invoker` を deploy 時に付けるための org policy override。
+    # アプリ層は HMAC で保護されているので IAM 層を public にしても安全。詳細は
+    # _commands/override_org_policy_allow_all_users.sh のヘッダコメント参照。
+    override_org_policy_allow_all_users
     create_cloud_run_runtime_sa
     create_cloud_run_deploy_sa
     grant_cloud_run_deploy_iam
