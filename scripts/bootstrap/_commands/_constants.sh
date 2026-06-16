@@ -7,9 +7,12 @@
 # --- Paths ---
 ENV_FILE="${REPO_ROOT}/.env"
 
-# --- OIDC Issuer / Audience (固定値) ---
+# --- OIDC Issuer (固定値) ---
+# TFC / GitHub Actions の audience は **指定しない**: GCP default
+# (provider full resource URI) を採用する。詳細は
+# scripts/bootstrap/_commands/create_workload_identity_provider.sh の
+# ヘッダコメント参照。
 TFC_OIDC_ISSUER_URI="https://app.terraform.io"
-TFC_OIDC_ALLOWED_AUDIENCE="https://app.terraform.io"
 GITHUB_OIDC_ISSUER_URI="https://token.actions.githubusercontent.com"
 
 # --- Required APIs (常に有効化される) ---
