@@ -99,7 +99,7 @@ GOOGLE_PROJECT=infra-bootstrap
    - 付与 role: `roles/secretmanager.secretAccessor` のみ
 3. **Cloud Run deploy SA** (`cloud-run-router-deploy`)
    - GitHub Actions が impersonate する identity
-   - Project レベル: `roles/run.developer` / `roles/artifactregistry.writer` / `roles/cloudbuild.builds.editor` / `roles/storage.admin` / `roles/iam.serviceAccountTokenCreator`
+   - Project レベル: `roles/run.admin` (deploy + `--allow-unauthenticated` 用の `setIamPolicy`) / `roles/artifactregistry.writer` / `roles/cloudbuild.builds.editor` / `roles/storage.admin` / `roles/iam.serviceAccountTokenCreator`
    - runtime SA に対して: `roles/iam.serviceAccountUser` (Cloud Run `--service-account=<runtime>` のため)
 4. **GitHub WIF Provider** (既存 Pool 内に追加)
    - issuer: `https://token.actions.githubusercontent.com`
