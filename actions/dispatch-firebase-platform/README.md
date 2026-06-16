@@ -71,7 +71,7 @@ This corresponds to **Action B** (`dispatch-tfc-firebase-platform`). Action A (`
 | `enable_webhook_notification` | no | `false` | Phase 2 webhook notification を設定するか |
 | `cloud_run_webhook_url` | no | — | Cloud Run router URL (webhook 有効時必須) |
 | `cloud_run_webhook_secret` | no | — | HMAC secret (Cloud Run router と共有、webhook 有効時必須) |
-| `module_version` | no | — | Registry module の version 制約 (`1.2.3` や `~> 1.0`)。空なら version 属性を出力せず常に最新を使用 |
+| `module_version` | no | — | Registry module の version 制約 (`0.0.0-rc16` や `~> 1.0`)。空なら Action が Terraform Registry を query して **最新版 (pre-release 含む) を auto-resolve** し main.tf に書き込む。Terraform は version 制約なしだと pre-release を選択しない仕様なので、`0.0.0-rcN` しか publish されていない間は空でも壊れない fallback として動く |
 | `labels` | no | `""` | JS RegExp パターンの JSON 配列 (`'["^tier:dev$","^region:apne1$"]'`)。各 env の `labels` が全パターンに一致 (AND) しないと対象から外れる |
 
 ## Outputs
