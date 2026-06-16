@@ -64,8 +64,11 @@ inputs:
     description: >
       Version constraint for the cilly-yllic/platform/google Registry module
       (project-bootstrap sub-module) written into the uploaded main.tf
-      (e.g. "1.2.3" or "~> 1.0"). Leave empty to omit the version attribute and
-      always use the latest.
+      (e.g. "0.0.0-rc15" or "~> 1.0"). When empty, the Action auto-resolves
+      the latest version from the Terraform Registry (pre-release versions
+      included). This avoids the "no versions available" failure caused by
+      Terraform's policy of not picking pre-release versions without an
+      explicit constraint.
     required: false
     default: ""
   labels:

@@ -31,6 +31,7 @@ import {
   deriveEnvFromWorkspaceName,
 } from "../lib/dispatch/index.js";
 import { buildTemplateFiles } from "../lib/templates/index.js";
+import { resolveModuleVersion } from "../lib/registry/index.js";
 import { buildTarball } from "../lib/config-version/index.js";
 
 async function run(): Promise<void> {
@@ -107,7 +108,23 @@ async function run(): Promise<void> {
     }
 
     // -----------------------------------------------------------------------
-    // 4. Upsert TFC Project (per service, shared across all env workspaces)
+    // 4. Resolve module version (auto-fetch latest from Terraform Registry
+    //    when not pinned)
+    // -----------------------------------------------------------------------
+    // moduleVersion 未指定なら Terraform Registry から最新版 (pre-release 含む)
+    // を auto-resolve する。Terraform は version 制約なしだと pre-release を
+    // 拾わない仕様 (`0.0.0-rcN` しか公開されていない現状だと "no versions
+    // available" になる) ため、Action 側で明示的に最新版を埋める。
+    const resolvedModuleVersion = await resolveModuleVersion(moduleVersion);
+    const wasAutoResolved = !moduleVersion || moduleVersion.trim() === "";
+    core.info(
+      wasAutoResolved
+        ? `Module version auto-resolved to ${resolvedModuleVersion}`
+        : `Module version pinned to ${resolvedModuleVersion}`,
+    );
+
+    // -----------------------------------------------------------------------
+    // 5. Upsert TFC Project (per service, shared across all env workspaces)
     // -----------------------------------------------------------------------
     // service ごとに 1 つの TFC project を upsert し、以降の env workspace は
     // すべてこの project 配下に集約する。既存 workspace が Default Project
@@ -119,7 +136,7 @@ async function run(): Promise<void> {
     core.info(`Project ready: id=${project.id}`);
 
     // -----------------------------------------------------------------------
-    // 5. Loop over target envs — upsert workspace + Run for each
+    // 6. Loop over target envs — upsert workspace + Run for each
     // -----------------------------------------------------------------------
     const markerTag = buildMarkerTag(service);
     const applied: string[] = [];
@@ -226,7 +243,7 @@ async function run(): Promise<void> {
 
         // Configuration version
         const tarball = buildTarball(
-          buildTemplateFiles(moduleVersion || undefined),
+          buildTemplateFiles(resolvedModuleVersion),
         );
         const cv = await createConfigurationVersion(
           workspaceId,

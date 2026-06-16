@@ -30239,6 +30239,121 @@ function buildEnvEntry(args) {
 
 /***/ }),
 
+/***/ 7260:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+// Terraform Registry から本プラットフォームモジュール
+// (`cilly-yllic/platform/google`) の最新版を解決する。
+//
+// 設計判断:
+//   - GitHub Tags ではなく **Terraform Registry を直接 query**。registry に
+//     publish 済 = Terraform が実際に download できる前提で「使える最新版」を
+//     返したい。GitHub tag だと publish 前のタグまで拾ってしまう
+//   - 未指定時のみ auto-resolve。`module_version` input が指定されている
+//     場合はそれを尊重 (consumer 側で pin を強制できる)
+//   - pre-release (`0.0.0-rcN`) の比較は SemVer 仕様に従う。`rc14` > `rc2`
+//     を localeCompare の numeric mode で実現
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.resolveModuleVersion = resolveModuleVersion;
+exports.pickLatestSemver = pickLatestSemver;
+exports.compareSemver = compareSemver;
+const PLATFORM_MODULE_REGISTRY_URL = "https://registry.terraform.io/v1/modules/cilly-yllic/platform/google/versions";
+const FETCH_TIMEOUT_MS = 15_000;
+async function resolveModuleVersion(explicit, fetchFn = fetch) {
+    if (explicit && explicit.trim() !== "") {
+        return explicit.trim();
+    }
+    const res = await fetchFn(PLATFORM_MODULE_REGISTRY_URL, {
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+        throw new Error(`Failed to fetch platform module versions from Terraform Registry (${res.status}). ` +
+            `Set the 'module_version' input explicitly to bypass this lookup.`);
+    }
+    const data = (await res.json());
+    const versions = data.modules?.[0]?.versions?.map((v) => v.version) ?? [];
+    if (versions.length === 0) {
+        throw new Error("No platform module versions found on Terraform Registry. " +
+            "Set the 'module_version' input explicitly to bypass this lookup.");
+    }
+    return pickLatestSemver(versions);
+}
+function pickLatestSemver(versions) {
+    return [...versions].sort((a, b) => compareSemver(b, a))[0];
+}
+/**
+ * SemVer compare. Returns negative/zero/positive like a-b.
+ *
+ * Rules covered:
+ *   - main version は segment ごとに数値比較 (`1.10.0 > 1.2.0`)
+ *   - pre-release **無し** > pre-release あり (`1.0.0 > 1.0.0-rc1`)
+ *   - 両方 pre-release のときは dot 区切りで identifier 比較:
+ *       - 両 identifier が数値なら数値比較
+ *       - 片方だけ数値なら数値側が小さい (SemVer の正式仕様)
+ *       - 両方 alphanumeric なら localeCompare(numeric:true) で
+ *         `rc14 > rc2` のような自然な順序にする (厳密 SemVer は文字列
+ *         比較で `rc14 < rc2` だが、本プロジェクトの tag 慣習に合わせる)
+ */
+function compareSemver(a, b) {
+    const aClean = a.replace(/^v/, "");
+    const bClean = b.replace(/^v/, "");
+    const [aMain, aPre = ""] = aClean.split("-", 2);
+    const [bMain, bPre = ""] = bClean.split("-", 2);
+    const mainCmp = compareNumericSegments(aMain, bMain);
+    if (mainCmp !== 0)
+        return mainCmp;
+    if (!aPre && bPre)
+        return 1;
+    if (aPre && !bPre)
+        return -1;
+    if (!aPre && !bPre)
+        return 0;
+    return compareDotIdentifiers(aPre, bPre);
+}
+function compareNumericSegments(a, b) {
+    const ap = a.split(".").map((n) => parseInt(n, 10) || 0);
+    const bp = b.split(".").map((n) => parseInt(n, 10) || 0);
+    const max = Math.max(ap.length, bp.length);
+    for (let i = 0; i < max; i++) {
+        const d = (ap[i] ?? 0) - (bp[i] ?? 0);
+        if (d !== 0)
+            return d;
+    }
+    return 0;
+}
+function compareDotIdentifiers(a, b) {
+    const ap = a.split(".");
+    const bp = b.split(".");
+    const max = Math.max(ap.length, bp.length);
+    for (let i = 0; i < max; i++) {
+        if (ap[i] === undefined)
+            return -1;
+        if (bp[i] === undefined)
+            return 1;
+        const aNum = /^\d+$/.test(ap[i]);
+        const bNum = /^\d+$/.test(bp[i]);
+        if (aNum && bNum) {
+            const d = parseInt(ap[i], 10) - parseInt(bp[i], 10);
+            if (d !== 0)
+                return d;
+        }
+        else if (aNum !== bNum) {
+            return aNum ? -1 : 1;
+        }
+        else {
+            const d = ap[i].localeCompare(bp[i], undefined, { numeric: true });
+            if (d !== 0)
+                return d;
+        }
+    }
+    return 0;
+}
+
+
+/***/ }),
+
 /***/ 4718:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -30802,6 +30917,7 @@ const tfc_1 = __nccwpck_require__(7450);
 const settings_1 = __nccwpck_require__(4718);
 const dispatch_1 = __nccwpck_require__(9661);
 const templates_1 = __nccwpck_require__(8270);
+const registry_1 = __nccwpck_require__(7260);
 const config_version_1 = __nccwpck_require__(4992);
 async function run() {
     try {
@@ -31005,11 +31121,17 @@ async function run() {
         })));
         core.info("Terraform variables synced");
         // ---- 11. Upload Configuration Version (main.tf template) ----
-        core.info(moduleVersion
-            ? `Building configuration tarball (module version pinned to ${moduleVersion}, removed-blocks=${diff.stateRemoveKeys.length})`
-            : `Building configuration tarball (module version unpinned, removed-blocks=${diff.stateRemoveKeys.length})`);
+        // moduleVersion 未指定なら Terraform Registry から最新版 (pre-release 含む)
+        // を auto-resolve する。Terraform は version 制約なしだと pre-release を
+        // 拾わない仕様 (`0.0.0-rcN` しか公開されていない現状だと "no versions
+        // available" になる) ため、Action 側で明示的に最新版を埋める。
+        const resolvedModuleVersion = await (0, registry_1.resolveModuleVersion)(moduleVersion);
+        const wasAutoResolved = !moduleVersion || moduleVersion.trim() === "";
+        core.info(wasAutoResolved
+            ? `Building configuration tarball (module version auto-resolved to ${resolvedModuleVersion}, removed-blocks=${diff.stateRemoveKeys.length})`
+            : `Building configuration tarball (module version pinned to ${resolvedModuleVersion}, removed-blocks=${diff.stateRemoveKeys.length})`);
         const tarball = (0, config_version_1.buildTarball)((0, templates_1.buildTemplateFiles)({
-            moduleVersion: moduleVersion || undefined,
+            moduleVersion: resolvedModuleVersion,
             stateRemoveKeys: diff.stateRemoveKeys,
         }));
         core.info("Creating configuration version");
