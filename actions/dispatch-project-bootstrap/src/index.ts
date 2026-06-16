@@ -13,6 +13,7 @@ import {
   buildEnvEntry,
 } from "../lib/dispatch";
 import { buildTemplateFiles } from "../lib/templates";
+import { resolveModuleVersion } from "../lib/registry";
 import { buildTarball } from "../lib/config-version";
 
 async function run(): Promise<void> {
@@ -258,14 +259,20 @@ async function run(): Promise<void> {
     core.info("Terraform variables synced");
 
     // ---- 11. Upload Configuration Version (main.tf template) ----
+    // moduleVersion 未指定なら Terraform Registry から最新版 (pre-release 含む)
+    // を auto-resolve する。Terraform は version 制約なしだと pre-release を
+    // 拾わない仕様 (`0.0.0-rcN` しか公開されていない現状だと "no versions
+    // available" になる) ため、Action 側で明示的に最新版を埋める。
+    const resolvedModuleVersion = await resolveModuleVersion(moduleVersion);
+    const wasAutoResolved = !moduleVersion || moduleVersion.trim() === "";
     core.info(
-      moduleVersion
-        ? `Building configuration tarball (module version pinned to ${moduleVersion}, removed-blocks=${diff.stateRemoveKeys.length})`
-        : `Building configuration tarball (module version unpinned, removed-blocks=${diff.stateRemoveKeys.length})`
+      wasAutoResolved
+        ? `Building configuration tarball (module version auto-resolved to ${resolvedModuleVersion}, removed-blocks=${diff.stateRemoveKeys.length})`
+        : `Building configuration tarball (module version pinned to ${resolvedModuleVersion}, removed-blocks=${diff.stateRemoveKeys.length})`
     );
     const tarball = buildTarball(
       buildTemplateFiles({
-        moduleVersion: moduleVersion || undefined,
+        moduleVersion: resolvedModuleVersion,
         stateRemoveKeys: diff.stateRemoveKeys,
       })
     );
