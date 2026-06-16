@@ -215,11 +215,39 @@ GITHUB_REPOSITORY="owner/repo"
 
 | リソース | 内容 |
 |---------|------|
-| API enable | `run.googleapis.com` / `artifactregistry.googleapis.com` / `cloudbuild.googleapis.com` / `secretmanager.googleapis.com` |
+| API enable | `run.googleapis.com` / `artifactregistry.googleapis.com` / `cloudbuild.googleapis.com` / `secretmanager.googleapis.com` / `orgpolicy.googleapis.com` |
 | **runtime SA** (`cloud-run-router-runtime`) | Cloud Run service の実行 identity。`roles/secretmanager.secretAccessor` のみ付与 (TFC_NOTIFICATION_SECRET 等を読む) |
 | **deploy SA** (`cloud-run-router-deploy`) | GitHub Actions が impersonate する identity。`roles/run.developer` / `roles/artifactregistry.writer` / `roles/cloudbuild.builds.editor` / `roles/storage.admin` / `roles/iam.serviceAccountTokenCreator` を project 全体に付与、加えて runtime SA に対して `roles/iam.serviceAccountUser` (Cloud Run の `--service-account=<runtime>` 用) |
 | **GitHub WIF Provider** | 既存 WIF Pool に追加。issuer = `https://token.actions.githubusercontent.com`、attribute condition = `assertion.repository == "${GITHUB_REPOSITORY}"` で 1 つの repo に厳格に絞る |
 | **WIF binding** | GitHub principalSet → deploy SA への `roles/iam.workloadIdentityUser` |
+| **org policy override** (`iam.allowedPolicyMemberDomains` → `allowAll: true`) | bootstrap project スコープに override を set-policy。Cloud Run Router の deploy workflow が `--allow-unauthenticated` で `allUsers → roles/run.invoker` を付けられるようにするため (Domain Restricted Sharing が enforce されていると silent fail する)。アプリ層で HMAC-SHA512 を必ず検証するので IAM 層を public にしても安全 ([`cloud-run-router/src/routes/webhook/index.ts`](../cloud-run-router/src/routes/webhook/index.ts) 参照) |
+
+### 事前権限 (caller 側)
+
+`ENABLE_CLOUD_RUN_DEPLOY_SETUP=true` で bootstrap を回す principal (例: `user:you@example.com`) には、通常の SA 作成権限に加えて **`roles/orgpolicy.policyAdmin` が必要** です。
+このロールは **organization スコープまたは folder スコープでしか付与できません** (project スコープには付かない)。
+
+```bash
+# org 直下の project の場合
+gcloud organizations add-iam-policy-binding <ORG_ID> \
+  --member="user:you@example.com" \
+  --role="roles/orgpolicy.policyAdmin"
+
+# folder 配下の project の場合
+gcloud resource-manager folders add-iam-policy-binding <FOLDER_ID> \
+  --member="user:you@example.com" \
+  --role="roles/orgpolicy.policyAdmin"
+```
+
+権限が無いと `override_org_policy_allow_all_users` の `set-policy` で:
+
+```
+ERROR: (gcloud.org-policies.set-policy) ... Permission 'orgpolicy.policies.create' denied on resource '//cloudresourcemanager.googleapis.com/projects/<bootstrap project>'
+```
+
+で abort します。grant 後の IAM propagation は数秒〜2 分。
+
+> Note: bootstrap script は caller 自身に対する IAM grant は行いません (script に self-escalation 経路を埋めると security 上の懸念があるため)。
 
 ### deploy SA と runtime SA を分ける理由
 
