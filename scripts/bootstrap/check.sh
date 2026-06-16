@@ -72,6 +72,13 @@ run_check() {
       info "GitHub WIF Provider $(github_provider_id) does not exist (will be created on apply)."
     fi
 
+    info "Checking org policy override 'iam.allowedPolicyMemberDomains' (allowAll: true)..."
+    if project_exists && org_policy_allow_all_users_overridden; then
+      info "Override is in place (allUsers can be bound as Cloud Run invoker)."
+    else
+      info "Override is NOT set on ${BOOTSTRAP_PROJECT_ID} (will be applied on apply)."
+    fi
+
     local secret
     for secret in tfc-notification-secret github-app-private-key; do
       info "Checking runtime secret container '${secret}'..."
