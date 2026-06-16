@@ -56,11 +56,20 @@ https://app.terraform.io
 
 ### Allowed Audience
 
+**設定しない** (GCP default = provider full resource URI を採用)。
+
 ```text
-https://app.terraform.io
+//iam.googleapis.com/projects/{project_number}/locations/global/workloadIdentityPools/{pool}/providers/{provider}
 ```
 
-Terraform Cloud / HCP Terraform を前提に固定値として扱う。必要になった場合のみ変数化する。
+TFC は `TFC_GCP_PROVIDER_AUDIENCE` 未設定時に `TFC_GCP_WORKLOAD_PROVIDER_NAME` から同じ URI を default で組み立てるので、両者が default で一致する。
+
+#### なぜ default に揃えるか
+
+- audience が **provider 単位で unique**: 別 GCP project の WIF provider に token を replay されない (cross-audience replay attack 防止)
+- Action 側で `TFC_GCP_PROVIDER_AUDIENCE` 等の env var を明示 set する必要がなくなる (= 設定漏れによる `400 invalid_grant` を構造的に防げる)
+
+過去は `https://app.terraform.io` を allowed-audience に固定していたが、TFC 共通の generic 値で provider unique 性が無く、Action 側 env var の set 漏れで audience mismatch が起きていたため廃止した。
 
 ---
 
