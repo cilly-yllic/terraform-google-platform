@@ -1,4 +1,4 @@
-.PHONY: bootstrap bootstrap-check bootstrap-print-env
+.PHONY: bootstrap bootstrap-check bootstrap-print-env grant-billing
 .PHONY: create-billing-account create-billing-account-check create-billing-account-print-env
 .PHONY: setup-router-hmac rotate-router-hmac sync-router-hmac set-github-app-private-key
 
@@ -10,6 +10,16 @@ bootstrap-check:
 
 bootstrap-print-env:
 	bash scripts/bootstrap.sh print-env
+
+# Grant `roles/billing.user` on a specific billing account to the
+# Terraform Project Factory SA. Use this for **external billing accounts**
+# (different org from BOOTSTRAP_PROJECT) where the bootstrap's org-level
+# grant does not reach. For org-owned billing accounts, `make bootstrap` already
+# covers all of them via the org-level binding — this target is unnecessary.
+# usage: make grant-billing BILLING=01XXXX-XXXXXX-XXXXXX
+grant-billing:
+	@[ -n "$(BILLING)" ] || (echo "Usage: make grant-billing BILLING=<billing-account-id>" >&2; exit 1)
+	bash scripts/grant-billing.sh "$(BILLING)"
 
 create-billing-account:
 	bash scripts/create-billing-account.sh apply
