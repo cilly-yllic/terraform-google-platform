@@ -22,23 +22,32 @@
 create_workload_identity_provider() {
   info "Creating Workload Identity Provider ${WORKLOAD_IDENTITY_PROVIDER_ID}..."
   if provider_exists; then
-    # 既存 provider が legacy 設定 (`--allowed-audiences=https://app.terraform.io` 等)
-    # を持っていたら、default audience に揃えるため clear する。Action A が
-    # `TFC_GCP_PROVIDER_AUDIENCE` を set しない仕様と整合させる migration step。
-    local current_audiences
+    # 既存 provider が legacy 設定 (`--allowed-audiences=https://app.terraform.io` 等、
+    # かつ provider full resource URI を含まないもの) を持っていたら、provider
+    # full resource URI のみを受け入れる状態に張り替える。Action A が
+    # `TFC_GCP_PROVIDER_AUDIENCE` を set しない仕様 (TFC default = resource URI)
+    # と整合させる migration step。
+    #
+    # 注意: gcloud `update-oidc` には `--clear-allowed-audiences` フラグは存在
+    # しないので、URI を明示的に set する形で「URI 1 件だけが accept される」
+    # 状態を作る (GCP は allowed-audiences 未設定時も default で URI を accept
+    # するので、URI 明示 set と機能的に等価)。
+    local current_audiences expected_audience project_number
     current_audiences="$(gcloud iam workload-identity-pools providers describe "${WORKLOAD_IDENTITY_PROVIDER_ID}" \
       --project="${BOOTSTRAP_PROJECT_ID}" \
       --location="global" \
       --workload-identity-pool="${WORKLOAD_IDENTITY_POOL_ID}" \
       --format="value(oidc.allowedAudiences)" 2>/dev/null || true)"
-    if [[ -n "${current_audiences}" ]]; then
-      info "  Existing provider has legacy allowed-audiences (${current_audiences}). Clearing to use GCP default (provider full resource URI)..."
+    project_number="$(gcloud projects describe "${BOOTSTRAP_PROJECT_ID}" --format='value(projectNumber)' 2>/dev/null)"
+    expected_audience="//iam.googleapis.com/projects/${project_number}/locations/global/workloadIdentityPools/${WORKLOAD_IDENTITY_POOL_ID}/providers/${WORKLOAD_IDENTITY_PROVIDER_ID}"
+    if [[ -n "${current_audiences}" && "${current_audiences}" != *"${expected_audience}"* ]]; then
+      info "  Existing provider has legacy allowed-audiences (${current_audiences}). Updating to provider full resource URI..."
       gcloud iam workload-identity-pools providers update-oidc "${WORKLOAD_IDENTITY_PROVIDER_ID}" \
         --project="${BOOTSTRAP_PROJECT_ID}" \
         --location="global" \
         --workload-identity-pool="${WORKLOAD_IDENTITY_POOL_ID}" \
-        --clear-allowed-audiences > /dev/null
-      info "  Allowed-audiences cleared."
+        --allowed-audiences="${expected_audience}" > /dev/null
+      info "  Allowed-audiences updated."
     else
       info "Workload Identity Provider ${WORKLOAD_IDENTITY_PROVIDER_ID} already exists. Skipping."
     fi
