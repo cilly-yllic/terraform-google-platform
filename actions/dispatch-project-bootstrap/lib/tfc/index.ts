@@ -43,6 +43,18 @@ export interface TfcWorkspace {
     name: string;
     "auto-apply": boolean;
   };
+  relationships?: {
+    project?: {
+      data?: { id: string; type: "projects" } | null;
+    };
+  };
+}
+
+export interface TfcProject {
+  id: string;
+  attributes: {
+    name: string;
+  };
 }
 
 export interface TfcRun {
@@ -114,6 +126,38 @@ export class TfcClient {
     return { data: json.data, status: res.status, headers: res.headers };
   }
 
+  // --- Project ---
+
+  async findProjectByName(name: string): Promise<TfcProject | null> {
+    // TFC は project リストを `filter[names]=` で絞り込める (per-page max 100、
+    // service ごとに 1 project なので page 不要)。同名 project は org 内で
+    // 一意なので最初の hit を返せば良い。
+    const url = `/organizations/${this.org}/projects?filter%5Bnames%5D=${encodeURIComponent(name)}`;
+    const { data } = await this.request<TfcProject[]>("GET", url);
+    if (!Array.isArray(data) || data.length === 0) return null;
+    return data.find((p) => p.attributes.name === name) ?? null;
+  }
+
+  async createProject(name: string): Promise<TfcProject> {
+    const { data } = await this.request<TfcProject>(
+      "POST",
+      `/organizations/${this.org}/projects`,
+      {
+        data: {
+          type: "projects",
+          attributes: { name },
+        },
+      }
+    );
+    return data;
+  }
+
+  async upsertProject(name: string): Promise<TfcProject> {
+    const existing = await this.findProjectByName(name);
+    if (existing) return existing;
+    return this.createProject(name);
+  }
+
   // --- Workspace ---
 
   async findWorkspaceByName(name: string): Promise<TfcWorkspace | null> {
@@ -129,16 +173,25 @@ export class TfcClient {
     }
   }
 
-  async createWorkspace(attrs: WorkspaceAttributes): Promise<TfcWorkspace> {
+  async createWorkspace(
+    attrs: WorkspaceAttributes,
+    projectId?: string
+  ): Promise<TfcWorkspace> {
+    // project への配置は relationships で指定する。未指定だと Default Project
+    // に作られるが、本 action からは常に明示的に project を渡す前提。
+    const payload: Record<string, unknown> = {
+      type: "workspaces",
+      attributes: attrs,
+    };
+    if (projectId) {
+      payload.relationships = {
+        project: { data: { id: projectId, type: "projects" } },
+      };
+    }
     const { data } = await this.request<TfcWorkspace>(
       "POST",
       `/organizations/${this.org}/workspaces`,
-      {
-        data: {
-          type: "workspaces",
-          attributes: attrs,
-        },
-      }
+      { data: payload }
     );
     return data;
   }
@@ -160,15 +213,49 @@ export class TfcClient {
     return data;
   }
 
+  /**
+   * workspace の project relationship を別 project に張り替える。
+   * TFC は relationships を含めた workspace PATCH 経由で project を変更できる。
+   * (専用の "move" endpoint は無く、PATCH の relationships で表現する)
+   */
+  async moveWorkspaceToProject(
+    workspaceId: string,
+    projectId: string
+  ): Promise<TfcWorkspace> {
+    const { data } = await this.request<TfcWorkspace>(
+      "PATCH",
+      `/workspaces/${workspaceId}`,
+      {
+        data: {
+          type: "workspaces",
+          relationships: {
+            project: { data: { id: projectId, type: "projects" } },
+          },
+        },
+      }
+    );
+    return data;
+  }
+
   async upsertWorkspace(
     name: string,
-    attrs: Partial<WorkspaceAttributes> = {}
+    attrs: Partial<WorkspaceAttributes> = {},
+    projectId?: string
   ): Promise<TfcWorkspace> {
     const existing = await this.findWorkspaceByName(name);
     if (existing) {
+      // 1. project が違えば張り替え (Default Project → 新 project への migration が
+      //    これで自動化される)
+      if (projectId && existing.relationships?.project?.data?.id !== projectId) {
+        await this.moveWorkspaceToProject(existing.id, projectId);
+      }
+      // 2. attributes を更新
       return this.updateWorkspace(existing.id, { ...attrs, name });
     }
-    return this.createWorkspace({ ...attrs, name } as WorkspaceAttributes);
+    return this.createWorkspace(
+      { ...attrs, name } as WorkspaceAttributes,
+      projectId
+    );
   }
 
   // --- Variables ---
