@@ -39,7 +39,15 @@ spec:
     - allowAll: true
 EOF
 
-  if ! gcloud org-policies set-policy "${policy_file}" --quiet > /dev/null; then
+  # --project は **quota / billing project** を指定するフラグ。
+  # target resource は policy file 内の `name:` で指定済みだが、API call の
+  # quota はアクティブプロジェクト (gcloud config) にデフォルトで落ちる。
+  # `mdn-infra-bootstrap-001` 以外をアクティブにしている caller で
+  # `orgpolicy.googleapis.com` 未 enable のプロジェクトに quota が落ちて
+  # PERMISSION_DENIED になるのを避けるため、明示的に bootstrap project を渡す。
+  if ! gcloud org-policies set-policy "${policy_file}" \
+    --project="${BOOTSTRAP_PROJECT_ID}" \
+    --quiet > /dev/null; then
     rm -f "${policy_file}"
     error "Failed to override 'iam.allowedPolicyMemberDomains' on ${BOOTSTRAP_PROJECT_ID}. The caller needs roles/orgpolicy.policyAdmin on the project (or parent org/folder)."
   fi
