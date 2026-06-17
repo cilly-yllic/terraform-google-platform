@@ -62,20 +62,29 @@ locals {
   enable_cloud_run       = var.cloud_run != null
   enable_cloud_functions = var.cloud_functions != null
 
-  # -- normalised configs (true → {}, null → ignored) -----------------------
+  # -- normalised configs (true → null, object → そのまま, null → ignored) ----
+  # 前提: 各変数は type=any で「null=無効 / true=デフォルトで有効 / object=詳細指定」
+  # の 3 値を取る。true を空オブジェクト {} に正規化したかったが、Terraform の
+  # 条件式 `cond ? a : b` は a / b の型が一致しないと
+  #   "Inconsistent conditional result types"
+  # で失敗する。{} (空 object) は bool の true とも、属性を持つ object とも
+  # 型が一致しないため、true 指定時・object 指定時の双方でエラーになっていた。
+  # null は任意の型に変換可能で必ず型一致するため、空デフォルトは null で表す。
+  # 下流の参照はすべて `try(local.*_cfg.attr, default)` なので null でも安全
+  # (null の属性アクセスは try が握りつぶしデフォルトに落ちる)。
   authentication_cfg = local.enable_authentication ? (
-    var.authentication == true ? {} : var.authentication
-  ) : {}
+    var.authentication == true ? null : var.authentication
+  ) : null
 
   # firestore / data_connect は list 化される (詳細は別 locals block)
 
   rtdb_cfg = local.enable_rtdb ? (
-    var.rtdb == true ? {} : var.rtdb
-  ) : {}
+    var.rtdb == true ? null : var.rtdb
+  ) : null
 
   storage_cfg = local.enable_storage ? (
-    var.storage == true ? {} : var.storage
-  ) : {}
+    var.storage == true ? null : var.storage
+  ) : null
 
   # hosting / app_hosting / web_app は list 化される (詳細は別 locals block)
   # 既存 cfg 形式の hosting / app_hosting は無くなったが、他の location 自動引き継ぎは
@@ -84,16 +93,16 @@ locals {
   # (data_connect_cfg は廃止、list 形式に正規化)
 
   cloud_tasks_cfg = local.enable_cloud_tasks ? (
-    var.cloud_tasks == true ? {} : var.cloud_tasks
-  ) : {}
+    var.cloud_tasks == true ? null : var.cloud_tasks
+  ) : null
 
   cloud_scheduler_cfg = local.enable_cloud_scheduler ? (
-    var.cloud_scheduler == true ? {} : var.cloud_scheduler
-  ) : {}
+    var.cloud_scheduler == true ? null : var.cloud_scheduler
+  ) : null
 
   eventarc_cfg = local.enable_eventarc ? (
-    var.eventarc == true ? {} : var.eventarc
-  ) : {}
+    var.eventarc == true ? null : var.eventarc
+  ) : null
 }
 
 # ---------------------------------------------------------------------------
@@ -770,9 +779,11 @@ module "eventarc" {
 locals {
   enable_ci_sa = var.ci_service_account != null
 
+  # true → null 正規化 (理由は上部 *_cfg の locals block コメント参照)。
+  # 参照側は try(local.ci_sa_cfg.attr, default) なので null でも安全。
   ci_sa_cfg = local.enable_ci_sa ? (
-    var.ci_service_account == true ? {} : var.ci_service_account
-  ) : {}
+    var.ci_service_account == true ? null : var.ci_service_account
+  ) : null
 
   ci_sa_auto_roles = local.enable_ci_sa ? distinct(concat(
     ["roles/runtimeconfig.admin"],
