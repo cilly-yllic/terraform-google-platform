@@ -30376,7 +30376,9 @@ const settingsSchema = zod_1.z.object({
     // この folder 配下に作られる (action input parent_folder_id より優先)。
     // folder は事前作成し、bootstrap の root folder 配下に置くこと
     // (Factory SA の folder-scoped grant が継承で届くようにするため)。
-    folder_id: zod_1.z.string().optional(),
+    // YAML でクォート無し (例 `folder_id: 123456789012`) だと number として
+    // パースされるため、coerce で文字列化して受ける (クォート忘れを許容)。
+    folder_id: zod_1.z.coerce.string().optional(),
     environments: zod_1.z.record(zod_1.z.string(), environmentSchema),
     retained_envs: zod_1.z.array(zod_1.z.string()).default([]),
 });
