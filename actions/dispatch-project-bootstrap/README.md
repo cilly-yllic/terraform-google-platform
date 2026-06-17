@@ -42,8 +42,8 @@
 | `settings_path` | no | `terraform/settings.yml` | Path to settings.yml in the calling repo |
 | `tfc_org` | yes | — | Terraform Cloud organization name |
 | `tfc_workspace_name` | no | `project-factory-{service}` | Workspace name pattern (placeholders: `{service}`) |
-| `parent_organization_id` | no | — | GCP Org ID (folder_id とどちらか) |
-| `parent_folder_id` | no | — | GCP Folder ID (organization_id とどちらか) |
+| `parent_organization_id` | no | — | GCP Org ID。project 配置先の fallback (settings.yml `folder_id` 未指定時) |
+| `parent_folder_id` | no | — | GCP Folder ID。project 配置先の fallback (settings.yml `folder_id` 未指定時) |
 | `bootstrap_project_id` | no | `infra-bootstrap` | Bootstrap project ID |
 | `bootstrap_project_number` | yes | — | Bootstrap project number (numeric, for WIF resource name) |
 | `workload_identity_pool_id` | no | `terraform-cloud` | WIF Pool ID |

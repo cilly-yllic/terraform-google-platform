@@ -10,6 +10,11 @@ const environmentSchema = z.object({
 
 const settingsSchema = z.object({
   service: z.string(),
+  // service 用 GCP folder の数値 ID。指定時、そのサービスの全 project は
+  // この folder 配下に作られる (action input parent_folder_id より優先)。
+  // folder は事前作成し、bootstrap の root folder 配下に置くこと
+  // (Factory SA の folder-scoped grant が継承で届くようにするため)。
+  folder_id: z.string().optional(),
   environments: z.record(z.string(), environmentSchema),
   retained_envs: z.array(z.string()).default([]),
 });
