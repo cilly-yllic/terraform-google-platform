@@ -30,9 +30,19 @@ variable "labels" {
 }
 
 variable "bootstrap_project_id" {
-  description = "The project ID of the infra-bootstrap project where the SA is created"
+  description = "The project ID of the infra-bootstrap project that hosts the WIF pool"
   type        = string
   default     = "infra-bootstrap"
+}
+
+# WIF principalSet パスの組み立てに使う infra-bootstrap project の数値 project number。
+# 以前は data.google_project で読み取っていたが、それには Factory SA が infra に
+# 対する read role を持つ必要があった。action から直接渡すことで Factory SA の
+# infra footprint をゼロにする (最小権限)。
+# 関連: scripts/bootstrap/_commands/grant_iam.sh
+variable "bootstrap_project_number" {
+  description = "The numeric project number of the infra-bootstrap project (for WIF principalSet path)"
+  type        = string
 }
 
 variable "workload_identity_pool_id" {

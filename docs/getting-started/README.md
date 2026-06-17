@@ -45,6 +45,23 @@ sequenceDiagram
 
 ---
 
+## Service Account / セキュリティモデル (重要)
+
+このプラットフォームの SA 設計の要点。詳細は [iam-policy.md](../project-bootstrap/design/iam-policy.md) / [wif-attribute-mapping.md](../project-bootstrap/design/wif-attribute-mapping.md)。
+
+| SA | 置き場所 | 権限 | 誰が使える |
+|----|----------|------|-----------|
+| **Factory SA** `terraform-project-factory` | `infra-bootstrap` | org/folder の projectCreator + projectIamAdmin、billing.user | **factory workspace のみ** (`project-factory-*`) |
+| **per-env SA** `terraform-{service}-{env}` | **各ターゲット project 内** | そのターゲット project の `owner` | その env の firebase workspace のみ (`{service}-{env}`) |
+
+設計のポイント:
+
+1. **per-project SA**: env ごとの terraform SA は infra ではなく**作成したターゲット project の中**に作る。これにより quota / 課金 / 権限 / ライフサイクルがその project に閉じ、infra に `project 数 × env 数` 分の SA が溜まらない (GCP は 1 project あたり SA 100 個上限)。
+2. **強権 SA の利用主体を限定** (WHO): Factory SA を impersonate できるのは `project-factory-` で始まる workspace だけ (WIF 派生属性 `terraform_workspace_kind`)。無関係な workspace からの成り代わりを遮断。
+3. **影響範囲の封じ込め** (WHAT): GCP **folder** を用意できる環境では Factory SA の権限を folder スコープに限定 (blast radius を folder 内に封じ込め)。bootstrap は `.env` の `FOLDER_NAME`（例 `infra`）から folder を find-or-create し `FOLDER_ID` を自動解決できる。folder が無い環境 (org 直下) でも floor (WHO 限定) は確保される。**folder 推奨**。
+
+---
+
 ## 前提条件
 
 以下のツール・アカウントが必要です:

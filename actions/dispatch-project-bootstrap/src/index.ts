@@ -235,6 +235,13 @@ async function run(): Promise<void> {
       value: bootstrapProjectId,
       hcl: false,
     });
+    // module の data.google_project 撤去に伴い、project number を直接渡す
+    // (Factory SA の infra read role を不要にするため)。
+    tfVarAttrs.push({
+      key: "bootstrap_project_number",
+      value: bootstrapProjectNumber,
+      hcl: false,
+    });
     tfVarAttrs.push({
       key: "workload_identity_pool_id",
       value: wifPoolId,

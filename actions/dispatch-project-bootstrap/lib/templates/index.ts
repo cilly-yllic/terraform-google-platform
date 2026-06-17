@@ -15,6 +15,7 @@ ${VERSION_PLACEHOLDER}
   folder_id = try(jsondecode(var.parent).folder_id, null)
 
   bootstrap_project_id          = var.bootstrap_project_id
+  bootstrap_project_number      = var.bootstrap_project_number
   workload_identity_pool_id     = var.workload_identity_pool_id
   workload_identity_provider_id = var.workload_identity_provider_id
 }
@@ -35,6 +36,10 @@ variable "parent" {
 }
 
 variable "bootstrap_project_id" {
+  type = string
+}
+
+variable "bootstrap_project_number" {
   type = string
 }
 

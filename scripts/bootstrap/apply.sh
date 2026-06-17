@@ -10,6 +10,7 @@ run_apply() {
 
   confirm_apply
 
+  ensure_folder
   create_project
   link_billing
   enable_apis
