@@ -14,6 +14,12 @@ run_apply() {
   create_project
   link_billing
   enable_apis
+  # service project は auto_create_network=false で作られるため、placement
+  # (folder/org) に compute.skipDefaultNetworkCreation を enforce して default
+  # network を作らせない (作成時の Compute API 依存 = 403 を根本回避)。
+  # enable_apis 後に置くのは org-policy set-policy の quota project (bootstrap
+  # project) で orgpolicy API が有効になっている必要があるため。
+  set_skip_default_network_policy
   create_service_account
   grant_iam
   create_workload_identity_pool

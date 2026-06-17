@@ -224,8 +224,14 @@ GITHUB_REPOSITORY="owner/repo"
 
 ### 事前権限 (caller 側)
 
-`ENABLE_CLOUD_RUN_DEPLOY_SETUP=true` で bootstrap を回す principal (例: `user:you@example.com`) には、通常の SA 作成権限に加えて **`roles/orgpolicy.policyAdmin` が必要** です。
-このロールは **organization スコープまたは folder スコープでしか付与できません** (project スコープには付かない)。
+bootstrap を回す principal (例: `user:you@example.com`) には **`roles/orgpolicy.policyAdmin` が必要** です（org または folder スコープ。project スコープには付与不可）。
+
+理由は 2 つ:
+
+1. **常時 (core)**: `set_skip_default_network_policy` が placement (folder/org) に `compute.skipDefaultNetworkCreation` を enforce する。service project は `auto_create_network=false` で作られるため、これを設定しないと作成時に default network 削除で Compute API を要求して 403 になる。
+2. **`ENABLE_CLOUD_RUN_DEPLOY_SETUP=true` 時**: `override_org_policy_allow_all_users` が `iam.allowedPolicyMemberDomains` を override する。
+
+加えて folder を `FOLDER_NAME` で find-or-create する場合は **`roles/resourcemanager.folderCreator`**、project 作成に **`roles/resourcemanager.projectCreator`**、folder への IAM 付与に folder 管理権限が必要（要は org/folder 管理者相当）。
 
 ```bash
 # org 直下の project の場合

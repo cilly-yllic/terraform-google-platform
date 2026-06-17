@@ -25,6 +25,9 @@ GITHUB_OIDC_ISSUER_URI="https://token.actions.githubusercontent.com"
 FACTORY_WORKSPACE_PREFIX="${FACTORY_WORKSPACE_PREFIX:-project-factory-}"
 
 # --- Required APIs (常に有効化される) ---
+# orgpolicy は set_skip_default_network_policy() が `gcloud org-policies set-policy`
+# を叩く際の quota project (= bootstrap project) で必要。core 化したので
+# CLOUD_RUN_DEPLOY_APIS からは除いた (cloud-run opt-in の有無に関わらず使う)。
 REQUIRED_APIS=(
   cloudresourcemanager.googleapis.com
   serviceusage.googleapis.com
@@ -33,18 +36,16 @@ REQUIRED_APIS=(
   sts.googleapis.com
   cloudbilling.googleapis.com
   billingbudgets.googleapis.com
+  orgpolicy.googleapis.com
 )
 
 # --- Additional APIs for cloud-run-router deploy ---
 # ENABLE_CLOUD_RUN_DEPLOY_SETUP=true の場合のみ有効化される。
-# orgpolicy は override_org_policy_allow_all_users() が `gcloud org-policies
-# set-policy` を叩くのに必要。
 CLOUD_RUN_DEPLOY_APIS=(
   run.googleapis.com
   artifactregistry.googleapis.com
   cloudbuild.googleapis.com
   secretmanager.googleapis.com
-  orgpolicy.googleapis.com
 )
 
 # --- Required environment variables ---
