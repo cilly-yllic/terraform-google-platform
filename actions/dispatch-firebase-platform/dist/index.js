@@ -41478,7 +41478,9 @@ async function run() {
         const tfcOrg = core.getInput("tfc_org", { required: true });
         const targetWorkspacePattern = core.getInput("target_workspace");
         const tfcProjectPattern = core.getInput("tfc_project_name");
-        const bootstrapProjectId = core.getInput("bootstrap_project_id");
+        // 注: bootstrap_project_id input は WIF pool 等の文脈で残すが、per-env SA は
+        // ターゲットプロジェクト内に作るようになったため saEmail には使わない
+        // (bootstrapProjectNumber は WIF provider path 用に引き続き使用)。
         const bootstrapProjectNumber = core.getInput("bootstrap_project_number", {
             required: true,
         });
@@ -41590,7 +41592,11 @@ async function run() {
                 if (saId.length > 30) {
                     throw new Error(`service account id "${saId}" is ${saId.length} chars for env "${env}" (GCP limit is 30). Shorten the service name or env key.`);
                 }
-                const saEmail = `${saId}@${bootstrapProjectId}.iam.gserviceaccount.com`;
+                // per-env terraform SA はターゲット (firebase 用) プロジェクト内に存在する
+                // (project-bootstrap がそこに作成)。infra ではなく projectId 側を指すこと。
+                // これにより firebase API 呼び出しの quota がターゲットに帰属し、
+                // 「Firebase Management API has not been used in project <infra>」を回避する。
+                const saEmail = `${saId}@${projectId}.iam.gserviceaccount.com`;
                 core.info(`[${env}] project_id=${projectId}, sa=${saEmail}`);
                 // Mask the env's billing_account_id (defensive even though B doesn't use it)
                 if (envEntry.billing_account_id) {
