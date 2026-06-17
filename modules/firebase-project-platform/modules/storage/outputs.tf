@@ -1,6 +1,6 @@
 output "default_bucket" {
-  description = "Firebase default Storage bucket name."
-  value       = google_firebase_storage_bucket.default.bucket_id
+  description = "Firebase default Storage bucket name (null when default_bucket=false)."
+  value       = one(google_firebase_storage_bucket.default[*].bucket_id)
 }
 
 output "additional_buckets" {

@@ -1,8 +1,15 @@
 # ---------------------------------------------------------------------------
-# Default bucket – always created to avoid Firebase side-effects
+# Default bucket – opt-in link (var.default_bucket)
+#
+# 2024-09 以降 default bucket ({project}.firebasestorage.app) は Terraform で
+# provisioning できない (Console / REST で事前作成が必要、要 Blaze)。
+# google_firebase_storage_bucket は既存バケットの link のみなので、未作成だと
+# 404 になる。よって default は作らず、事前作成済みで link したい場合のみ
+# var.default_bucket=true で有効化する。
 # ---------------------------------------------------------------------------
 
 resource "google_firebase_storage_bucket" "default" {
+  count     = var.default_bucket ? 1 : 0
   provider  = google-beta
   project   = var.project
   bucket_id = "${var.project}.firebasestorage.app"
@@ -13,6 +20,7 @@ resource "google_firebase_storage_bucket" "default" {
 # ---------------------------------------------------------------------------
 
 resource "google_firebaserules_ruleset" "storage" {
+  count   = var.default_bucket ? 1 : 0
   project = var.project
 
   source {
@@ -35,10 +43,11 @@ resource "google_firebaserules_ruleset" "storage" {
 }
 
 resource "google_firebaserules_release" "storage" {
+  count        = var.default_bucket ? 1 : 0
   provider     = google-beta
   project      = var.project
-  name         = "firebase.storage/${google_firebase_storage_bucket.default.bucket_id}"
-  ruleset_name = "projects/${var.project}/rulesets/${google_firebaserules_ruleset.storage.name}"
+  name         = "firebase.storage/${google_firebase_storage_bucket.default[0].bucket_id}"
+  ruleset_name = "projects/${var.project}/rulesets/${google_firebaserules_ruleset.storage[0].name}"
 }
 
 # ---------------------------------------------------------------------------
