@@ -165,6 +165,12 @@ const getInstallationToken = async (
  *   - environments を直接渡す → A が解決済みの env リストをそのまま使う
  *   - labels を渡す           → B が settings.yml を読み直して再解決する
  * 両者の使い分けは README "Dispatch payload shape" セクション参照。
+ *
+ * 前提 (wire 表現): この型は cloud-run-router 内部の論理表現。実際に
+ * client_payload として送出する際は repositoryDispatch() が environments /
+ * labels を **compact JSON 文字列** にシリアライズする (toWireClientPayload 参照)。
+ * 受信側 (Action B) は `${{ github.event.client_payload.environments }}` を
+ * toJSON() 無しの直接参照で単一行 '["dev-001"]' として取得できる。
  */
 export interface DispatchPayload {
   service: string
@@ -183,6 +189,29 @@ export interface DispatchPayload {
   workspace_name: string
   source_repo: string
 }
+
+/**
+ * DispatchPayload を repository_dispatch の client_payload (wire 表現) に変換する。
+ *
+ * WHY: GitHub Actions の `toJSON()` は配列を 2-space indent + 改行で pretty-print
+ * する。受信側 workflow が `${{ toJSON(client_payload.environments) }}` の結果を
+ * `echo "environments=${val}" >> "$GITHUB_OUTPUT"` で書くと値が複数行になり、
+ * GITHUB_OUTPUT の `key=value` 形式 (単一行のみ許容) に違反して
+ * `Invalid format '  "dev-001"'` で落ちる。
+ *
+ * そこで environments / labels を送出時点で compact JSON 文字列に固めておく。
+ * これにより受信側は toJSON() 不要の直接参照で単一行値を得られ、
+ * GITHUB_OUTPUT への書き込みも trim も不要になる。
+ *
+ * 周辺仕様: 受信側 (Action B) の `environments` / `labels` input は
+ *   actions/dispatch-firebase-platform の parseEnvironmentsInput / parseLabelsInput
+ * が JSON 配列文字列として JSON.parse する。compact 文字列はそのまま parse 可能。
+ */
+export const toWireClientPayload = (payload: DispatchPayload): Record<string, unknown> => ({
+  ...payload,
+  environments: JSON.stringify(payload.environments),
+  labels: JSON.stringify(payload.labels),
+})
 
 /**
  * 対象 repo に repository_dispatch イベントを発火する。
@@ -233,7 +262,7 @@ export const repositoryDispatch = async (
     },
     body: JSON.stringify({
       event_type: eventType,
-      client_payload: payload,
+      client_payload: toWireClientPayload(payload),
     }),
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   })
