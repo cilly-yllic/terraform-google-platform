@@ -103,7 +103,7 @@ GOOGLE_PROJECT=infra-bootstrap
    - runtime SA リソース限定: `roles/iam.serviceAccountUser` (Cloud Run `--service-account=<runtime>` のため) + `roles/iam.serviceAccountTokenCreator` (runtime SA の token 発行。project レベルにせず対象 SA に絞り、他 SA への成り代わりを防ぐ)
 4. **GitHub WIF Provider** (既存 Pool 内に追加)
    - issuer: `https://token.actions.githubusercontent.com`
-   - attribute condition: `assertion.repository == "${GITHUB_REPOSITORY}"` — 1 つの repo に厳格に絞る
+   - attribute condition: `assertion.repository_owner == "${GITHUB_OWNER}"` — **org 単位**のゲート (`GITHUB_OWNER` 未指定時は `GITHUB_REPOSITORY` の owner)。repo 単位の制限は各 SA の WIF binding (`attribute.repository/{owner}/{repo}`) で行う。これによりサービス repo の GitHub Actions が各 firebase project の `ci_service_account` を impersonate して deploy できる
 5. **WIF binding**: GitHub principalSet → deploy SA への `roles/iam.workloadIdentityUser`
 
 ### deploy SA と runtime SA を分ける理由
