@@ -9,11 +9,17 @@
 以下のリソースを作成します:
 
 1. `infra-bootstrap` GCP Project
-2. `terraform-project-factory` Service Account
+2. `terraform-project-factory` Service Account (org/folder の project 作成・IAM 権限を持つ強権 SA)
 3. Workload Identity Pool / Provider (Terraform Cloud 用 OIDC)
-4. TFC Organization → SA の impersonation IAM binding
+4. factory workspace → Factory SA の impersonation IAM binding
 
 Service Account Key JSON は作成しません（WIF / OIDC を使用）。
+
+> **セキュリティ注記**: Factory SA を impersonate できるのは workspace 名が
+> `project-factory-` で始まる **factory workspace のみ**です (WIF 派生属性
+> `terraform_workspace_kind`)。env ごとの terraform SA は infra ではなく後段の
+> `project-bootstrap` module が**各ターゲット project の中**に作ります。
+> 全体像は [Getting Started: Service Account / セキュリティモデル](./README.md#service-account--セキュリティモデル-重要) を参照。
 
 ---
 
@@ -57,8 +63,19 @@ scripts/bootstrap.sh --init=envrc    # 非対話 (.envrc / direnv 向け)
 | `WORKLOAD_IDENTITY_POOL_ID` | Yes | WIF Pool ID |
 | `WORKLOAD_IDENTITY_PROVIDER_ID` | Yes | WIF Provider ID |
 | `TFC_ORGANIZATION_NAME` | Yes | Terraform Cloud Organization 名 |
-| `ORGANIZATION_ID` | Either | GCP 組織の数値 ID（`FOLDER_ID` と排他） |
-| `FOLDER_ID` | Either | GCP フォルダの数値 ID（`ORGANIZATION_ID` と排他） |
+| `ORGANIZATION_ID` | 配置※ | GCP 組織の数値 ID。folder の親 / org 直下運用の配置先 |
+| `FOLDER_NAME` | 配置※ | folder の display name（例 `infra`）。`ORGANIZATION_ID` 配下で検索し、無ければ作成、得られた `FOLDER_ID` を `.env` に書き戻す。**推奨** |
+| `FOLDER_ID` | 配置※ | 既存 folder を数値 ID で直接指定する場合。`FOLDER_NAME` 利用時は自動で書き込まれる |
+
+※ 配置モードは次の 3 通り（詳細は [`bootstrap.example.env`](../../scripts/bootstrap.example.env)）:
+
+1. **`FOLDER_NAME` + `ORGANIZATION_ID`（推奨・一番楽）** — folder を find-or-create して `FOLDER_ID` を自動解決。folder ID は GCP 自動採番なので display name で扱う。要 caller 権限 `roles/resourcemanager.folderCreator`（org）。
+2. **`FOLDER_ID`（+ `ORGANIZATION_ID`）** — 既存 folder を直接指定。
+3. **`ORGANIZATION_ID` のみ** — folder を使わず org 直下。
+
+> **folder 推奨理由**: folder mode では Factory SA の `projectCreator` / `projectIamAdmin` がその folder 内に限定され、影響範囲（blast radius）を封じ込められます。org 直下でも動作しますが Factory SA の到達範囲が org 全体になります（その場合も「factory workspace のみ impersonate 可」の floor は効きます）。
+>
+> `FACTORY_WORKSPACE_PREFIX`（任意, default `project-factory-`）で factory workspace の命名規約を上書きできます。
 
 全変数の一覧: [`scripts/bootstrap.example.env`](../../scripts/bootstrap.example.env)
 

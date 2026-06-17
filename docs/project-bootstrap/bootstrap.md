@@ -99,8 +99,8 @@ GOOGLE_PROJECT=infra-bootstrap
    - 付与 role: `roles/secretmanager.secretAccessor` のみ
 3. **Cloud Run deploy SA** (`cloud-run-router-deploy`)
    - GitHub Actions が impersonate する identity
-   - Project レベル: `roles/run.admin` (deploy + `--allow-unauthenticated` 用の `setIamPolicy`) / `roles/artifactregistry.writer` / `roles/cloudbuild.builds.editor` / `roles/storage.admin` / `roles/iam.serviceAccountTokenCreator`
-   - runtime SA に対して: `roles/iam.serviceAccountUser` (Cloud Run `--service-account=<runtime>` のため)
+   - Project レベル: `roles/run.admin` (deploy + `--allow-unauthenticated` 用の `setIamPolicy`) / `roles/artifactregistry.writer` / `roles/cloudbuild.builds.editor` / `roles/storage.admin` / `roles/secretmanager.secretVersionAdder`
+   - runtime SA リソース限定: `roles/iam.serviceAccountUser` (Cloud Run `--service-account=<runtime>` のため) + `roles/iam.serviceAccountTokenCreator` (runtime SA の token 発行。project レベルにせず対象 SA に絞り、他 SA への成り代わりを防ぐ)
 4. **GitHub WIF Provider** (既存 Pool 内に追加)
    - issuer: `https://token.actions.githubusercontent.com`
    - attribute condition: `assertion.repository == "${GITHUB_REPOSITORY}"` — 1 つの repo に厳格に絞る

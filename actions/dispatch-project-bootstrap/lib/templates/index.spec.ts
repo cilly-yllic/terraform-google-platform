@@ -36,6 +36,7 @@ describe("buildTemplateFiles", () => {
       "environments",
       "parent",
       "bootstrap_project_id",
+      "bootstrap_project_number",
       "workload_identity_pool_id",
       "workload_identity_provider_id",
     ]) {
