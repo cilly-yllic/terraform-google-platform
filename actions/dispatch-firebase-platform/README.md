@@ -226,7 +226,9 @@ jobs:
 
 ### Phase 2 (Project Repo の workflow から repository_dispatch トリガー)
 
-Cloud Run Router の `client_payload.environments` (JSON 配列) を **そのまま `environments` input に渡せる** ので、matrix なしの 1 invocation で複数 env を処理できる。
+Cloud Run Router の `client_payload.environments` は **compact JSON 配列文字列** (`["dev-001","dev-002"]`) なので、`toJSON()` を被せず **直接参照で** `environments` input に渡す（matrix なしの 1 invocation で複数 env を処理できる）。
+
+> `toJSON(github.event.client_payload.environments)` は不可。Router が既に文字列化済みのため二重エンコードになり parse に失敗する。詳細は cloud-run-router README "Dispatch payload shape"。
 
 ```yaml
 name: Firebase Platform Trigger
@@ -242,7 +244,7 @@ jobs:
       - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
         with:
           service: ${{ github.event.client_payload.service }}
-          environments: ${{ toJSON(github.event.client_payload.environments) }}
+          environments: ${{ github.event.client_payload.environments }}
           tfc_org: my-tfc-org
           bootstrap_project_number: ${{ secrets.BOOTSTRAP_PROJECT_NUMBER }}
           tfc_token: ${{ secrets.TFC_TOKEN }}
@@ -255,7 +257,7 @@ jobs:
       - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
         with:
           service: ${{ github.event.client_payload.service }}
-          labels: ${{ toJSON(github.event.client_payload.labels) }}
+          labels: ${{ github.event.client_payload.labels }}
           tfc_org: my-tfc-org
           bootstrap_project_number: ${{ secrets.BOOTSTRAP_PROJECT_NUMBER }}
           tfc_token: ${{ secrets.TFC_TOKEN }}

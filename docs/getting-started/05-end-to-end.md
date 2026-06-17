@@ -77,15 +77,17 @@ Cloud Run Router が発火する `repository_dispatch` の `client_payload` は 
 ```json
 {
   "service": "test-app",
-  "environments": ["dev-001"],
-  "labels": ["^tier:dev$"],
+  "environments": "[\"dev-001\"]",
+  "labels": "[\"^tier:dev$\"]",
   "run_id": "run-abc",
   "workspace_name": "project-factory-test-app",
   "source_repo": "owner/repo"
 }
 ```
 
-caller workflow は `environments` か `labels` のどちらかを Action B の input に渡す（[Step 3](./03-github-actions.md#workflow-%E4%BE%8B-phase-2-webhook) 参照）。
+`environments` / `labels` は **compact JSON 文字列**で乗る。caller workflow は
+`toJSON()` を被せず `${{ github.event.client_payload.environments }}` と直接参照して
+Action B の input に渡す（[Step 3](./03-github-actions.md#workflow-%E4%BE%8B-phase-2-webhook) 参照）。
 
 ### 4. ログの確認
 
@@ -156,6 +158,19 @@ caller workflow は `environments` か `labels` のどちらかを Action B の 
 - GitHub App の権限に `contents: write` が含まれているか確認
 - `DISPATCH_EVENT_TYPE` と caller workflow の `repository_dispatch.types` が一致しているか確認
 - caller workflow が `client_payload.environments` を `environments:` (JSON 配列) として渡しているか確認（`environment:` 単数だと無効）
+
+### Action B が発火後 prep step で `Invalid format '  "dev-001"'` で失敗する (Phase 2)
+
+- 症状: Action B は起動するが、`client_payload` を `$GITHUB_OUTPUT` に書き出す step で
+  `Error: Unable to process file command 'output' successfully. / Invalid format '  "dev-001"'`。
+- 原因: `${{ toJSON(github.event.client_payload.environments) }}` は配列を改行付きで
+  pretty-print する。その複数行値を `echo "environments=${val}" >> "$GITHUB_OUTPUT"` で
+  書くと、GITHUB_OUTPUT の `key=value`（単一行のみ）形式に違反する。
+- 対処: Router は `environments` / `labels` を **compact JSON 文字列**で送るので、
+  prep step / input では `toJSON()` を**外して直接参照**する:
+  `${{ github.event.client_payload.environments }}` → 単一行 `["dev-001"]`。
+  これで `$GITHUB_OUTPUT` への書き込みも trim も不要になる。
+  （手動 `workflow_dispatch` 分岐は別経路。下記 03-github-actions.md の prep step 例参照。）
 
 ---
 
