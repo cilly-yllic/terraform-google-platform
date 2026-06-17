@@ -36,6 +36,17 @@ environments:
     expect(settings.folder_id).toBeUndefined();
   });
 
+  it("coerces an unquoted numeric folder_id to a string", () => {
+    const raw = `service: svc
+folder_id: 123456789012
+environments:
+  dev-001:
+    billing_account_id: X
+`;
+    const settings = parseSettings(raw);
+    expect(settings.folder_id).toBe("123456789012");
+  });
+
   it("accepts optional firebase_platform record", () => {
     const raw = `service: svc
 environments:
