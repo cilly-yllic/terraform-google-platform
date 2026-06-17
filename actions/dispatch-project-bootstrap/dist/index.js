@@ -30372,6 +30372,11 @@ const environmentSchema = zod_1.z.object({
 });
 const settingsSchema = zod_1.z.object({
     service: zod_1.z.string(),
+    // service 用 GCP folder の数値 ID。指定時、そのサービスの全 project は
+    // この folder 配下に作られる (action input parent_folder_id より優先)。
+    // folder は事前作成し、bootstrap の root folder 配下に置くこと
+    // (Factory SA の folder-scoped grant が継承で届くようにするため)。
+    folder_id: zod_1.z.string().optional(),
     environments: zod_1.z.record(zod_1.z.string(), environmentSchema),
     retained_envs: zod_1.z.array(zod_1.z.string()).default([]),
 });
@@ -31088,7 +31093,20 @@ async function run() {
         const tfVarAttrs = [
             { key: "service", value: service, hcl: false },
         ];
-        if (parentFolderId) {
+        // 配置先 folder の優先順位:
+        //   1. settings.yml の service-level folder_id (サービスごとに事前作成した folder)
+        //   2. action input parent_folder_id (fallback / 共通 folder)
+        //   3. action input parent_organization_id (org 直下運用)
+        // いずれも bootstrap の root folder 配下である前提 (Factory SA の grant が
+        // 継承で届くため)。詳細: docs/project-bootstrap/design/iam-policy.md
+        if (settings.folder_id) {
+            tfVarAttrs.push({
+                key: "parent",
+                value: JSON.stringify({ folder_id: settings.folder_id }),
+                hcl: false,
+            });
+        }
+        else if (parentFolderId) {
             tfVarAttrs.push({
                 key: "parent",
                 value: JSON.stringify({ folder_id: parentFolderId }),

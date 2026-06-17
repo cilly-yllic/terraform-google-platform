@@ -216,7 +216,19 @@ async function run(): Promise<void> {
       { key: "service", value: service, hcl: false },
     ];
 
-    if (parentFolderId) {
+    // 配置先 folder の優先順位:
+    //   1. settings.yml の service-level folder_id (サービスごとに事前作成した folder)
+    //   2. action input parent_folder_id (fallback / 共通 folder)
+    //   3. action input parent_organization_id (org 直下運用)
+    // いずれも bootstrap の root folder 配下である前提 (Factory SA の grant が
+    // 継承で届くため)。詳細: docs/project-bootstrap/design/iam-policy.md
+    if (settings.folder_id) {
+      tfVarAttrs.push({
+        key: "parent",
+        value: JSON.stringify({ folder_id: settings.folder_id }),
+        hcl: false,
+      });
+    } else if (parentFolderId) {
       tfVarAttrs.push({
         key: "parent",
         value: JSON.stringify({ folder_id: parentFolderId }),
