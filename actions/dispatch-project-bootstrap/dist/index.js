@@ -30414,6 +30414,7 @@ ${VERSION_PLACEHOLDER}
   folder_id = try(jsondecode(var.parent).folder_id, null)
 
   bootstrap_project_id          = var.bootstrap_project_id
+  bootstrap_project_number      = var.bootstrap_project_number
   workload_identity_pool_id     = var.workload_identity_pool_id
   workload_identity_provider_id = var.workload_identity_provider_id
 }
@@ -30434,6 +30435,10 @@ variable "parent" {
 }
 
 variable "bootstrap_project_id" {
+  type = string
+}
+
+variable "bootstrap_project_number" {
   type = string
 }
 
@@ -31100,6 +31105,13 @@ async function run() {
         tfVarAttrs.push({
             key: "bootstrap_project_id",
             value: bootstrapProjectId,
+            hcl: false,
+        });
+        // module の data.google_project 撤去に伴い、project number を直接渡す
+        // (Factory SA の infra read role を不要にするため)。
+        tfVarAttrs.push({
+            key: "bootstrap_project_number",
+            value: bootstrapProjectNumber,
             hcl: false,
         });
         tfVarAttrs.push({

@@ -19,6 +19,16 @@
 #   400 invalid_grant を踏みやすかったため、廃止した。
 #
 # attribute condition で TFC Organization を縛り、別 org からの impersonate を防ぐ。
+#
+# 派生属性 `terraform_workspace_kind`:
+#   workspace 名が ${FACTORY_WORKSPACE_PREFIX} で始まるか否かで "factory" / "service"
+#   を導出する。Factory SA (org/folder の projectCreator+IamAdmin を持つ強権 SA) の
+#   impersonation を「factory workspace だけ」に限定するために使う
+#   (grant_wif_impersonation.sh)。これにより org 内の無関係 workspace
+#   (firebase 設定用 {service}-{env} や実験 workspace) から Factory SA への
+#   成り代わりを構造的に塞ぐ。per-env SA 側は attribute.terraform_workspace で
+#   別途 workspace 限定 binding 済み。
+#   詳細: docs/project-bootstrap/design/wif-attribute-mapping.md
 create_workload_identity_provider() {
   info "Creating Workload Identity Provider ${WORKLOAD_IDENTITY_PROVIDER_ID}..."
   if provider_exists; then
@@ -65,7 +75,8 @@ google.subject=assertion.sub,\
 attribute.terraform_organization=assertion.terraform_organization_name,\
 attribute.terraform_project=assertion.terraform_project_name,\
 attribute.terraform_workspace=assertion.terraform_workspace_name,\
-attribute.terraform_run_phase=assertion.terraform_run_phase" \
+attribute.terraform_run_phase=assertion.terraform_run_phase,\
+attribute.terraform_workspace_kind=assertion.terraform_workspace_name.startsWith(\"${FACTORY_WORKSPACE_PREFIX}\") ? \"factory\" : \"service\"" \
     --attribute-condition="assertion.terraform_organization_name == \"${TFC_ORGANIZATION_NAME}\""
 
   info "Workload Identity Provider created."

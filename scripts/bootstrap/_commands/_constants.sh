@@ -15,6 +15,15 @@ ENV_FILE="${REPO_ROOT}/.env"
 TFC_OIDC_ISSUER_URI="https://app.terraform.io"
 GITHUB_OIDC_ISSUER_URI="https://token.actions.githubusercontent.com"
 
+# --- Factory workspace 命名規約 ---
+# Factory SA (terraform-project-factory) を impersonate できるのは「この prefix
+# で始まる TFC workspace」だけに限定する (WIF provider の派生属性
+# `terraform_workspace_kind` 経由)。dispatch-project-bootstrap action の
+# workspace 名 default (`project-factory-{service}`) と一致させること。
+# consumer が workspace 命名を変える場合は .env で上書きする。
+# 詳細: docs/project-bootstrap/design/wif-attribute-mapping.md
+FACTORY_WORKSPACE_PREFIX="${FACTORY_WORKSPACE_PREFIX:-project-factory-}"
+
 # --- Required APIs (常に有効化される) ---
 REQUIRED_APIS=(
   cloudresourcemanager.googleapis.com
