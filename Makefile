@@ -11,15 +11,15 @@ bootstrap-check:
 bootstrap-print-env:
 	bash scripts/bootstrap.sh print-env
 
-# Grant `roles/billing.user` on a specific billing account to the
-# Terraform Project Factory SA. Use this for **external billing accounts**
-# (different org from BOOTSTRAP_PROJECT) where the bootstrap's org-level
-# grant does not reach. For org-owned billing accounts, `make bootstrap` already
-# covers all of them via the org-level binding — this target is unnecessary.
-# usage: make grant-billing BILLING=01XXXX-XXXXXX-XXXXXX
+# Grant `roles/billing.user` on billing account(s) to the Terraform Project
+# Factory SA. folder mode では bootstrap が org-level billing.user を付けないため、
+# 各サービスが使う billing account を `.env` の SERVICE_BILLING_ACCOUNT_IDS に
+# 列挙しておき、この target で一括付与する。
+# usage:
+#   make grant-billing                              # .env の SERVICE_BILLING_ACCOUNT_IDS 全件
+#   make grant-billing BILLING=01XXXX-XXXXXX-XXXXXX  # 単一 account のみ
 grant-billing:
-	@[ -n "$(BILLING)" ] || (echo "Usage: make grant-billing BILLING=<billing-account-id>" >&2; exit 1)
-	bash scripts/grant-billing.sh "$(BILLING)"
+	bash scripts/grant-billing.sh $(BILLING)
 
 create-billing-account:
 	bash scripts/create-billing-account.sh apply
