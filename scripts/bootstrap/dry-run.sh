@@ -32,21 +32,25 @@ run_dry_run() {
   local org="${ORGANIZATION_ID:-}"
   local folder="${FOLDER_ID:-}"
   local folder_name="${FOLDER_NAME:-}"
-  if [[ -n "${folder}" && -n "${folder_name}" ]]; then
-    echo "  [ERROR] Both FOLDER_ID and FOLDER_NAME are set. Specify only one."
-    all_ok=false
-  elif [[ -n "${folder_name}" && -z "${org}" ]]; then
-    echo "  [ERROR] FOLDER_NAME requires ORGANIZATION_ID (parent org)."
-    all_ok=false
-  elif [[ -z "${org}" && -z "${folder}" && -z "${folder_name}" ]]; then
+  # 優先順位: FOLDER_ID > FOLDER_NAME > ORGANIZATION_ID
+  # (FOLDER_NAME 解決後は FOLDER_ID と両方セットされるのが正常系。FOLDER_ID 優先)
+  if [[ -z "${org}" && -z "${folder}" && -z "${folder_name}" ]]; then
     echo "  [WARN]  None of ORGANIZATION_ID / FOLDER_ID / FOLDER_NAME is set."
     echo "          -> Project cannot be created under an org or folder."
     all_ok=false
   elif [[ -n "${folder}" ]]; then
     printf "  %-45s %s\n" "FOLDER_ID (folder mode)" "$(mask_value "${folder}")"
+    if [[ -n "${folder_name}" ]]; then
+      printf "  %-45s %s\n" "  (FOLDER_NAME ignored: FOLDER_ID set)" "${folder_name}"
+    fi
   elif [[ -n "${folder_name}" ]]; then
-    printf "  %-45s %s\n" "FOLDER_NAME (folder mode, find-or-create)" "${folder_name}"
-    printf "  %-45s %s\n" "  parent ORGANIZATION_ID" "$(mask_value "${org}")"
+    if [[ -z "${org}" ]]; then
+      echo "  [ERROR] FOLDER_NAME requires ORGANIZATION_ID (parent org)."
+      all_ok=false
+    else
+      printf "  %-45s %s\n" "FOLDER_NAME (folder mode, find-or-create)" "${folder_name}"
+      printf "  %-45s %s\n" "  parent ORGANIZATION_ID" "$(mask_value "${org}")"
+    fi
   else
     printf "  %-45s %s\n" "ORGANIZATION_ID (org-direct mode)" "$(mask_value "${org}")"
   fi
