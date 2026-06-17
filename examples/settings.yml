@@ -10,6 +10,7 @@
 #
 # Field ownership
 #   service                                 → A & B   (naming root)
+#   folder_id (optional)                    → A       (service 用 folder。B は不要)
 #   environments.<env_key>                  → A & B   (env_key = project_id suffix)
 #   environments.<env_key>.status             → A & B  (active|inactive, default active)
 #   environments.<env_key>.labels             → A & B  (string[], default [])
@@ -66,6 +67,15 @@
 # =============================================================================
 
 service: my-service
+
+# service 用 GCP folder の数値 ID (任意)。指定すると、このサービスの全 project が
+# この folder 配下に作られる (Action A の parent_folder_id input より優先)。
+# folder は **事前に作成**し (例: `gcloud resource-manager folders create
+# --display-name=my-service --folder=<root_folder_id>`)、その数値 ID をここに入れる。
+# 重要: bootstrap の root folder (Factory SA が projectCreator/projectIamAdmin を
+# 持つ folder) の配下に置くこと。grant が継承で届かないと per-env SA への owner
+# 付与が失敗する。詳細: docs/project-bootstrap/design/iam-policy.md
+# folder_id: "123456789012"
 
 # Envs listed here are protected from `terraform destroy` even if they are
 # removed from `environments:` below — the Action drops them from state
