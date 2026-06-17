@@ -456,6 +456,7 @@ module "storage" {
   source           = "./modules/storage"
   project          = var.project_id
   location         = var.region
+  default_bucket   = try(local.storage_cfg.default_bucket, false)
   buckets          = try(local.storage_cfg.buckets, [])
   firestore_backup = try(local.storage_cfg.firestore_backup, null)
 

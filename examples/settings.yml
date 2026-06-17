@@ -143,6 +143,12 @@ environments:
           point_in_time_recovery: true
 
       storage:
+        # default bucket ({project}.firebasestorage.app) を link するか。
+        # 2024-09 以降 default bucket は Terraform で作成できず Console/REST で
+        # 事前作成が必要 (要 Blaze)。未作成のまま true にすると 404 になるため
+        # default は false。Console で作成済みのときだけ true にする。
+        # additional buckets (buckets:) はこのフラグに関係なく作成される。
+        default_bucket: false
         buckets:
           - name: uploads
 
