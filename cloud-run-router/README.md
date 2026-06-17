@@ -193,20 +193,28 @@ TFC API で workspace 変数を引く。Action A のワークスペースなら 
 
 ## Dispatch payload shape
 
-Router は GitHub `repository_dispatch` の `client_payload` に以下の shape を送る:
+Router は GitHub `repository_dispatch` の `client_payload` に以下の shape を送る。
+`environments` / `labels` は **compact JSON 文字列** として送出される（pretty-print
+された複数行 JSON ではない）:
 
 ```json
 {
   "service": "my-svc",
-  "environments": ["dev-001", "dev-002"],
-  "labels": ["^tier:dev$"],
+  "environments": "[\"dev-001\",\"dev-002\"]",
+  "labels": "[\"^tier:dev$\"]",
   "run_id": "run-abc",
   "workspace_name": "project-factory-my-svc",
   "source_repo": "owner/repo"
 }
 ```
 
-caller workflow は **2 通り**の消費方法を選べる。Action B が `environments` (JSON 配列) と `labels` の両方を input として受けるので、matrix を組まずに 1 invocation で済む。
+> **注意**: `environments` / `labels` は既に JSON 配列文字列なので、caller workflow
+> では `${{ github.event.client_payload.environments }}` と **直接参照** する。
+> `toJSON()` を被せると二重エンコード（`"[\"dev-001\"]"`）になり Action B 側の
+> JSON.parse が配列にならず失敗する。compact 文字列で渡しているのは、受信側が
+> `$GITHUB_OUTPUT` へ書く際に複数行値で `Invalid format` になるのを防ぐため。
+
+caller workflow は **2 通り**の消費方法を選べる。Action B が `environments` (JSON 配列文字列) と `labels` の両方を input として受けるので、matrix を組まずに 1 invocation で済む。
 
 ### (a) environments を直接 B に渡す（A が解決した env リストをそのまま使う）
 
@@ -222,7 +230,7 @@ jobs:
       - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
         with:
           service: ${{ github.event.client_payload.service }}
-          environments: ${{ toJSON(github.event.client_payload.environments) }}
+          environments: ${{ github.event.client_payload.environments }}
           tfc_org: my-tfc-org
           bootstrap_project_number: ${{ secrets.BOOTSTRAP_PROJECT_NUMBER }}
           tfc_token: ${{ secrets.TFC_TOKEN }}
@@ -236,7 +244,7 @@ A の Run 時点での解決結果をそのまま使うので settings.yml drift
       - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
         with:
           service: ${{ github.event.client_payload.service }}
-          labels: ${{ toJSON(github.event.client_payload.labels) }}
+          labels: ${{ github.event.client_payload.labels }}
           tfc_org: my-tfc-org
           bootstrap_project_number: ${{ secrets.BOOTSTRAP_PROJECT_NUMBER }}
           tfc_token: ${{ secrets.TFC_TOKEN }}
