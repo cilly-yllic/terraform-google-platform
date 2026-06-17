@@ -355,6 +355,30 @@ resource "google_project_service" "this" {
 }
 
 # ---------------------------------------------------------------------------
+# API 有効化の伝播待ち
+#
+# google_project_service は有効化リクエストが受理された時点で完了扱いになるが、
+# firebase.googleapis.com 等は実際に使えるようになるまで GCP 側で数分の伝播遅延が
+# ある。直後に Firebase Management API を叩く google_firebase_project が走ると
+# 403 SERVICE_DISABLED ("...has not been used... or it is disabled") になる race を
+# 起こすため、ここで待ってから Firebase 系リソースを作る。
+# 関連: modules/firebase/main.tf (google_firebase_project)
+# firebase / apps を作らない構成では不要なので count で抑止する。
+# ---------------------------------------------------------------------------
+
+resource "time_sleep" "api_propagation" {
+  count           = local.enable_firebase || local.enable_apps ? 1 : 0
+  create_duration = "60s"
+
+  # API セットが変わった時だけ待ち直す (毎 apply で待たせない)
+  triggers = {
+    apis = join(",", local.all_apis)
+  }
+
+  depends_on = [google_project_service.this]
+}
+
+# ---------------------------------------------------------------------------
 # Billing
 # ---------------------------------------------------------------------------
 
@@ -373,7 +397,10 @@ module "firebase" {
   source  = "./modules/firebase"
   project = var.project_id
 
-  depends_on = [google_project_service.this]
+  # API 伝播待ちを挟む (time_sleep.api_propagation 参照)。大半の Firebase 系
+  # サブモジュールは module.firebase に depends_on しているので、ここを待たせれば
+  # 連鎖的に伝播 race を防げる。
+  depends_on = [google_project_service.this, time_sleep.api_propagation]
 }
 
 # ---------------------------------------------------------------------------
@@ -456,7 +483,9 @@ module "apps_web" {
   name         = each.value.name
   display_name = each.value.display_name
 
-  depends_on = [google_project_service.this, module.firebase]
+  # firebase=false で apps だけ作る構成 (module.firebase が count 0) でも
+  # API 伝播 race を防ぐため time_sleep を直接待つ。
+  depends_on = [google_project_service.this, module.firebase, time_sleep.api_propagation]
 }
 
 module "apps_ios" {
@@ -469,7 +498,7 @@ module "apps_ios" {
   app_store_id = each.value.app_store_id
   team_id      = each.value.team_id
 
-  depends_on = [google_project_service.this, module.firebase]
+  depends_on = [google_project_service.this, module.firebase, time_sleep.api_propagation]
 }
 
 module "apps_android" {
@@ -482,7 +511,7 @@ module "apps_android" {
   sha1_hashes   = each.value.sha1_hashes
   sha256_hashes = each.value.sha256_hashes
 
-  depends_on = [google_project_service.this, module.firebase]
+  depends_on = [google_project_service.this, module.firebase, time_sleep.api_propagation]
 }
 
 # apps 全体の name uniqueness を plan-time で validate (type 跨いで重複は許さない)。
