@@ -169,13 +169,17 @@ Cloud Run Router からの `client_payload` は **hybrid shape**:
 ```json
 {
   "service": "my-svc",
-  "environments": ["dev-001", "dev-002"],
-  "labels": ["^tier:dev$"],
+  "environments": "[\"dev-001\",\"dev-002\"]",
+  "labels": "[\"^tier:dev$\"]",
   "run_id": "...",
   "workspace_name": "...",
   "source_repo": "owner/repo"
 }
 ```
+
+`environments` / `labels` は **compact JSON 文字列**。caller workflow では
+`toJSON()` を被せず `${{ github.event.client_payload.environments }}` と直接参照する
+（toJSON は二重エンコードになり NG）。理由は cloud-run-router README "Dispatch payload shape" 参照。
 
 Action B が `environments` (JSON 配列) と `labels` の両方を input として受けるので、**matrix なしの 1 invocation** で消費できる。
 
@@ -195,7 +199,7 @@ jobs:
       - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
         with:
           service: ${{ github.event.client_payload.service }}
-          environments: ${{ toJSON(github.event.client_payload.environments) }}
+          environments: ${{ github.event.client_payload.environments }}
           tfc_org: my-tfc-org
           bootstrap_project_number: ${{ secrets.BOOTSTRAP_PROJECT_NUMBER }}
           tfc_token: ${{ secrets.TFC_TOKEN }}
@@ -207,7 +211,7 @@ jobs:
       - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
         with:
           service: ${{ github.event.client_payload.service }}
-          labels: ${{ toJSON(github.event.client_payload.labels) }}
+          labels: ${{ github.event.client_payload.labels }}
           tfc_org: my-tfc-org
           bootstrap_project_number: ${{ secrets.BOOTSTRAP_PROJECT_NUMBER }}
           tfc_token: ${{ secrets.TFC_TOKEN }}
@@ -228,6 +232,69 @@ jobs:
 ```
 
 → `tier:dev` ラベルが付いた env を順次 dispatch（各 env で workspace upsert + Run を 1 回）。
+
+### Workflow 例: 自動 (repository_dispatch) + 手動 (workflow_dispatch) の両対応
+
+`repository_dispatch` で来た値と、手動 `workflow_dispatch` で渡す値を 1 つの prep step に
+まとめてから action へ渡すパターン。`client_payload.environments` / `labels` は **compact
+JSON 文字列**で来るので `toJSON()` を被せず直接 env に流す（pretty-print されず単一行のまま
+なので `$GITHUB_OUTPUT` への `key=value` 書き込みが安全）。
+
+```yaml
+name: Firebase Platform Trigger
+on:
+  repository_dispatch:
+    types: [firebase_platform_requested]
+  workflow_dispatch:
+    inputs:
+      service:
+        required: true
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: prep
+        # toJSON は使わない: Router が compact JSON 文字列で送るため直接参照で単一行。
+        env:
+          PAYLOAD_SERVICE: ${{ github.event.client_payload.service }}
+          PAYLOAD_ENVIRONMENTS: ${{ github.event.client_payload.environments }}
+          PAYLOAD_LABELS: ${{ github.event.client_payload.labels }}
+          INPUT_SERVICE: ${{ inputs.service }}
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            service="$PAYLOAD_SERVICE"
+            environments="$PAYLOAD_ENVIRONMENTS"   # 例: ["dev-001"] (単一行)
+            labels="$PAYLOAD_LABELS"               # 例: ["^tier:dev$"]
+            use_resolve_labels=false
+          else
+            # 手動実行: service だけ受け取り、B 自身に settings.yml で再解決させる
+            service="$INPUT_SERVICE"
+            environments=""
+            labels=""
+            use_resolve_labels=true
+          fi
+          {
+            echo "service=${service}"
+            echo "environments=${environments}"
+            echo "labels=${labels}"
+            echo "use_resolve_labels=${use_resolve_labels}"
+          } >> "$GITHUB_OUTPUT"
+      - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
+        with:
+          service: ${{ steps.prep.outputs.service }}
+          # repository_dispatch 経路では environments、手動経路では labels (settings.yml で再解決) を使う
+          environments: ${{ steps.prep.outputs.environments }}
+          labels: ${{ steps.prep.outputs.use_resolve_labels == 'true' && '' || steps.prep.outputs.labels }}
+          tfc_org: my-tfc-org
+          bootstrap_project_number: ${{ secrets.BOOTSTRAP_PROJECT_NUMBER }}
+          tfc_token: ${{ secrets.TFC_TOKEN }}
+```
+
+> 手動実行で settings.yml 全体を再解決させたい場合は、action の `labels` に対象ラベル
+> （例 `'["^tier:dev$"]'`）を渡すか、`environments` / `labels` を service 単位で解決する
+> 自前ロジックを prep step に足す。`use_resolve_labels` フラグはその分岐用の足場。
 
 ### Apply Policy
 
