@@ -125,7 +125,9 @@ output "app_hosting_backends" {
   description = "Map of App Hosting backends, keyed by backend_id. Each value contains resource_name and uri."
   value = {
     for backend_id, mod in module.app_hosting : backend_id => {
-      resource_name = mod.resource_name
+      # app-hosting submodule の output 名は `name` (resource_name ではない)。
+      # 公開 output のキーは resource_name のまま維持する。
+      resource_name = mod.name
       uri           = mod.uri
     }
   }
