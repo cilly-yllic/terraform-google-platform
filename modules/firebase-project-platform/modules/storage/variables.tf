@@ -8,6 +8,20 @@ variable "location" {
   type        = string
 }
 
+# Firebase の default bucket (`{project}.firebasestorage.app`) を link するか。
+# 2024-09 以降 default bucket は Terraform で provisioning できず、Firebase Console
+# (または REST `projects.defaultBucket.create`) で事前作成が必要 (要 Blaze)。
+# google_firebase_storage_bucket は既存バケットを link するだけなので、未作成の
+# default bucket を link しようとすると 404 になる。そのため default は false
+# (= default bucket を扱わない)。Console で作成済みで link したい場合のみ true。
+# additional buckets (var.buckets) はこのフラグに関係なく設定どおり作成される。
+# 詳細: docs/firebase-project-platform/upstream-spec-links.md
+variable "default_bucket" {
+  description = "Link the Firebase default bucket ({project}.firebasestorage.app). Must be pre-created via Console (Terraform cannot provision it since 2024-09). Default false."
+  type        = bool
+  default     = false
+}
+
 variable "buckets" {
   # GCS bucket は globally unique。`auto_prefix = true` で `{project_id}-{name}`
   # に組み立てる。default は false (= `name` をそのまま使う)。
