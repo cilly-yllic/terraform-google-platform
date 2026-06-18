@@ -186,6 +186,9 @@ const PASSTHROUGH_KEYS = [
   "users",
   "ci_service_account",
   "service_accounts",
+  // App Hosting git 連携 (Developer Connect) の GitHub connection 設定。
+  // app_hosting[].repo を使う場合に必須。object なので passthrough で透過する。
+  "github_connection",
 ] as const;
 
 function toHclValue(val: unknown): string {

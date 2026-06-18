@@ -35,6 +35,11 @@ ${VERSION_PLACEHOLDER}
   users              = var.users
   ci_service_account = var.ci_service_account
   service_accounts   = var.service_accounts
+  github_connection  = var.github_connection
+  github_oauth_token = var.github_oauth_token
+
+  github_app_installation_id = var.github_app_installation_id
+  app_hosting_repo           = var.app_hosting_repo
 }
 
 variable "project_id" {
@@ -179,6 +184,27 @@ variable "ci_service_account" {
 variable "service_accounts" {
   type    = any
   default = []
+}
+
+variable "github_connection" {
+  type    = any
+  default = null
+}
+
+variable "github_oauth_token" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "github_app_installation_id" {
+  type    = string
+  default = ""
+}
+
+variable "app_hosting_repo" {
+  type    = string
+  default = ""
 }
 `;
 
