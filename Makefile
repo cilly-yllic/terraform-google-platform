@@ -1,6 +1,7 @@
 .PHONY: bootstrap bootstrap-check bootstrap-print-env grant-billing
 .PHONY: create-billing-account create-billing-account-check create-billing-account-print-env
 .PHONY: setup-router-hmac rotate-router-hmac sync-router-hmac set-github-app-private-key
+.PHONY: github-sync github-sync-apply
 
 bootstrap:
 	bash scripts/bootstrap.sh apply
@@ -53,3 +54,13 @@ sync-router-hmac:
 set-github-app-private-key:
 	@[ -n "$(PEM)" ] || (echo "Usage: make set-github-app-private-key PEM=path/to/key.pem" >&2; exit 1)
 	bash scripts/router-pem.sh add "$(PEM)"
+
+# bootstrap 済み infra の値を消費側 repo (.env GITHUB_REPOSITORY) の
+# GitHub Actions Secrets / Variables に確認・同期する。
+#   make github-sync          # check (差分表示のみ、書き込まない)
+#   make github-sync-apply     # derived を set (manual は同名 env を export していれば set)
+github-sync:
+	bash scripts/github-sync.sh check
+
+github-sync-apply:
+	bash scripts/github-sync.sh apply $(if $(YES),--yes)

@@ -173,9 +173,88 @@ variable "app_hosting" {
                          (両方書くと plan-time error)
       service_account  = Service account email (default: 自動で project 共有の SA を作成)
       serving_locality = GLOBAL_ACCESS | REGION_LOCKED (default: "GLOBAL_ACCESS")
+
+    git 連携 (Developer Connect) backend にする場合の追加フィールド:
+      repo           = GitHub clone_uri (例: https://github.com/owner/repo.git)。
+                       指定すると codebase + 自動ロールアウトを構成する。
+                       repo 指定時は github_connection が必須。
+      branch         = 自動ロールアウトの監視ブランチ (例: main)。push で build & rollout。
+                       省略すると自動ロールアウトしない (backend だけ作成)。
+      root_directory = リポジトリ内の web app ルート (例: apps/web)。省略でリポジトリ直下。
+      repo_link_id   = git_repository_link ID (省略時は clone_uri の owner/repo から導出)
+
+    repo は通常 settings.yml に書かず、app_hosting_repo 変数 (Action B が「処理中の
+    service repo」から自動注入) で解決する。per-backend で別 repo を指したい場合のみ repo を書く。
   EOT
   type        = any
   default     = null
+}
+
+variable "app_hosting_repo" {
+  description = <<-EOT
+    git 連携 backend の clone_uri の default 値 (例: https://github.com/owner/repo.git)。
+    app_hosting[].repo が未指定の git 連携 backend に適用される。
+
+    Action B (dispatch-firebase-platform) が「処理中の service repo」
+    (https://github.com/<owner>/<service>.git) から自動導出して注入する想定。
+    これにより settings.yml に clone_uri を重複記載しなくてよい。
+    backend は repo / branch / root_directory のいずれかが設定されていれば git 連携対象。
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "github_connection" {
+  description = <<-EOT
+    App Hosting git 連携 (Developer Connect) で使う GitHub connection 設定。
+    app_hosting[].repo を 1 つでも指定する場合に必須。
+
+    object:
+      app_installation_id = Firebase GitHub App のインストール ID (組織あたり1回の
+                            手動認可で取得。組織レベルで再利用可)。必須。
+      oauth_token_secret  = OAuth token を格納した Secret Manager secret の短縮名。
+                            bootstrap が対象プロジェクトに投入する。必須。
+                            module は projects/<project>/secrets/<name>/versions/latest
+                            を参照する。
+      connection_id       = connection 名 (default "github"、project-unique)。任意。
+      location            = connection / repo link の location (default: var.region)。任意。
+
+    注意: GitHub↔GCP の信頼は GCP 側の connection が保持し、初回認可 (組織で1回)
+    以降は非対話で connection を作成できる。token 値そのものは github_connection
+    ではなく github_oauth_token (sensitive) で渡す (settings.yml に書かないため)。
+  EOT
+  type        = any
+  default     = null
+}
+
+variable "github_app_installation_id" {
+  description = <<-EOT
+    Firebase GitHub App の installation ID (組織あたり1個・安定・非機微)。
+    指定すると github_connection.app_installation_id より優先される。
+    org 共通値を settings.yml に重複させたくない場合に、Action input / repo Variable
+    経由でここに注入する。空なら github_connection.app_installation_id にフォールバック。
+
+    取得: gh api /orgs/<org>/installations --jq '.installations[] | "\\(.id)\\t\\(.app_slug)"'
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "github_oauth_token" {
+  description = <<-EOT
+    App Hosting git 連携用の GitHub OAuth token 値 (組織あたり1回の認可で取得)。
+
+    供給される (空でない) と、terraform が対象プロジェクトの Secret Manager に
+    github_connection.oauth_token_secret 名で secret + version を作成する (推奨・自動)。
+    Action B が GitHub Secret 由来の値を sensitive TFC 変数として注入する想定。
+    state に sensitive 値が乗る点に注意。
+
+    空のままなら、外部 (bootstrap 等) が投入済みの既存 secret を参照する
+    (state に乗せたくない場合のモード)。settings.yml には書かないこと。
+  EOT
+  type        = string
+  default     = ""
+  sensitive   = true
 }
 
 variable "data_connect" {
