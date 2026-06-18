@@ -39,6 +39,7 @@ ${VERSION_PLACEHOLDER}
 
   github_app_installation_id = var.github_app_installation_id
   app_hosting_repo           = var.app_hosting_repo
+  app_hosting_git_ready      = var.app_hosting_git_ready
 }
 
 variable "project_id" {
@@ -198,6 +199,11 @@ variable "github_app_installation_id" {
 variable "app_hosting_repo" {
   type    = string
   default = ""
+}
+
+variable "app_hosting_git_ready" {
+  type    = bool
+  default = false
 }
 `;
 

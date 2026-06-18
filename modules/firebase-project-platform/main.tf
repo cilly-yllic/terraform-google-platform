@@ -257,6 +257,10 @@ locals {
   ]
   enable_app_hosting_git = length(local.app_hosting_git_backends) > 0
 
+  # フェーズ2 ゲート: connection 認可 (ブラウザ) 完了後に repo link / codebase /
+  # rollout を作る。app_hosting_git_ready=true で有効化。
+  app_hosting_git_link = local.enable_app_hosting_git && var.app_hosting_git_ready
+
   # backend ごとの clone_uri。per-backend repo を最優先し、無ければ module 全体の
   # default (var.app_hosting_repo、= Action B が「処理中の service repo」から自動注入)
   # を使う。settings.yml に clone_uri を重複させないための仕組み。
@@ -718,22 +722,24 @@ resource "terraform_data" "validate_app_hosting_git" {
 
   lifecycle {
     precondition {
-      condition     = local.github_app_installation_id != ""
-      error_message = "app_hosting に git 連携 backend を指定した場合、Firebase GitHub App の installation ID が必須です。github_app_installation_id 変数 (repo Variable 経由) または github_connection.app_installation_id を設定してください。"
-    }
-    precondition {
-      # 各 git 連携 backend は clone_uri を解決できる必要がある (per-backend repo か
-      # module 全体の app_hosting_repo のどちらか)。
-      condition     = length([for id, uri in local.app_hosting_clone_uri : id if uri == ""]) == 0
+      # repo 連携を張る段階 (app_hosting_git_ready=true) では clone_uri が解決できる必要がある。
+      condition     = !local.app_hosting_git_link || length([for id, uri in local.app_hosting_clone_uri : id if uri == ""]) == 0
       error_message = "git 連携 backend の clone_uri を解決できません。app_hosting[].repo を指定するか、app_hosting_repo 変数 (Action B が service repo から自動注入) を渡してください。"
     }
   }
 }
 
-# github_app = "FIREBASE" の connection は OAuth token / authorizer_credential / secret を
-# 使わない。GitHub↔GCP の認可は「組織への Firebase GitHub App インストール」(一度きり) で
-# 成立し、Developer Connect が credential を内部保持する。terraform は app_installation_id
-# だけ渡せばよい。
+# App Hosting git 連携 (github_app = "FIREBASE") は 2 フェーズ:
+#   フェーズ1 (app_hosting_git_ready=false): この connection だけを作る。
+#     github_app="FIREBASE" のみ指定 → connection は PENDING で作成される。
+#     その後、人間が install URI をブラウザで開いて Firebase GitHub App を認可 →
+#     Developer Connect が credential を保持し connection が COMPLETE になる。
+#       URI 確認: gcloud developer-connect connections describe <id> --location=<region> --project=<p>
+#   フェーズ2 (app_hosting_git_ready=true): COMPLETE 後に repo link / codebase /
+#     rollout_policy を作る (下の app_hosting_git_link で gate)。
+#
+# 認可で connection に app_installation_id が内部設定されるが、terraform は github_app
+# しか管理しないので app_installation_id の差分は無視する (drift 防止)。
 resource "google_developer_connect_connection" "github" {
   count         = local.enable_app_hosting_git ? 1 : 0
   project       = var.project_id
@@ -741,8 +747,11 @@ resource "google_developer_connect_connection" "github" {
   connection_id = local.github_connection_id
 
   github_config {
-    github_app          = "FIREBASE"
-    app_installation_id = local.github_app_installation_id
+    github_app = "FIREBASE"
+  }
+
+  lifecycle {
+    ignore_changes = [github_config[0].app_installation_id]
   }
 
   depends_on = [
@@ -751,8 +760,9 @@ resource "google_developer_connect_connection" "github" {
   ]
 }
 
+# repo link はフェーズ2 (connection 認可済み) のみ作成する。
 resource "google_developer_connect_git_repository_link" "this" {
-  for_each               = local.enable_app_hosting_git ? local.app_hosting_repo_links_canonical : {}
+  for_each               = local.app_hosting_git_link ? local.app_hosting_repo_links_canonical : {}
   project                = var.project_id
   location               = local.github_connection_location
   parent_connection      = google_developer_connect_connection.github[0].connection_id
@@ -772,14 +782,15 @@ module "app_hosting" {
   service_account  = each.value.service_account != "" ? each.value.service_account : google_service_account.app_hosting_default[0].email
   serving_locality = each.value.serving_locality
 
-  # git 連携 backend のみ codebase / 自動ロールアウトを設定 (repo 未指定なら全て "")。
-  # try() は非 git backend で repo_link map にキーが無いケースを "" に落とすため。
-  codebase_repository = try(
+  # codebase / rollout はフェーズ2 (app_hosting_git_link=true、connection 認可済み) のみ。
+  # フェーズ1 では bare backend として作成し、認可後に codebase を後付けする。
+  # try() は非 git backend / repo_link 未作成時にキーが無いケースを "" に落とすため。
+  codebase_repository = local.app_hosting_git_link ? try(
     google_developer_connect_git_repository_link.this[local.app_hosting_repo_link_id[each.value.backend_id]].name,
     ""
-  )
+  ) : ""
   root_directory = each.value.root_directory
-  rollout_branch = each.value.branch
+  rollout_branch = local.app_hosting_git_link ? each.value.branch : ""
 
   depends_on = [
     google_project_service.this,

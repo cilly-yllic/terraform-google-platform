@@ -224,6 +224,22 @@ variable "github_connection" {
   default     = null
 }
 
+variable "app_hosting_git_ready" {
+  description = <<-EOT
+    App Hosting git 連携 (github_app="FIREBASE") の2フェーズ制御フラグ。
+
+    false (default) = フェーズ1: Developer Connect connection だけを作る (PENDING)。
+                      その後、人間が install URI をブラウザで開いて Firebase GitHub App を
+                      認可し connection を COMPLETE にする。backend は bare で作成される。
+    true            = フェーズ2: connection 認可後に repo link / backend.codebase /
+                      rollout_policy(監視ブランチ) を作成する。
+
+    運用: まず未設定(false)で apply → 認可 → true にして再 apply。
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "github_app_installation_id" {
   description = <<-EOT
     Firebase GitHub App の installation ID (組織あたり1個・安定・非機微)。
