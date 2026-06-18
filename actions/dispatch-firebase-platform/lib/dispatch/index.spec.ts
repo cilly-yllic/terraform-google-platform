@@ -649,6 +649,24 @@ describe("buildTerraformVariables", () => {
     const r = vars.find((v) => v.key === "region");
     expect(r?.value).toBe("null");
   });
+
+  it("passes github_connection through as an HCL object (App Hosting git 連携)", () => {
+    // github_connection は object passthrough。app_hosting[].repo を使う時に必須。
+    const without = buildTerraformVariables("p", {});
+    expect(without.find((v) => v.key === "github_connection")).toBeUndefined();
+
+    const vars = buildTerraformVariables("p", {
+      github_connection: {
+        app_installation_id: "12345678",
+        oauth_token_secret: "github-oauth-token",
+      },
+    });
+    const gc = vars.find((v) => v.key === "github_connection");
+    expect(gc?.hcl).toBe(true);
+    expect(gc?.value).toBe(
+      '{ "app_installation_id" = "12345678", "oauth_token_secret" = "github-oauth-token" }',
+    );
+  });
 });
 
 describe("buildEnvVariables", () => {
