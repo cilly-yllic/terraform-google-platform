@@ -53,61 +53,14 @@ App Hosting のランタイム成果物で Terraform は管理しない。
 
 ---
 
-## One-time setup (once per GitHub org)
+## Setup — two phases (`github_app = "FIREBASE"`)
 
-`github_app = "FIREBASE"` connections do **not** use an OAuth token or a Secret
-Manager secret. The GitHub↔GCP authorization is established by **installing the
-Firebase App Hosting GitHub App on the org once** (browser); Developer Connect then
-holds the credential internally. Terraform only needs the **installation id**.
+A FIREBASE connection uses **no OAuth token and no Secret Manager secret**. Terraform
+creates the connection in a **PENDING** state with just `github_app = "FIREBASE"`; a
+human authorizes it once in the browser; then Terraform links the repo. This is a
+**two-phase** flow controlled by the `app_hosting_git_ready` flag.
 
-1. **Install the Firebase App Hosting GitHub App on the GitHub org** (browser, once).
-   Use a **robot / shared GitHub account** (not a personal one) so it does not break
-   when an individual leaves. (Doing it via the Firebase Console App Hosting setup,
-   or the Cloud Console Developer Connect flow, both work.)
-2. **Capture the `app_installation_id`** (org-level, reusable, non-sensitive):
-   `gh api /orgs/<org>/installations --jq '.installations[] | "\(.id)\t\(.app_slug)"'`
-
-That's the only one-time step. There is **no OAuth token to copy** and nothing to put
-in Secret Manager.
-
-<details><summary>Ja</summary>
-
-`github_app = "FIREBASE"` の connection は **OAuth token も Secret Manager secret も使わない**。
-GitHub↔GCP の認可は **組織への Firebase App Hosting GitHub App インストール (一度きり)** で
-成立し、Developer Connect が credential を内部保持する。terraform に必要なのは
-**installation id だけ**。
-
-1. **Firebase App Hosting GitHub App を組織にインストール** (ブラウザ・一度きり)。
-   **robot / 共有アカウント**を使う。Firebase コンソールの App Hosting セットアップ、
-   または Cloud コンソールの Developer Connect フローのどちらでも可。
-2. **`app_installation_id` を取得** (組織レベル・再利用可・非機微):
-   `gh api /orgs/<org>/installations --jq '.installations[] | "\(.id)\t\(.app_slug)"'`
-
-これが唯一の一度きり手順。**コピーする OAuth token は無く**、Secret Manager に入れる
-ものも無い。
-
-</details>
-
----
-
-## Per-environment setup
-
-### 1. Provide the installation id (once per org, set as a repo Variable)
-
-Pass `app_installation_id` via **Action B's `github_app_installation_id` input**, from a
-repo **Variable** (`APPHOSTING_GITHUB_APP_INSTALLATION_ID`) — so the org-wide value is
-not duplicated in every service's `settings.yml`. `make github-sync` derives and sets it
-automatically.
-
-```yaml
-# consumer workflow (configure-platform.yml) calling Action B
-- uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@...
-  with:
-    # ...
-    github_app_installation_id: ${{ vars.APPHOSTING_GITHUB_APP_INSTALLATION_ID }}
-```
-
-### 2. Configure `settings.yml`
+### `settings.yml`
 
 ```yaml
 firebase_platform:
@@ -117,32 +70,57 @@ firebase_platform:
   app_hosting:
     - backend_id: task-tree-web-app
       app: task-tree-web-app
-      branch: main                              # 監視ブランチ (push で自動 rollout) → git 連携の signal
+      branch: main                              # 監視ブランチ (push で自動 rollout)
       root_directory: apps/task-tree/web-app    # repo 内の web app ルート
       # repo (clone_uri) は通常書かない。Action B が service repo から自動注入する。
-  # github_connection は不要 (FIREBASE タイプは token/secret を使わない)。
-  # app_installation_id は Action B input で渡す。connection 名/location を変えたい時のみ
-  # github_connection: { connection_id: ..., location: ... } を任意で書く。
+  # app_hosting_git_ready: true   # ← フェーズ2 で有効化 (下記)
 ```
 
-A backend is treated as **git-connected** when it has `branch` and/or `root_directory`
-(and/or an explicit `repo`); a "bare backend" (none of these) keeps the legacy non-git
-behavior. The clone_uri is normally **not** written — Action B derives
-`https://github.com/<owner>/<service>.git` and injects it via `app_hosting_repo`
-(override per-backend with `repo` only for a different repository).
+### Phase 1 — create the connection (PENDING)
+
+Deploy with `app_hosting_git_ready` **unset/false** (default). Terraform creates the
+Developer Connect connection (PENDING) and a **bare** backend (no codebase yet, no repo
+link).
+
+### Authorize (one-time, browser)
+
+Find the install URI and complete it (installs/authorizes the Firebase GitHub App; use a
+**robot / shared GitHub account**):
+
+```sh
+gcloud developer-connect connections describe github \
+  --location=<region> --project=<firebase-project>   # → installationState / action(install) URI
+```
+Open the URI, authorize. Re-describe until `installationState` is `COMPLETE`.
+
+### Phase 2 — link the repo
+
+Set **`app_hosting_git_ready: true`** in `settings.yml` and re-run Action B. Terraform now
+creates the `git_repository_link`, the backend `codebase`, and the `traffic.rollout_policy`
+(watched branch) against the now-COMPLETE connection.
+
+### Deploy
+
+Push to the watched branch (delivery branch) → App Hosting builds & rolls out. CI needs
+**zero GCP permissions** (`git push` only).
 
 <details><summary>Ja</summary>
 
-### 1. installation id を渡す (組織で1回、repo Variable に)
+FIREBASE connection は **OAuth token も secret も使わない**。terraform が
+`github_app="FIREBASE"` だけで connection を **PENDING** 作成 → 人間がブラウザで一度認可 →
+terraform が repo を連携、という **2 フェーズ**。`app_hosting_git_ready` フラグで制御する。
 
-`app_installation_id` は Action B の `github_app_installation_id` input (repo Variable
-`APPHOSTING_GITHUB_APP_INSTALLATION_ID`) で渡す。`make github-sync` が自動導出・set する。
+1. **フェーズ1**: `app_hosting_git_ready` 未設定(false)で deploy → connection (PENDING) と
+   bare backend を作成。
+2. **認可 (ブラウザ・一度)**: `gcloud developer-connect connections describe github
+   --location=<region> --project=<project>` で install URI を取得 → 開いて Firebase GitHub
+   App を認可 (robot / 共有アカウント推奨)。`installationState` が `COMPLETE` になるまで待つ。
+3. **フェーズ2**: `settings.yml` に `app_hosting_git_ready: true` を追加して Action B 再実行 →
+   repo link / codebase / rollout_policy を作成。
+4. **デプロイ**: 監視ブランチへ push → App Hosting が自動ビルド&ロールアウト (CI 権限ゼロ)。
 
-### 2. `settings.yml` を設定
-
-`branch` / `root_directory` のいずれかがあれば git 連携 backend と判定される
-(無ければ "bare backend")。clone_uri (`repo`) は通常書かず Action B が自動注入。
-`github_connection` は不要 (FIREBASE タイプは token/secret 不使用)。
+注: `branch` / `root_directory` のいずれかで git 連携 backend と判定。clone_uri は Action B
+が自動注入。
 
 </details>
 
