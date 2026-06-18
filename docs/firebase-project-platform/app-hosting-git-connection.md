@@ -55,36 +55,36 @@ App Hosting のランタイム成果物で Terraform は管理しない。
 
 ## One-time setup (once per GitHub org)
 
-The GitHub App installation + OAuth authorization is done **once per GitHub org**
-and reused across all projects/environments. No per-env browser step.
+`github_app = "FIREBASE"` connections do **not** use an OAuth token or a Secret
+Manager secret. The GitHub↔GCP authorization is established by **installing the
+Firebase App Hosting GitHub App on the org once** (browser); Developer Connect then
+holds the credential internally. Terraform only needs the **installation id**.
 
-1. **Install the Firebase GitHub App + authorize** on the GitHub org (browser).
-   Create a Developer Connect connection once via the Firebase Console / Cloud
-   Console and complete the `installation_state.action_uri` flow. Use a
-   **robot / shared GitHub account** (not a personal account) so the connection
-   does not break when an individual leaves or loses repo access.
-2. **Capture two values** from that authorization:
-   - `app_installation_id` — the org-level GitHub App installation id (reusable).
-   - the **OAuth token** that authorizes the connection (store securely).
+1. **Install the Firebase App Hosting GitHub App on the GitHub org** (browser, once).
+   Use a **robot / shared GitHub account** (not a personal one) so it does not break
+   when an individual leaves. (Doing it via the Firebase Console App Hosting setup,
+   or the Cloud Console Developer Connect flow, both work.)
+2. **Capture the `app_installation_id`** (org-level, reusable, non-sensitive):
+   `gh api /orgs/<org>/installations --jq '.installations[] | "\(.id)\t\(.app_slug)"'`
 
-These two values are reused for every environment. Terraform never holds the GitHub
-token itself — the GitHub↔GCP trust lives in the GCP-side connection.
+That's the only one-time step. There is **no OAuth token to copy** and nothing to put
+in Secret Manager.
 
 <details><summary>Ja</summary>
 
-GitHub App のインストール + OAuth 認可は **GitHub 組織あたり1回**だけ実施し、
-全プロジェクト/環境で使い回す。env ごとのブラウザ手順は発生しない。
+`github_app = "FIREBASE"` の connection は **OAuth token も Secret Manager secret も使わない**。
+GitHub↔GCP の認可は **組織への Firebase App Hosting GitHub App インストール (一度きり)** で
+成立し、Developer Connect が credential を内部保持する。terraform に必要なのは
+**installation id だけ**。
 
-1. **Firebase GitHub App をインストール + 認可** (ブラウザ)。Firebase コンソール /
-   Cloud コンソールで connection を1回作り、`installation_state.action_uri` の
-   フローを完了する。個人アカウントではなく **robot / 共有アカウント**を使う
-   (担当者の退職や権限喪失で連携が壊れないように)。
-2. その認可から **2つの値**を取得する:
-   - `app_installation_id` — 組織レベルの GitHub App インストール ID (再利用可)
-   - connection を認可する **OAuth token** (安全に保管)
+1. **Firebase App Hosting GitHub App を組織にインストール** (ブラウザ・一度きり)。
+   **robot / 共有アカウント**を使う。Firebase コンソールの App Hosting セットアップ、
+   または Cloud コンソールの Developer Connect フローのどちらでも可。
+2. **`app_installation_id` を取得** (組織レベル・再利用可・非機微):
+   `gh api /orgs/<org>/installations --jq '.installations[] | "\(.id)\t\(.app_slug)"'`
 
-この2値を全環境で使い回す。Terraform は GitHub token を保持しない —
-GitHub↔GCP の信頼は GCP 側の connection が持つ。
+これが唯一の一度きり手順。**コピーする OAuth token は無く**、Secret Manager に入れる
+ものも無い。
 
 </details>
 
@@ -92,45 +92,19 @@ GitHub↔GCP の信頼は GCP 側の connection が持つ。
 
 ## Per-environment setup
 
-### 1. Inject the OAuth token into the target project's Secret Manager
+### 1. Provide the installation id (once per org, set as a repo Variable)
 
-The connection reads the OAuth token from Secret Manager in the **target Firebase
-project**. There are two ways to get it there:
-
-**(A) Let Terraform create the secret (recommended, fully automated).** Pass the token
-to **Action B** via its `github_oauth_token` input (sourced from a GitHub Actions
-secret in the consumer repo, e.g. `secrets.APPHOSTING_GITHUB_OAUTH_TOKEN`). Action B
-injects it as a **sensitive** Terraform variable per workspace, and the module creates
-`google_secret_manager_secret` + `_version` in the target project automatically. No
-per-project manual step. Trade-off: the token value is stored in TFC state (sensitive,
-encrypted at rest).
-
-`app_installation_id` (org-level, stable, non-sensitive) is passed the same way —
-via Action B's `github_app_installation_id` input from a repo **Variable** — so the
-org-wide value is not duplicated in every service's `settings.yml`:
+Pass `app_installation_id` via **Action B's `github_app_installation_id` input**, from a
+repo **Variable** (`APPHOSTING_GITHUB_APP_INSTALLATION_ID`) — so the org-wide value is
+not duplicated in every service's `settings.yml`. `make github-sync` derives and sets it
+automatically.
 
 ```yaml
 # consumer workflow (configure-platform.yml) calling Action B
 - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@...
   with:
     # ...
-    github_oauth_token:          ${{ secrets.APPHOSTING_GITHUB_OAUTH_TOKEN }}
-    github_app_installation_id:  ${{ vars.APPHOSTING_GITHUB_APP_INSTALLATION_ID }}
-```
-
-Get the installation id with:
-`gh api /orgs/<org>/installations --jq '.installations[] | "\(.id)\t\(.app_slug)"'`.
-The Action input takes precedence over `github_connection.app_installation_id` in
-`settings.yml` (which remains as a fallback).
-
-**(B) Reference a pre-existing secret (token never in TFC state).** Omit
-`github_oauth_token`; inject the secret yourself once per project and the module just
-references it:
-
-```sh
-printf '%s' "$TOKEN" | gcloud secrets create apphosting-github-oauth-token \
-  --project=cmonoth-dev-004 --replication-policy=automatic --data-file=-
-# rotate: gcloud secrets versions add apphosting-github-oauth-token --project=... --data-file=-
+    github_app_installation_id: ${{ vars.APPHOSTING_GITHUB_APP_INSTALLATION_ID }}
 ```
 
 ### 2. Configure `settings.yml`
@@ -146,43 +120,29 @@ firebase_platform:
       branch: main                              # 監視ブランチ (push で自動 rollout) → git 連携の signal
       root_directory: apps/task-tree/web-app    # repo 内の web app ルート
       # repo (clone_uri) は通常書かない。Action B が service repo から自動注入する。
-  github_connection:
-    oauth_token_secret: apphosting-github-oauth-token  # secret 名 (作成先 / 参照先)
-    # app_installation_id は Action B の github_app_installation_id input (repo Variable)
-    # で渡すのが推奨。settings.yml に書く場合のみ app_installation_id: "12345678" を追加。
+  # github_connection は不要 (FIREBASE タイプは token/secret を使わない)。
+  # app_installation_id は Action B input で渡す。connection 名/location を変えたい時のみ
+  # github_connection: { connection_id: ..., location: ... } を任意で書く。
 ```
 
 A backend is treated as **git-connected** when it has `branch` and/or `root_directory`
-(and/or an explicit `repo`); a "bare backend" (none of these) keeps the legacy
-non-git behavior. The clone_uri is normally **not** written in `settings.yml` — Action B
-derives `https://github.com/<owner>/<service>.git` from the service repo it is
-processing and injects it via the `app_hosting_repo` input (override per-backend with
-`repo` only when a backend points at a different repository). Neither the token nor
-(preferably) the installation id is written in `settings.yml` either — both flow via
-Action B inputs (`github_oauth_token` / `github_app_installation_id`).
+(and/or an explicit `repo`); a "bare backend" (none of these) keeps the legacy non-git
+behavior. The clone_uri is normally **not** written — Action B derives
+`https://github.com/<owner>/<service>.git` and injects it via `app_hosting_repo`
+(override per-backend with `repo` only for a different repository).
 
 <details><summary>Ja</summary>
 
-### 1. 対象プロジェクトの Secret Manager に OAuth token を用意
+### 1. installation id を渡す (組織で1回、repo Variable に)
 
-connection は OAuth token を **対象 Firebase プロジェクト**の Secret Manager から読む。
-入れ方は2通り:
-
-- **(A) terraform に作らせる (推奨・全自動)**: token を **Action B** の
-  `github_oauth_token` input に渡す (消費側 repo の GitHub Secret 由来、例
-  `secrets.APPHOSTING_GITHUB_OAUTH_TOKEN`)。Action B が sensitive な terraform 変数として
-  各 workspace に注入し、module が対象プロジェクトに secret + version を自動作成する。
-  プロジェクトごとの手動投入は不要。トレードオフ: token 値が TFC state に乗る
-  (sensitive・暗号化保存)。
-- **(B) 既存 secret を参照 (state に乗せない)**: `github_oauth_token` を渡さず、
-  自分で secret を投入して module は参照のみ行う (上記 gcloud one-liner)。
+`app_installation_id` は Action B の `github_app_installation_id` input (repo Variable
+`APPHOSTING_GITHUB_APP_INSTALLATION_ID`) で渡す。`make github-sync` が自動導出・set する。
 
 ### 2. `settings.yml` を設定
 
 `branch` / `root_directory` のいずれかがあれば git 連携 backend と判定される
-(何も無ければ従来の "bare backend")。clone_uri (`repo`) は通常書かず、Action B が
-service repo から `app_hosting_repo` として自動注入する (別 repo を指す backend のみ
-`repo` で上書き)。token / installation id も `settings.yml` に書かず Action B input 経由。
+(無ければ "bare backend")。clone_uri (`repo`) は通常書かず Action B が自動注入。
+`github_connection` は不要 (FIREBASE タイプは token/secret 不使用)。
 
 </details>
 
@@ -190,15 +150,11 @@ service repo から `app_hosting_repo` として自動注入する (別 repo を
 
 ## What Terraform creates
 
-For each git-connected `app_hosting` backend (has `branch` / `root_directory` / `repo`),
-with `github_connection` provided, the module creates (non-interactively, no browser):
+For each git-connected `app_hosting` backend (has `branch` / `root_directory` / `repo`)
+the module creates (non-interactively):
 
-- `google_developer_connect_connection` (`github_config.github_app = "FIREBASE"`,
-  `app_installation_id`, `authorizer_credential.oauth_token_secret_version`)
-- a service-identity for `developerconnect.googleapis.com` + `secretAccessor` on the
-  OAuth token secret (so the connection can read it)
-- `google_secret_manager_secret` + `_version` **when `github_oauth_token` is provided**
-  (mode A); otherwise an existing secret is referenced (mode B)
+- `google_developer_connect_connection` — `github_config { github_app = "FIREBASE",
+  app_installation_id }` のみ。**authorizer_credential / OAuth token secret は無し**
 - `google_developer_connect_git_repository_link` per unique repo
 - `google_firebase_app_hosting_backend.codebase { repository, root_directory }`
 - `google_firebase_app_hosting_traffic.rollout_policy { codebase_branch }` (only when
@@ -212,9 +168,9 @@ only needs to `git push`.
 
 <details><summary>Ja</summary>
 
-`app_hosting[].repo` を指定し `github_connection` を渡すと、module は (非対話・ブラウザ
-不要で) connection / service-identity + secretAccessor / repo link / backend.codebase /
-traffic.rollout_policy を作成する。
+git 連携 backend に対し module は connection (FIREBASE + app_installation_id のみ) /
+repo link / backend.codebase / traffic.rollout_policy を作成する。OAuth token / secret /
+secretAccessor は作らない。
 
 運用時は監視ブランチへ push するだけで App Hosting がビルド & ロールアウトする。
 CI SA には App Hosting ロールを付与しない (`main.tf` の `ci_sa_auto_roles` 参照)。

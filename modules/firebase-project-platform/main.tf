@@ -292,30 +292,21 @@ locals {
     for link_id, uris in local.app_hosting_repo_links : link_id => uris[0]
   }
 
-  # GitHub connection 設定 (組織あたり1回の手動認可で得た値を渡す)。
-  #   app_installation_id : GitHub App インストール ID (組織レベル・再利用可)
-  #   oauth_token_secret  : OAuth token を格納する / 参照する Secret Manager secret 名
+  # GitHub connection 設定。
+  #   app_installation_id : Firebase GitHub App のインストール ID (組織レベル・再利用可)
   #   connection_id       : connection 名 (default "github"、project-unique)
   #   location            : connection / repo link の location (default var.region)
+  #
+  # 注: github_app = "FIREBASE" のコネクションは OAuth token / authorizer_credential を
+  # 使わない。GitHub↔GCP の認可は「組織への Firebase GitHub App インストール」(= 一度きり)
+  # で成立し、Developer Connect が内部で credential を保持する。よって terraform に必要なのは
+  # app_installation_id だけ (token secret は不要)。
   github_connection_location = try(var.github_connection.location, "") != "" ? var.github_connection.location : var.region
   github_connection_id       = try(var.github_connection.connection_id, "") != "" ? var.github_connection.connection_id : "github"
   # app_installation_id は org 共通の安定値 (非機微)。専用変数 (Action input / repo
   # Variable 経由) を優先し、無ければ settings.yml の github_connection.app_installation_id に
   # フォールバックする。
   github_app_installation_id = var.github_app_installation_id != "" ? var.github_app_installation_id : try(var.github_connection.app_installation_id, "")
-
-  # secret 名。明示が無ければ default 名。token を terraform が作る場合の作成先、
-  # 作らない場合の参照先の両方でこの名前を使う。
-  github_oauth_secret_id = try(var.github_connection.oauth_token_secret, "") != "" ? var.github_connection.oauth_token_secret : "apphosting-github-oauth-token"
-
-  # 2 モード:
-  #   - github_oauth_token が渡された → terraform が secret + version を作成 (推奨・自動)。
-  #     token 値は sensitive TFC 変数として Action B が注入する想定。state に乗る。
-  #   - 渡されない → 既存 secret の latest version を参照 (外部管理・state に乗せない)。
-  github_create_secret = local.enable_app_hosting_git && var.github_oauth_token != ""
-  github_oauth_secret_version = local.github_create_secret ? one(google_secret_manager_secret_version.github_oauth[*].name) : (
-    "projects/${var.project_id}/secrets/${local.github_oauth_secret_id}/versions/latest"
-  )
 }
 
 # ---------------------------------------------------------------------------
@@ -361,10 +352,6 @@ locals {
       "artifactregistry.googleapis.com",
       # App Hosting は GitHub ソース接続に Developer Connect を使う。
       "developerconnect.googleapis.com",
-    ] : [],
-    # git 連携 backend は OAuth token を Secret Manager から読むので必須。
-    local.enable_app_hosting_git ? [
-      "secretmanager.googleapis.com",
     ] : [],
     local.enable_data_connect ? [
       "firebasedataconnect.googleapis.com",
@@ -725,19 +712,14 @@ resource "terraform_data" "validate_app_hosting_refs" {
 #     CI は git push のみで GCP 権限ゼロ。
 # ---------------------------------------------------------------------------
 
-# git 連携 backend に repo を指定したら github_connection 必須。
+# git 連携 backend の事前条件チェック。
 resource "terraform_data" "validate_app_hosting_git" {
   count = local.enable_app_hosting_git ? 1 : 0
 
   lifecycle {
     precondition {
       condition     = local.github_app_installation_id != ""
-      error_message = "app_hosting に git 連携 backend を指定した場合、github_connection.app_installation_id が必須です。"
-    }
-    precondition {
-      # token を渡して terraform が secret を作る or 既存 secret 名を指定する、のどちらか。
-      condition     = var.github_oauth_token != "" || try(var.github_connection.oauth_token_secret, "") != ""
-      error_message = "OAuth token の供給方法が未指定です。github_oauth_token (sensitive 変数。terraform が secret 作成) を渡すか、github_connection.oauth_token_secret に既存 secret 名を指定してください。"
+      error_message = "app_hosting に git 連携 backend を指定した場合、Firebase GitHub App の installation ID が必須です。github_app_installation_id 変数 (repo Variable 経由) または github_connection.app_installation_id を設定してください。"
     }
     precondition {
       # 各 git 連携 backend は clone_uri を解決できる必要がある (per-backend repo か
@@ -748,46 +730,10 @@ resource "terraform_data" "validate_app_hosting_git" {
   }
 }
 
-# token を渡された場合は terraform が secret + version を作成する (推奨・自動)。
-# 渡されない場合は外部 (bootstrap 等) が投入済みの secret を参照する。
-resource "google_secret_manager_secret" "github_oauth" {
-  count     = local.github_create_secret ? 1 : 0
-  project   = var.project_id
-  secret_id = local.github_oauth_secret_id
-
-  replication {
-    auto {}
-  }
-
-  depends_on = [google_project_service.this]
-}
-
-resource "google_secret_manager_secret_version" "github_oauth" {
-  count       = local.github_create_secret ? 1 : 0
-  secret      = google_secret_manager_secret.github_oauth[0].id
-  secret_data = var.github_oauth_token
-}
-
-# Developer Connect のサービスエージェント。OAuth token secret を読ませるために必要。
-resource "google_project_service_identity" "developer_connect" {
-  count    = local.enable_app_hosting_git ? 1 : 0
-  provider = google-beta
-  project  = var.project_id
-  service  = "developerconnect.googleapis.com"
-
-  depends_on = [google_project_service.this]
-}
-
-# connection が OAuth token を読めるよう secretAccessor を付与 (無いと COMPLETE に
-# ならない)。secret は terraform 作成 or 外部投入のどちらでも同 secret 名を指す。
-resource "google_secret_manager_secret_iam_member" "developer_connect_oauth" {
-  count     = local.enable_app_hosting_git ? 1 : 0
-  project   = var.project_id
-  secret_id = local.github_create_secret ? google_secret_manager_secret.github_oauth[0].secret_id : local.github_oauth_secret_id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_project_service_identity.developer_connect[0].email}"
-}
-
+# github_app = "FIREBASE" の connection は OAuth token / authorizer_credential / secret を
+# 使わない。GitHub↔GCP の認可は「組織への Firebase GitHub App インストール」(一度きり) で
+# 成立し、Developer Connect が credential を内部保持する。terraform は app_installation_id
+# だけ渡せばよい。
 resource "google_developer_connect_connection" "github" {
   count         = local.enable_app_hosting_git ? 1 : 0
   project       = var.project_id
@@ -797,16 +743,10 @@ resource "google_developer_connect_connection" "github" {
   github_config {
     github_app          = "FIREBASE"
     app_installation_id = local.github_app_installation_id
-
-    authorizer_credential {
-      oauth_token_secret_version = local.github_oauth_secret_version
-    }
   }
 
   depends_on = [
     google_project_service.this,
-    google_secret_manager_secret_version.github_oauth,
-    google_secret_manager_secret_iam_member.developer_connect_oauth,
     terraform_data.validate_app_hosting_git,
   ]
 }
