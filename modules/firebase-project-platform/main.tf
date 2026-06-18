@@ -843,11 +843,13 @@ locals {
     ["roles/runtimeconfig.admin"],
     local.enable_hosting ? ["roles/firebasehosting.admin"] : [],
     # App Hosting は `firebase deploy --only apphosting` (local source) で CI から
-    # rollout する。backend / compute SA は terraform が先に作るので CLI は
-    # serviceAccounts.create を必要とせず、rollout に必要なのは以下のみ:
-    #   firebaseapphosting.admin : build / rollout / traffic の作成
-    #   iam.serviceAccountUser   : compute SA (firebase-app-hosting-compute) を act-as
-    local.enable_app_hosting ? ["roles/firebaseapphosting.admin", "roles/iam.serviceAccountUser"] : [],
+    # rollout する。必要ロール:
+    #   firebaseapphosting.admin   : build / rollout / traffic の作成
+    #   iam.serviceAccountUser     : compute SA (firebase-app-hosting-compute) を act-as
+    #   iam.serviceAccountCreator  : firebase CLI は compute SA が既存でも毎回
+    #     「ensure (= create)」を試みるため必須 (firebase-tools#8840)。SA は terraform が
+    #     先に作るので create は 409 で握り潰されるが、create 権限自体は要る。
+    local.enable_app_hosting ? ["roles/firebaseapphosting.admin", "roles/iam.serviceAccountUser", "roles/iam.serviceAccountCreator"] : [],
     local.enable_cloud_functions ? ["roles/cloudfunctions.admin", "roles/iam.serviceAccountUser", "roles/artifactregistry.admin"] : [],
     local.enable_firestore ? ["roles/datastore.indexAdmin", "roles/firebaserules.admin"] : [],
     # Data Connect の schema / connector を CI (firebase deploy) でデプロイするために必要。
