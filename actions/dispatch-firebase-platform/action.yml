@@ -102,7 +102,8 @@ inputs:
       設定すると terraform 変数 github_app_installation_id として注入され、
       settings.yml の github_connection.app_installation_id より優先される。
       org 共通値を各 settings.yml に重複させないため、repo Variable
-      (例 vars.GITHUB_APP_INSTALLATION_ID) を渡す運用を想定。空でよい
+      (例 vars.APPHOSTING_GITHUB_APP_INSTALLATION_ID。GitHub の制約で GITHUB_ 始まりは不可)
+      を渡す運用を想定。空でよい
       (その場合 settings.yml の値にフォールバック)。
     required: false
     default: ""
