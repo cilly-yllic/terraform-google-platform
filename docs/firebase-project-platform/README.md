@@ -8,7 +8,7 @@ Detailed documentation for the firebase-project-platform module. See also the to
 | [variables-reference.md](./variables-reference.md) | Nested structures and defaults for feature variables (`firestore`, `storage`, `data_connect`, etc.) |
 | [api-auto-enablement.md](./api-auto-enablement.md) | Feature → auto-enabled GCP API mapping |
 | [console-access.md](./console-access.md) | Firebase Console / GCP IAM access design and the `users` variable |
-| [app-hosting-git-connection.md](./app-hosting-git-connection.md) | App Hosting git connection (Developer Connect): zero-permission CI, no state pollution, one-time org auth |
+| [app-hosting.md](./app-hosting.md) | App Hosting: bare backend (Terraform) + Firebase CLI deploy, no state pollution, low CI permissions |
 | [service-accounts.md](./service-accounts.md) | CI Service Account auto-role logic and additional SA operations |
 | [upgrade-guide.md](./upgrade-guide.md) | Breaking changes per Registry version, in chronological order |
 | [upstream-spec-links.md](./upstream-spec-links.md) | Index of upstream design specs (`project-bootstrap`) that underpin this repo |
@@ -23,7 +23,7 @@ firebase-project-platform モジュールの詳細ドキュメント。トップ
 - [variables-reference.md](./variables-reference.md) — 機能変数 (`firestore`, `storage`, `data_connect` 等) のネスト構造とデフォルト値
 - [api-auto-enablement.md](./api-auto-enablement.md) — 機能 on/off から自動有効化される GCP API の対応表
 - [console-access.md](./console-access.md) — Firebase Console / GCP IAM の権限設計と `users` の使い方
-- [app-hosting-git-connection.md](./app-hosting-git-connection.md) — App Hosting git 連携 (Developer Connect): CI 権限ゼロ / state 汚染なし / 組織で1回認可
+- [app-hosting.md](./app-hosting.md) — App Hosting: bare backend (Terraform) + firebase CLI デプロイ / state 汚染なし / CI 権限最小
 - [service-accounts.md](./service-accounts.md) — CI Service Account の自動 role 決定ロジックと追加 SA の運用
 - [upgrade-guide.md](./upgrade-guide.md) — Registry バージョン間の breaking change を時系列で記録
 - [upstream-spec-links.md](./upstream-spec-links.md) — 本リポジトリの設計根拠となる上流 spec へのリンク集
