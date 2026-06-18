@@ -37,7 +37,7 @@ error() { echo "[ERROR] $*" >&2; exit 1; }
 ENTRIES=(
   "BOOTSTRAP_PROJECT_ID|var|derived"
   "GH_APP_ID|var|manual"
-  "GITHUB_APP_INSTALLATION_ID|var|derived"
+  "APPHOSTING_GITHUB_APP_INSTALLATION_ID|var|derived"
 
   "GCP_PROJECT_ID|secret|derived"
   "GCP_PROJECT_NUMBER|secret|derived"
@@ -133,7 +133,7 @@ set_desired() {
       DESIRED="${BOOTSTRAP_PROJECT_ID}" ;;
     GCP_PROJECT_NUMBER)
       DESIRED="$(project_number)" ;; # project_number は失敗時 error で exit
-    GITHUB_APP_INSTALLATION_ID)
+    APPHOSTING_GITHUB_APP_INSTALLATION_ID)
       resolve_app_installation_id; DESIRED="${_APP_INSTALLATION_ID}" ;;
     PARENT_FOLDER_ID)
       if [[ -z "${FOLDER_ID:-}" ]]; then REASON="folder mode 未使用 (.env FOLDER_ID 空)"; else DESIRED="${FOLDER_ID}"; fi ;;
