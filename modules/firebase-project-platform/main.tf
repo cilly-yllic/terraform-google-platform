@@ -284,6 +284,10 @@ locals {
       "run.googleapis.com",
       "cloudbuild.googleapis.com",
       "artifactregistry.googleapis.com",
+      # App Hosting は GitHub ソース接続に Developer Connect を使う。未有効だと
+      # firebase deploy が enable しようとするが CI SA に serviceusage.services.enable
+      # が無く "Permissions denied enabling developerconnect.googleapis.com" で失敗する。
+      "developerconnect.googleapis.com",
     ] : [],
     local.enable_data_connect ? [
       "firebasedataconnect.googleapis.com",
