@@ -42,6 +42,7 @@ describe("buildRunMessage", () => {
       labels: ["^tier:prd$"],
       source_repo: "o/r",
       sha: "deadbeef",
+      module_version: "1.2.3",
     });
     expect(JSON.parse(msg)).toEqual({
       service: "svc",
@@ -49,6 +50,7 @@ describe("buildRunMessage", () => {
       labels: ["^tier:prd$"],
       source_repo: "o/r",
       sha: "deadbeef",
+      module_version: "1.2.3",
     });
   });
 
@@ -59,6 +61,7 @@ describe("buildRunMessage", () => {
       labels: [],
       source_repo: "o/r",
       sha: "x",
+      module_version: "1.2.3",
     });
     expect(JSON.parse(msg).environments).toEqual([]);
     expect(JSON.parse(msg).labels).toEqual([]);
@@ -71,6 +74,7 @@ describe("buildRunMessage", () => {
       labels: [],
       source_repo: "o/r",
       sha: "x",
+      module_version: "1.2.3",
     });
     expect(JSON.parse(msg)).toMatchObject({
       environments: ["prd-001"],

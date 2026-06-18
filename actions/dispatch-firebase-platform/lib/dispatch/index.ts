@@ -478,6 +478,9 @@ export interface RunMessageMeta {
   labels: string[];
   source_repo: string;
   sha: string;
+  // 使用する terraform-google-platform module バージョン。TFC コンソールの
+  // run message でどの版が適用されたか一目で分かるようにするため含める。
+  module_version: string;
 }
 
 export function buildRunMessage(meta: RunMessageMeta): string {
