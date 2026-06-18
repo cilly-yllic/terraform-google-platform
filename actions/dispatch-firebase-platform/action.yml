@@ -87,15 +87,6 @@ inputs:
       input is required).
     required: false
     default: ""
-  github_oauth_token:
-    description: >
-      App Hosting git connection (Developer Connect) 用の GitHub OAuth token 値。
-      設定すると sensitive な terraform 変数 github_oauth_token として各 workspace に
-      注入され、module が対象プロジェクトの Secret Manager に secret を作成する。
-      消費側 workflow では GitHub Secret (例 secrets.APPHOSTING_GITHUB_OAUTH_TOKEN)
-      を渡す。app_hosting で git 連携を使わない場合は空でよい。
-    required: false
-    default: ""
   github_app_installation_id:
     description: >
       Firebase GitHub App の installation ID (組織あたり1個・安定・非機微)。
