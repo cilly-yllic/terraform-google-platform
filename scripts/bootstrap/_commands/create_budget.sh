@@ -23,7 +23,7 @@ create_budget() {
 
   local cmd=(
     gcloud billing budgets create
-    --billing-account="${BILLING_ACCOUNT_ID}"
+    --billing-account="${BOOTSTRAP_BILLING_ACCOUNT_ID}"
     --project="${BOOTSTRAP_PROJECT_ID}"
     --display-name="${display_name}"
     --budget-amount="${BUDGET_AMOUNT}${currency}"

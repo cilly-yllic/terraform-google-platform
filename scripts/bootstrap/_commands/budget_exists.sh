@@ -7,7 +7,7 @@ budget_exists() {
   local existing
   existing="$(CLOUDSDK_CORE_DISABLE_PROMPTS=1 \
     gcloud billing budgets list \
-      --billing-account="${BILLING_ACCOUNT_ID}" \
+      --billing-account="${BOOTSTRAP_BILLING_ACCOUNT_ID}" \
       --project="${BOOTSTRAP_PROJECT_ID}" \
       --filter="displayName=\"$(budget_display_name)\"" \
       --format='value(name)' 2>/dev/null || true)"

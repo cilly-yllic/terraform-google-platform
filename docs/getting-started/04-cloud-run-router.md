@@ -76,18 +76,18 @@ Cloud Run service の runtime 側で読む secret を Secret Manager に登録:
 ```bash
 gcloud secrets create tfc-notification-secret \
   --data-file=<(printf '%s' "<TFC HMAC shared secret>") \
-  --project=<GCP_PROJECT_ID>
+  --project=<BOOTSTRAP_PROJECT_ID>
 
 gcloud secrets create github-app-private-key \
   --data-file=path/to/github-app-private-key.pem \
-  --project=<GCP_PROJECT_ID>
+  --project=<BOOTSTRAP_PROJECT_ID>
 ```
 
 `tfc-notification-secret` の値は **TFC 側の Notification 設定の Token と必ず一致** させてください。
 
 > Option A / `both` モードを使う場合は `tfc-api-token` も追加します:
 > ```bash
-> gcloud secrets create tfc-api-token --data-file=<(printf '%s' "<TFC_API_TOKEN>") --project=<GCP_PROJECT_ID>
+> gcloud secrets create tfc-api-token --data-file=<(printf '%s' "<TFC_API_TOKEN>") --project=<BOOTSTRAP_PROJECT_ID>
 > ```
 > deploy workflow 側の `--set-secrets` にも `TFC_API_TOKEN=tfc-api-token:latest` を追記してください。
 
@@ -113,7 +113,7 @@ cd cloud-run-router
 gcloud run deploy cloud-run-router \
   --source . \
   --region asia-northeast1 \
-  --service-account cloud-run-router-runtime@<GCP_PROJECT_ID>.iam.gserviceaccount.com \
+  --service-account cloud-run-router-runtime@<BOOTSTRAP_PROJECT_ID>.iam.gserviceaccount.com \
   --set-env-vars "GITHUB_APP_ID=<app-id>,DISPATCH_EVENT_TYPE=firebase_platform_requested" \
   --set-secrets "TFC_NOTIFICATION_SECRET=tfc-notification-secret:latest,GITHUB_APP_PRIVATE_KEY=github-app-private-key:latest" \
   --allow-unauthenticated

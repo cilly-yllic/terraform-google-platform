@@ -338,7 +338,7 @@ orchestrator workflow から `bootstrap_project_number` input に Secret を渡�
     service: example-service
     environments: '["dev-001"]'
     tfc_org: my-tfc-org
-    bootstrap_project_number: ${{ secrets.GCP_PROJECT_NUMBER }}
+    bootstrap_project_number: ${{ vars.BOOTSTRAP_PROJECT_NUMBER }}
     tfc_token: ${{ secrets.TFC_TOKEN }}
 ```
 

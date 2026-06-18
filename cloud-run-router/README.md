@@ -348,7 +348,7 @@ deploy 用の **reference workflow** を [`examples/cloud-run-router-deploy/`](.
 | 項目 | 値 |
 |------|---|
 | WIF Provider attribute condition | `assertion.repository == "<your-deploy-repo>"` (= bootstrap の `GITHUB_REPOSITORY`) |
-| Variables (deploy repo) | `GCP_PROJECT_ID` / `GCP_WORKLOAD_IDENTITY_PROVIDER` / `GCP_DEPLOY_SERVICE_ACCOUNT` / `GCP_RUNTIME_SERVICE_ACCOUNT` / `GH_APP_ID` |
+| Variables (deploy repo) | `BOOTSTRAP_PROJECT_ID` / `GCP_WORKLOAD_IDENTITY_PROVIDER` / `GCP_DEPLOY_SERVICE_ACCOUNT` / `GCP_RUNTIME_SERVICE_ACCOUNT` / `GH_APP_ID` |
 | Secrets (deploy repo) | `DEPLOY_WEBHOOK` (Slack) |
 | GCP Secret Manager | `tfc-notification-secret` / `github-app-private-key` |
 

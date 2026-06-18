@@ -12,7 +12,7 @@
 #   ため、削除も Compute API も不要になり問題が根本から消える。
 #
 # スコープ:
-#   folder mode (FOLDER_ID あり) → その folder に enforce (配下の service project に
+#   folder mode (BOOTSTRAP_FOLDER_ID あり) → その folder に enforce (配下の service project に
 #   継承)。org-direct mode → org に enforce。grant_iam と同じ folder 優先。
 #
 # 権限要件:
@@ -24,8 +24,8 @@
 #   `gcloud org-policies set-policy` は同 spec で再実行しても no-op。
 set_skip_default_network_policy() {
   local resource
-  if [[ -n "${FOLDER_ID:-}" ]]; then
-    resource="folders/${FOLDER_ID}"
+  if [[ -n "${BOOTSTRAP_FOLDER_ID:-}" ]]; then
+    resource="folders/${BOOTSTRAP_FOLDER_ID}"
   else
     resource="organizations/${ORGANIZATION_ID}"
   fi
