@@ -33,6 +33,10 @@ make bootstrap
 
 # 6. Terraform Cloud Workspace に設定する値を確認
 make bootstrap-print-env
+
+# 7. 消費側 repo (.env GITHUB_REPOSITORY) の GitHub Actions Secrets/Variables を確認・同期
+make github-sync          # 差分表示のみ (書き込まない)
+make github-sync-apply     # derived (project id/number, WIF provider, SA email, folder id) を set
 ```
 
 ---
@@ -539,6 +543,33 @@ make create-billing-account-print-env # -> scripts/create-billing-account.sh pri
 | `MASTER_BILLING_ACCOUNT_ID` | ✓ | 親となる Master Billing Account ID |
 | `ORGANIZATION_ID` | — | 紐付ける GCP Organization の数値 ID |
 | `CONFIRM_BEFORE_APPLY` | — | `apply` 前の確認プロンプト (default: `true`) |
+
+---
+
+## GitHub Actions Secrets/Variables の同期 (`github-sync`)
+
+`make bootstrap` で infra プロジェクトを作成・設定した後、消費側 repo
+(`.env` の `GITHUB_REPOSITORY`) の workflow が参照する Secrets/Variables を
+`gh` CLI で確認・同期するヘルパー ([`github-sync.sh`](./github-sync.sh))。
+
+```bash
+make github-sync          # check: 現状と desired の差分を表示 (書き込まない)
+make github-sync-apply     # apply: derived を set (確認プロンプトあり)
+make github-sync-apply YES=1
+```
+
+前提: `gh auth login` 済み / `.env` に `GITHUB_REPOSITORY` (owner/repo) 設定済み。
+
+分類 (どこから値が来るか):
+
+| 分類 | 対象 | 挙動 |
+|------|------|------|
+| **derived** | `BOOTSTRAP_PROJECT_ID` / `GITHUB_APP_INSTALLATION_ID` (vars) / `GCP_PROJECT_ID` / `GCP_PROJECT_NUMBER` / `GCP_WORKLOAD_IDENTITY_PROVIDER` / `GCP_DEPLOY_SERVICE_ACCOUNT` / `GCP_RUNTIME_SERVICE_ACCOUNT` / `PARENT_FOLDER_ID` (secrets) | `.env` + `gcloud`/`gh` から決定的に導出。`apply` で set。SA / WIF provider 系は `ENABLE_CLOUD_RUN_DEPLOY_SETUP=true` の時のみ導出 (それ以外は SKIP)。`GITHUB_APP_INSTALLATION_ID` は `gh api /orgs/<org>/installations` から App slug で特定 (複数一致/不一致時は `GITHUB_APP_INSTALLATION_APP_SLUG` で明示 → SKIP 回避) |
+| **manual** | `GH_APP_ID` (var) / `GH_APP_PRIVATE_KEY` / `DEPLOY_WEBHOOK` / `TFC_TOKEN` (secrets) | 外部から取得する値。存在チェックのみ。同名で `export` していれば `apply` で set |
+| **workflow** | `CLOUD_RUN_WEBHOOK_URL` / `TFC_NOTIFICATION_SECRET` (secrets) | 他 workflow (deploy / init-router-hmac) が自動登録。存在チェックのみ |
+
+注意: GitHub Secret は値を読めない (存在のみ判定) ため、derived secret の値ドリフトは
+検出できず `apply` で常に上書きになります。Variable は値を比較して DRIFT を表示します。
 
 ---
 

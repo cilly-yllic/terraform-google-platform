@@ -190,6 +190,13 @@ locals {
       app_id           = try(a.app_id, "")
       service_account  = try(a.service_account, "")
       serving_locality = try(a.serving_locality, "GLOBAL_ACCESS")
+      # git 連携 (Developer Connect) backend 用。repo (clone_uri) が指定された
+      # backend は codebase + 自動ロールアウト (branch) を構成する。空なら bare backend。
+      repo           = try(a.repo, "")
+      branch         = try(a.branch, "")
+      root_directory = try(a.root_directory, "")
+      # git_repository_link_id。省略時は clone_uri の owner/repo から導出。
+      repo_link_id = try(a.repo_link_id, "")
     }
   ]
 
@@ -241,6 +248,74 @@ locals {
   app_hosting_default_sa_needed = length([
     for a in local.app_hosting_list : a if a.service_account == ""
   ]) > 0
+
+  # ---- App Hosting git 連携 (Developer Connect) 用の導出 ----
+  # git 連携対象 = repo / branch / root_directory のいずれかが指定された backend
+  # (これらは git 連携でのみ意味を持つフィールド)。bare backend は全て空なので非対象。
+  app_hosting_git_backends = [
+    for a in local.app_hosting_list : a if a.repo != "" || a.branch != "" || a.root_directory != ""
+  ]
+  enable_app_hosting_git = length(local.app_hosting_git_backends) > 0
+
+  # backend ごとの clone_uri。per-backend repo を最優先し、無ければ module 全体の
+  # default (var.app_hosting_repo、= Action B が「処理中の service repo」から自動注入)
+  # を使う。settings.yml に clone_uri を重複させないための仕組み。
+  app_hosting_clone_uri = {
+    for a in local.app_hosting_git_backends : a.backend_id => (
+      a.repo != "" ? a.repo : var.app_hosting_repo
+    )
+  }
+
+  # backend ごとの git_repository_link_id。明示が無ければ clone_uri の末尾2セグメント
+  # (owner/repo) から導出する。例: https://github.com/MoooDoNE/cmonoth.git
+  #   -> trimsuffix で .git 除去 -> 末尾2要素 [MoooDoNE, cmonoth] -> "moooedone-cmonoth"
+  app_hosting_repo_link_id = {
+    for a in local.app_hosting_git_backends : a.backend_id => (
+      a.repo_link_id != "" ? a.repo_link_id : lower(replace(
+        join("-", slice(
+          split("/", trimsuffix(local.app_hosting_clone_uri[a.backend_id], ".git")),
+          length(split("/", trimsuffix(local.app_hosting_clone_uri[a.backend_id], ".git"))) - 2,
+          length(split("/", trimsuffix(local.app_hosting_clone_uri[a.backend_id], ".git")))
+        )),
+        "_", "-"
+      ))
+    )
+  }
+
+  # git_repository_link を link_id 単位で dedup (同 repo を複数 backend が別 root で
+  # 参照しても link は 1 つに集約)。canonical = link_id ごとの最初の clone_uri。
+  app_hosting_repo_links = {
+    for a in local.app_hosting_git_backends :
+    local.app_hosting_repo_link_id[a.backend_id] => local.app_hosting_clone_uri[a.backend_id]...
+  }
+  app_hosting_repo_links_canonical = {
+    for link_id, uris in local.app_hosting_repo_links : link_id => uris[0]
+  }
+
+  # GitHub connection 設定 (組織あたり1回の手動認可で得た値を渡す)。
+  #   app_installation_id : GitHub App インストール ID (組織レベル・再利用可)
+  #   oauth_token_secret  : OAuth token を格納する / 参照する Secret Manager secret 名
+  #   connection_id       : connection 名 (default "github"、project-unique)
+  #   location            : connection / repo link の location (default var.region)
+  github_connection_location = try(var.github_connection.location, "") != "" ? var.github_connection.location : var.region
+  github_connection_id       = try(var.github_connection.connection_id, "") != "" ? var.github_connection.connection_id : "github"
+  # app_installation_id は org 共通の安定値 (非機微)。専用変数 (Action input / repo
+  # Variable 経由) を優先し、無ければ settings.yml の github_connection.app_installation_id に
+  # フォールバックする。
+  github_app_installation_id = var.github_app_installation_id != "" ? var.github_app_installation_id : try(var.github_connection.app_installation_id, "")
+
+  # secret 名。明示が無ければ default 名。token を terraform が作る場合の作成先、
+  # 作らない場合の参照先の両方でこの名前を使う。
+  github_oauth_secret_id = try(var.github_connection.oauth_token_secret, "") != "" ? var.github_connection.oauth_token_secret : "apphosting-github-oauth-token"
+
+  # 2 モード:
+  #   - github_oauth_token が渡された → terraform が secret + version を作成 (推奨・自動)。
+  #     token 値は sensitive TFC 変数として Action B が注入する想定。state に乗る。
+  #   - 渡されない → 既存 secret の latest version を参照 (外部管理・state に乗せない)。
+  github_create_secret = local.enable_app_hosting_git && var.github_oauth_token != ""
+  github_oauth_secret_version = local.github_create_secret ? one(google_secret_manager_secret_version.github_oauth[*].name) : (
+    "projects/${var.project_id}/secrets/${local.github_oauth_secret_id}/versions/latest"
+  )
 }
 
 # ---------------------------------------------------------------------------
@@ -284,10 +359,12 @@ locals {
       "run.googleapis.com",
       "cloudbuild.googleapis.com",
       "artifactregistry.googleapis.com",
-      # App Hosting は GitHub ソース接続に Developer Connect を使う。未有効だと
-      # firebase deploy が enable しようとするが CI SA に serviceusage.services.enable
-      # が無く "Permissions denied enabling developerconnect.googleapis.com" で失敗する。
+      # App Hosting は GitHub ソース接続に Developer Connect を使う。
       "developerconnect.googleapis.com",
+    ] : [],
+    # git 連携 backend は OAuth token を Secret Manager から読むので必須。
+    local.enable_app_hosting_git ? [
+      "secretmanager.googleapis.com",
     ] : [],
     local.enable_data_connect ? [
       "firebasedataconnect.googleapis.com",
@@ -634,6 +711,115 @@ resource "terraform_data" "validate_app_hosting_refs" {
   }
 }
 
+# ---------------------------------------------------------------------------
+# App Hosting git 連携 (Developer Connect)
+#
+# 運用モデル:
+#   - GitHub App のインストール / 初回 OAuth 認可は「GitHub 組織あたり1回」人間が実施し、
+#     得た app_installation_id と OAuth token を渡す (token は対象プロジェクトの
+#     Secret Manager に格納)。以降の connection / repo link 作成は非対話 (terraform
+#     のみ) で完結 = env が増えても再認可不要。
+#   - connection は project スコープ。1 project に 1 connection を作り、repo (clone_uri)
+#     単位で git_repository_link を張る。
+#   - push をトリガに App Hosting のサービスエージェントが build & rollout する。
+#     CI は git push のみで GCP 権限ゼロ。
+# ---------------------------------------------------------------------------
+
+# git 連携 backend に repo を指定したら github_connection 必須。
+resource "terraform_data" "validate_app_hosting_git" {
+  count = local.enable_app_hosting_git ? 1 : 0
+
+  lifecycle {
+    precondition {
+      condition     = local.github_app_installation_id != ""
+      error_message = "app_hosting に git 連携 backend を指定した場合、github_connection.app_installation_id が必須です。"
+    }
+    precondition {
+      # token を渡して terraform が secret を作る or 既存 secret 名を指定する、のどちらか。
+      condition     = var.github_oauth_token != "" || try(var.github_connection.oauth_token_secret, "") != ""
+      error_message = "OAuth token の供給方法が未指定です。github_oauth_token (sensitive 変数。terraform が secret 作成) を渡すか、github_connection.oauth_token_secret に既存 secret 名を指定してください。"
+    }
+    precondition {
+      # 各 git 連携 backend は clone_uri を解決できる必要がある (per-backend repo か
+      # module 全体の app_hosting_repo のどちらか)。
+      condition     = length([for id, uri in local.app_hosting_clone_uri : id if uri == ""]) == 0
+      error_message = "git 連携 backend の clone_uri を解決できません。app_hosting[].repo を指定するか、app_hosting_repo 変数 (Action B が service repo から自動注入) を渡してください。"
+    }
+  }
+}
+
+# token を渡された場合は terraform が secret + version を作成する (推奨・自動)。
+# 渡されない場合は外部 (bootstrap 等) が投入済みの secret を参照する。
+resource "google_secret_manager_secret" "github_oauth" {
+  count     = local.github_create_secret ? 1 : 0
+  project   = var.project_id
+  secret_id = local.github_oauth_secret_id
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.this]
+}
+
+resource "google_secret_manager_secret_version" "github_oauth" {
+  count       = local.github_create_secret ? 1 : 0
+  secret      = google_secret_manager_secret.github_oauth[0].id
+  secret_data = var.github_oauth_token
+}
+
+# Developer Connect のサービスエージェント。OAuth token secret を読ませるために必要。
+resource "google_project_service_identity" "developer_connect" {
+  count    = local.enable_app_hosting_git ? 1 : 0
+  provider = google-beta
+  project  = var.project_id
+  service  = "developerconnect.googleapis.com"
+
+  depends_on = [google_project_service.this]
+}
+
+# connection が OAuth token を読めるよう secretAccessor を付与 (無いと COMPLETE に
+# ならない)。secret は terraform 作成 or 外部投入のどちらでも同 secret 名を指す。
+resource "google_secret_manager_secret_iam_member" "developer_connect_oauth" {
+  count     = local.enable_app_hosting_git ? 1 : 0
+  project   = var.project_id
+  secret_id = local.github_create_secret ? google_secret_manager_secret.github_oauth[0].secret_id : local.github_oauth_secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_project_service_identity.developer_connect[0].email}"
+}
+
+resource "google_developer_connect_connection" "github" {
+  count         = local.enable_app_hosting_git ? 1 : 0
+  project       = var.project_id
+  location      = local.github_connection_location
+  connection_id = local.github_connection_id
+
+  github_config {
+    github_app          = "FIREBASE"
+    app_installation_id = local.github_app_installation_id
+
+    authorizer_credential {
+      oauth_token_secret_version = local.github_oauth_secret_version
+    }
+  }
+
+  depends_on = [
+    google_project_service.this,
+    google_secret_manager_secret_version.github_oauth,
+    google_secret_manager_secret_iam_member.developer_connect_oauth,
+    terraform_data.validate_app_hosting_git,
+  ]
+}
+
+resource "google_developer_connect_git_repository_link" "this" {
+  for_each               = local.enable_app_hosting_git ? local.app_hosting_repo_links_canonical : {}
+  project                = var.project_id
+  location               = local.github_connection_location
+  parent_connection      = google_developer_connect_connection.github[0].connection_id
+  git_repository_link_id = each.key
+  clone_uri              = each.value
+}
+
 module "app_hosting" {
   for_each   = local.app_hosting_map
   source     = "./modules/app-hosting"
@@ -646,12 +832,22 @@ module "app_hosting" {
   service_account  = each.value.service_account != "" ? each.value.service_account : google_service_account.app_hosting_default[0].email
   serving_locality = each.value.serving_locality
 
+  # git 連携 backend のみ codebase / 自動ロールアウトを設定 (repo 未指定なら全て "")。
+  # try() は非 git backend で repo_link map にキーが無いケースを "" に落とすため。
+  codebase_repository = try(
+    google_developer_connect_git_repository_link.this[local.app_hosting_repo_link_id[each.value.backend_id]].name,
+    ""
+  )
+  root_directory = each.value.root_directory
+  rollout_branch = each.value.branch
+
   depends_on = [
     google_project_service.this,
     module.firebase,
     module.apps_web,
     google_project_iam_member.app_hosting_runner,
     terraform_data.validate_app_hosting_refs,
+    google_developer_connect_git_repository_link.this,
   ]
 }
 
@@ -832,12 +1028,11 @@ locals {
   ci_sa_auto_roles = local.enable_ci_sa ? distinct(concat(
     ["roles/runtimeconfig.admin"],
     local.enable_hosting ? ["roles/firebasehosting.admin"] : [],
-    # App Hosting を CI (firebase deploy --only apphosting, local-source) でロールアウト
-    # するために必要。backend / runner SA は terraform 所有なので CI は SA を作らず
-    # ロールアウトのみ行う想定。
-    #   firebaseapphosting.admin : build / rollout / traffic の作成
-    #   iam.serviceAccountUser   : runner SA (firebase-app-hosting-compute) を act-as
-    local.enable_app_hosting ? ["roles/firebaseapphosting.admin", "roles/iam.serviceAccountUser"] : [],
+    # App Hosting は git 連携 (Developer Connect) モデルで運用する。backend /
+    # connection / repo link / rollout_policy(監視ブランチ) は terraform が所有し、
+    # build / rollout は push をトリガに App Hosting のサービスエージェントが実行する。
+    # よって CI (firebase deploy / git push) は App Hosting に対する GCP 権限を
+    # 一切必要としない → ci_sa への App Hosting ロール付与は無し。
     local.enable_cloud_functions ? ["roles/cloudfunctions.admin", "roles/iam.serviceAccountUser", "roles/artifactregistry.admin"] : [],
     local.enable_firestore ? ["roles/datastore.indexAdmin", "roles/firebaserules.admin"] : [],
     # Data Connect の schema / connector を CI (firebase deploy) でデプロイするために必要。
