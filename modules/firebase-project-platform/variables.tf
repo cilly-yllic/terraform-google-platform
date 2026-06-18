@@ -206,22 +206,19 @@ variable "app_hosting_repo" {
 
 variable "github_connection" {
   description = <<-EOT
-    App Hosting git 連携 (Developer Connect) で使う GitHub connection 設定。
-    app_hosting[].repo を 1 つでも指定する場合に必須。
+    App Hosting git 連携 (Developer Connect, github_app="FIREBASE") の任意設定。
 
-    object:
-      app_installation_id = Firebase GitHub App のインストール ID (組織あたり1回の
-                            手動認可で取得。組織レベルで再利用可)。必須。
-      oauth_token_secret  = OAuth token を格納した Secret Manager secret の短縮名。
-                            bootstrap が対象プロジェクトに投入する。必須。
-                            module は projects/<project>/secrets/<name>/versions/latest
-                            を参照する。
-      connection_id       = connection 名 (default "github"、project-unique)。任意。
-      location            = connection / repo link の location (default: var.region)。任意。
+    object (すべて任意):
+      app_installation_id = Firebase GitHub App のインストール ID。通常は専用変数
+                            github_app_installation_id (repo Variable 経由) で渡すため
+                            ここは未指定でよい。
+      connection_id       = connection 名 (default "github"、project-unique)。
+      location            = connection / repo link の location (default: var.region)。
 
-    注意: GitHub↔GCP の信頼は GCP 側の connection が保持し、初回認可 (組織で1回)
-    以降は非対話で connection を作成できる。token 値そのものは github_connection
-    ではなく github_oauth_token (sensitive) で渡す (settings.yml に書かないため)。
+    注: FIREBASE タイプは OAuth token / authorizer_credential / secret を使わない。
+    GitHub↔GCP の認可は「組織への Firebase GitHub App インストール」(一度きり) で成立し、
+    Developer Connect が credential を内部保持する。terraform は app_installation_id だけ
+    渡せばよい。
   EOT
   type        = any
   default     = null
@@ -238,23 +235,6 @@ variable "github_app_installation_id" {
   EOT
   type        = string
   default     = ""
-}
-
-variable "github_oauth_token" {
-  description = <<-EOT
-    App Hosting git 連携用の GitHub OAuth token 値 (組織あたり1回の認可で取得)。
-
-    供給される (空でない) と、terraform が対象プロジェクトの Secret Manager に
-    github_connection.oauth_token_secret 名で secret + version を作成する (推奨・自動)。
-    Action B が GitHub Secret 由来の値を sensitive TFC 変数として注入する想定。
-    state に sensitive 値が乗る点に注意。
-
-    空のままなら、外部 (bootstrap 等) が投入済みの既存 secret を参照する
-    (state に乗せたくない場合のモード)。settings.yml には書かないこと。
-  EOT
-  type        = string
-  default     = ""
-  sensitive   = true
 }
 
 variable "data_connect" {
