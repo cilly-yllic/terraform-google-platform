@@ -31187,6 +31187,7 @@ async function run() {
             labels: inputLabelPatterns,
             source_repo: `${context.repo.owner}/${context.repo.repo}`,
             sha: context.sha,
+            module_version: resolvedModuleVersion,
         });
         core.info("Creating Terraform Cloud Run (auto-apply: true)");
         const tfcRun = await tfc.createRun(ws.id, {
