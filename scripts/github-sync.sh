@@ -64,6 +64,7 @@ load_env() {
 
   # defaults (bootstrap.example.env と一致させる)
   WORKLOAD_IDENTITY_POOL_ID="${WORKLOAD_IDENTITY_POOL_ID:-terraform-cloud}"
+  WORKLOAD_IDENTITY_PROVIDER_ID="${WORKLOAD_IDENTITY_PROVIDER_ID:-terraform-cloud}"
   GITHUB_WIF_PROVIDER_ID="${GITHUB_WIF_PROVIDER_ID:-github-actions}"
   CLOUD_RUN_DEPLOY_SA_ID="${CLOUD_RUN_DEPLOY_SA_ID:-cloud-run-router-deploy}"
   CLOUD_RUN_RUNTIME_SA_ID="${CLOUD_RUN_RUNTIME_SA_ID:-cloud-run-router-runtime}"
@@ -73,6 +74,34 @@ load_env() {
 check_prereqs() {
   command -v gh >/dev/null 2>&1 || error "'gh' CLI not found. Install gh and run 'gh auth login'."
   gh auth status >/dev/null 2>&1 || error "gh is not authenticated. Run 'gh auth login'."
+}
+
+# .env の BOOTSTRAP_PROJECT_ID に WIF pool/provider が実在するか検証する。
+#
+# 目的 (重要): derived 値 (特に GCP_PROJECT_NUMBER) は BOOTSTRAP_PROJECT_ID から
+# gcloud で導出するため、.env が stale (例: 旧 bootstrap project を指したまま) だと
+# 「実在しない / 別 project の番号」を黙って set してしまい、Action B の WIF audience が
+# invalid_target で落ちる。ここで実在チェックして不一致なら set 前に中止する。
+#   - pool: ${WORKLOAD_IDENTITY_POOL_ID}
+#   - provider: ${WORKLOAD_IDENTITY_PROVIDER_ID} (= Action B の TFC audience が使う provider)
+#   - ENABLE_CLOUD_RUN_DEPLOY_SETUP=true の時は github provider も検証
+verify_bootstrap_wif() {
+  command -v gcloud >/dev/null 2>&1 || error "'gcloud' not found (WIF 検証に必要)。"
+  local loc=global
+  gcloud iam workload-identity-pools describe "${WORKLOAD_IDENTITY_POOL_ID}" \
+    --project="${BOOTSTRAP_PROJECT_ID}" --location="${loc}" --format='value(state)' >/dev/null 2>&1 \
+    || error "WIF pool '${WORKLOAD_IDENTITY_POOL_ID}' が ${BOOTSTRAP_PROJECT_ID} に見つかりません。.env の BOOTSTRAP_PROJECT_ID が正しいか / make bootstrap 済みか確認してください (stale な値だと誤った GCP_PROJECT_NUMBER を set してしまうため中止しました)。"
+  gcloud iam workload-identity-pools providers describe "${WORKLOAD_IDENTITY_PROVIDER_ID}" \
+    --workload-identity-pool="${WORKLOAD_IDENTITY_POOL_ID}" \
+    --project="${BOOTSTRAP_PROJECT_ID}" --location="${loc}" --format='value(state)' >/dev/null 2>&1 \
+    || error "WIF provider '${WORKLOAD_IDENTITY_PROVIDER_ID}' が ${BOOTSTRAP_PROJECT_ID} に見つかりません (Action B の audience に使われます)。BOOTSTRAP_PROJECT_ID を確認してください。"
+  if [[ "${ENABLE_CLOUD_RUN_DEPLOY_SETUP}" == "true" ]]; then
+    gcloud iam workload-identity-pools providers describe "${GITHUB_WIF_PROVIDER_ID}" \
+      --workload-identity-pool="${WORKLOAD_IDENTITY_POOL_ID}" \
+      --project="${BOOTSTRAP_PROJECT_ID}" --location="${loc}" --format='value(state)' >/dev/null 2>&1 \
+      || error "GitHub WIF provider '${GITHUB_WIF_PROVIDER_ID}' が ${BOOTSTRAP_PROJECT_ID} に見つかりません (GCP_WORKLOAD_IDENTITY_PROVIDER に使われます)。"
+  fi
+  info "WIF 検証 OK: ${BOOTSTRAP_PROJECT_ID} に pool='${WORKLOAD_IDENTITY_POOL_ID}' / provider='${WORKLOAD_IDENTITY_PROVIDER_ID}' が実在"
 }
 
 # project number を memoize (gcloud 呼び出しは1回だけ)
@@ -291,8 +320,8 @@ main() {
   local sub="$1"; shift || true
   for a in "$@"; do [[ "${a}" == "--yes" ]] && APPLY_YES="true"; done
   case "${sub}" in
-    check) load_env; check_prereqs; cmd_check ;;
-    apply) load_env; check_prereqs; cmd_apply ;;
+    check) load_env; check_prereqs; verify_bootstrap_wif; cmd_check ;;
+    apply) load_env; check_prereqs; verify_bootstrap_wif; cmd_apply ;;
     -h|--help|help) show_help ;;
     *) echo "[ERROR] Unknown subcommand: ${sub}" >&2; echo "" >&2; show_help >&2; exit 1 ;;
   esac
