@@ -174,83 +174,12 @@ variable "app_hosting" {
       service_account  = Service account email (default: 自動で project 共有の SA を作成)
       serving_locality = GLOBAL_ACCESS | REGION_LOCKED (default: "GLOBAL_ACCESS")
 
-    git 連携 (Developer Connect) backend にする場合の追加フィールド:
-      repo           = GitHub clone_uri (例: https://github.com/owner/repo.git)。
-                       指定すると codebase + 自動ロールアウトを構成する。
-                       repo 指定時は github_connection が必須。
-      branch         = 自動ロールアウトの監視ブランチ (例: main)。push で build & rollout。
-                       省略すると自動ロールアウトしない (backend だけ作成)。
-      root_directory = リポジトリ内の web app ルート (例: apps/web)。省略でリポジトリ直下。
-      repo_link_id   = git_repository_link ID (省略時は clone_uri の owner/repo から導出)
-
-    repo は通常 settings.yml に書かず、app_hosting_repo 変数 (Action B が「処理中の
-    service repo」から自動注入) で解決する。per-backend で別 repo を指したい場合のみ repo を書く。
+    terraform は bare backend (箱 + compute SA) のみを作る。実際のコードのデプロイは
+    firebase CLI (`firebase deploy --only apphosting`, local source) が行う
+    (build/rollout は terraform 管理外)。
   EOT
   type        = any
   default     = null
-}
-
-variable "app_hosting_repo" {
-  description = <<-EOT
-    git 連携 backend の clone_uri の default 値 (例: https://github.com/owner/repo.git)。
-    app_hosting[].repo が未指定の git 連携 backend に適用される。
-
-    Action B (dispatch-firebase-platform) が「処理中の service repo」
-    (https://github.com/<owner>/<service>.git) から自動導出して注入する想定。
-    これにより settings.yml に clone_uri を重複記載しなくてよい。
-    backend は repo / branch / root_directory のいずれかが設定されていれば git 連携対象。
-  EOT
-  type        = string
-  default     = ""
-}
-
-variable "github_connection" {
-  description = <<-EOT
-    App Hosting git 連携 (Developer Connect, github_app="FIREBASE") の任意設定。
-
-    object (すべて任意):
-      app_installation_id = Firebase GitHub App のインストール ID。通常は専用変数
-                            github_app_installation_id (repo Variable 経由) で渡すため
-                            ここは未指定でよい。
-      connection_id       = connection 名 (default "github"、project-unique)。
-      location            = connection / repo link の location (default: var.region)。
-
-    注: FIREBASE タイプは OAuth token / authorizer_credential / secret を使わない。
-    GitHub↔GCP の認可は「組織への Firebase GitHub App インストール」(一度きり) で成立し、
-    Developer Connect が credential を内部保持する。terraform は app_installation_id だけ
-    渡せばよい。
-  EOT
-  type        = any
-  default     = null
-}
-
-variable "app_hosting_git_ready" {
-  description = <<-EOT
-    App Hosting git 連携 (github_app="FIREBASE") の2フェーズ制御フラグ。
-
-    false (default) = フェーズ1: Developer Connect connection だけを作る (PENDING)。
-                      その後、人間が install URI をブラウザで開いて Firebase GitHub App を
-                      認可し connection を COMPLETE にする。backend は bare で作成される。
-    true            = フェーズ2: connection 認可後に repo link / backend.codebase /
-                      rollout_policy(監視ブランチ) を作成する。
-
-    運用: まず未設定(false)で apply → 認可 → true にして再 apply。
-  EOT
-  type        = bool
-  default     = false
-}
-
-variable "github_app_installation_id" {
-  description = <<-EOT
-    Firebase GitHub App の installation ID (組織あたり1個・安定・非機微)。
-    指定すると github_connection.app_installation_id より優先される。
-    org 共通値を settings.yml に重複させたくない場合に、Action input / repo Variable
-    経由でここに注入する。空なら github_connection.app_installation_id にフォールバック。
-
-    取得: gh api /orgs/<org>/installations --jq '.installations[] | "\\(.id)\\t\\(.app_slug)"'
-  EOT
-  type        = string
-  default     = ""
 }
 
 variable "data_connect" {

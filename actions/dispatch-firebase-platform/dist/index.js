@@ -40719,11 +40719,6 @@ const PASSTHROUGH_KEYS = [
     "users",
     "ci_service_account",
     "service_accounts",
-    // App Hosting git 連携 (Developer Connect) の GitHub connection 設定。
-    // app_hosting[].repo を使う場合に必須。object なので passthrough で透過する。
-    "github_connection",
-    // App Hosting git 連携の2フェーズ制御 (bool)。true で repo link/codebase を作成。
-    "app_hosting_git_ready",
 ];
 function toHclValue(val) {
     if (val === null || val === undefined)
@@ -41156,11 +41151,6 @@ ${VERSION_PLACEHOLDER}
   users              = var.users
   ci_service_account = var.ci_service_account
   service_accounts   = var.service_accounts
-  github_connection  = var.github_connection
-
-  github_app_installation_id = var.github_app_installation_id
-  app_hosting_repo           = var.app_hosting_repo
-  app_hosting_git_ready      = var.app_hosting_git_ready
 }
 
 variable "project_id" {
@@ -41305,26 +41295,6 @@ variable "ci_service_account" {
 variable "service_accounts" {
   type    = any
   default = []
-}
-
-variable "github_connection" {
-  type    = any
-  default = null
-}
-
-variable "github_app_installation_id" {
-  type    = string
-  default = ""
-}
-
-variable "app_hosting_repo" {
-  type    = string
-  default = ""
-}
-
-variable "app_hosting_git_ready" {
-  type    = bool
-  default = false
 }
 `;
 const VERSIONS_TF = `terraform {
@@ -41523,15 +41493,6 @@ async function run() {
         const webhookSecret = core.getInput("cloud_run_webhook_secret");
         const moduleVersion = core.getInput("module_version");
         const labelsInput = core.getInput("labels");
-        // app_installation_id (org 共通・非機微)。設定時は settings.yml より優先。
-        const githubAppInstallationId = core.getInput("github_app_installation_id");
-        // App Hosting git 連携 backend の clone_uri。未指定なら「処理中の service repo」
-        // (https://github.com/<owner>/<service>.git) を自動導出する。settings.yml に
-        // clone_uri を書かせないため。owner は orchestrator の repo owner を流用する。
-        const appHostingRepoInput = core.getInput("app_hosting_repo");
-        const repoOwner = process.env.GITHUB_REPOSITORY_OWNER ?? "";
-        const appHostingRepo = appHostingRepoInput ||
-            (repoOwner ? `https://github.com/${repoOwner}/${service}.git` : "");
         core.setSecret(tfcToken);
         if (webhookSecret)
             core.setSecret(webhookSecret);
@@ -41667,26 +41628,6 @@ async function run() {
                 }
                 // Variables
                 const tfVars = buildTerraformVariables(projectId, firebasePlatform);
-                // app_installation_id は非機微。設定時のみ注入し settings.yml より優先。
-                if (githubAppInstallationId) {
-                    tfVars.push({
-                        key: "github_app_installation_id",
-                        value: githubAppInstallationId,
-                        category: "terraform",
-                        hcl: false,
-                        sensitive: false,
-                    });
-                }
-                // App Hosting git 連携 backend の clone_uri default (service repo から導出)。
-                if (appHostingRepo) {
-                    tfVars.push({
-                        key: "app_hosting_repo",
-                        value: appHostingRepo,
-                        category: "terraform",
-                        hcl: false,
-                        sensitive: false,
-                    });
-                }
                 const envVars = buildEnvVariables(saEmail, projectId, bootstrapProjectNumber, poolId, providerId);
                 await syncVariables(workspaceId, [...tfVars, ...envVars], tfcToken);
                 core.info(`[${env}] Synced ${tfVars.length} terraform + ${envVars.length} env variables`);
