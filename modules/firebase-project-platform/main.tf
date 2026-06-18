@@ -288,6 +288,11 @@ locals {
     local.enable_data_connect ? [
       "firebasedataconnect.googleapis.com",
       "sqladmin.googleapis.com",
+      # Data Connect (Cloud SQL) deploy 時、firebase CLI が課金有効性を Cloud Billing
+      # API (billingInfo) で確認するため必須。未有効だと
+      # "Cloud Billing API has not been used in project ..." 403 で落ちる。
+      # firestore/storage は billing チェック不要なのでこの API も不要だった。
+      "cloudbilling.googleapis.com",
     ] : [],
     local.enable_fcm ? [
       "fcm.googleapis.com",
