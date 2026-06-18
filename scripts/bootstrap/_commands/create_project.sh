@@ -7,8 +7,8 @@ create_project() {
   fi
 
   local parent_flag
-  if [[ -n "${FOLDER_ID:-}" ]]; then
-    parent_flag="--folder=${FOLDER_ID}"
+  if [[ -n "${BOOTSTRAP_FOLDER_ID:-}" ]]; then
+    parent_flag="--folder=${BOOTSTRAP_FOLDER_ID}"
   else
     parent_flag="--organization=${ORGANIZATION_ID}"
   fi

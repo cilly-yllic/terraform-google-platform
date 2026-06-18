@@ -234,7 +234,7 @@ print_env() {
   echo " Billing Account Information"
   echo "============================================"
   echo ""
-  echo "BILLING_ACCOUNT_ID=${billing_account_id}"
+  echo "BOOTSTRAP_BILLING_ACCOUNT_ID=${billing_account_id}"
   echo "BILLING_DISPLAY_NAME=${BILLING_DISPLAY_NAME}"
   echo "MASTER_BILLING_ACCOUNT_ID=${MASTER_BILLING_ACCOUNT_ID}"
   if [[ -n "${ORGANIZATION_ID:-}" ]]; then
@@ -245,7 +245,7 @@ print_env() {
   echo " bootstrap.sh .env に設定する値:"
   echo "--------------------------------------------"
   echo ""
-  echo "BILLING_ACCOUNT_ID=\"${billing_account_id}\""
+  echo "BOOTSTRAP_BILLING_ACCOUNT_ID=\"${billing_account_id}\""
   echo ""
 }
 
@@ -269,7 +269,7 @@ Create a GCP Billing Account under a master billing account.
 
 This script uses `gcloud billing accounts create` to provision a new
 sub-billing account. The created billing account ID can then be used
-in the bootstrap script (.env BILLING_ACCOUNT_ID).
+in the bootstrap script (.env BOOTSTRAP_BILLING_ACCOUNT_ID).
 
 SUBCOMMANDS
   check       Verify prerequisites (commands, auth, env vars, existing

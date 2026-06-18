@@ -40618,7 +40618,7 @@ const BOOTSTRAP_PROJECT_NUMBER_TOKEN = "${BOOTSTRAP_PROJECT_NUMBER}";
 const expandStringPlaceholders = (val, ctx) => {
     // fail-fast: 参照あり & 未注入 → 後段に壊れた literal を流さない。
     if (val.includes(BOOTSTRAP_PROJECT_NUMBER_TOKEN) && !ctx.bootstrapProjectNumber) {
-        throw new Error(`settings.yml references \${BOOTSTRAP_PROJECT_NUMBER} but the dispatch-firebase-platform Action did not receive a non-empty 'bootstrap_project_number' input. Pass it via 'with.bootstrap_project_number' (typically from a repo/org Secret like GCP_PROJECT_NUMBER).`);
+        throw new Error(`settings.yml references \${BOOTSTRAP_PROJECT_NUMBER} but the dispatch-firebase-platform Action did not receive a non-empty 'bootstrap_project_number' input. Pass it via 'with.bootstrap_project_number' (typically from the repo Variable BOOTSTRAP_PROJECT_NUMBER).`);
     }
     return val
         .replace(/\$\{service\}/g, ctx.service)

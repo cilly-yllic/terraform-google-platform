@@ -15,7 +15,7 @@ name: Deploy cloud-run-router
 #      `attribute.repository == "<your-org>/<your-deploy-repo>"` を、
 #      **deploy 用 private repo に向けて**おくこと
 #   5. private repo 側の Variables / Secrets を設定:
-#      - Variables: GCP_PROJECT_ID / GCP_WORKLOAD_IDENTITY_PROVIDER /
+#      - Variables: BOOTSTRAP_PROJECT_ID / GCP_WORKLOAD_IDENTITY_PROVIDER /
 #                   GCP_DEPLOY_SERVICE_ACCOUNT / GCP_RUNTIME_SERVICE_ACCOUNT /
 #                   GH_APP_ID
 #      - Secrets:   DEPLOY_WEBHOOK (Slack incoming webhook URL),
@@ -98,8 +98,8 @@ jobs:
         working-directory: cloud-run-router
         run: |
           set -euo pipefail
-          IMAGE="${{ env.IMAGE_REPO }}/${{ secrets.GCP_PROJECT_ID }}/${{ env.SERVICE_NAME }}:main-${{ steps.source.outputs.short_sha }}"
-          PROJECT="${{ secrets.GCP_PROJECT_ID }}"
+          IMAGE="${{ env.IMAGE_REPO }}/${{ vars.BOOTSTRAP_PROJECT_ID }}/${{ env.SERVICE_NAME }}:main-${{ steps.source.outputs.short_sha }}"
+          PROJECT="${{ vars.BOOTSTRAP_PROJECT_ID }}"
           echo "Building image: ${IMAGE}"
           # 同期モード (`gcloud builds submit` を flag 無しで実行) は build 起動後に
           # log streaming を試み、その pre-check が project レベル roles/viewer
@@ -174,10 +174,10 @@ jobs:
             exit 1
           fi
           printf '%s' "${TFC_NOTIFICATION_SECRET}" | gcloud secrets versions add tfc-notification-secret \
-            --project="${{ secrets.GCP_PROJECT_ID }}" \
+            --project="${{ vars.BOOTSTRAP_PROJECT_ID }}" \
             --data-file=- > /dev/null
           printf '%s' "${GH_APP_PRIVATE_KEY}" | gcloud secrets versions add github-app-private-key \
-            --project="${{ secrets.GCP_PROJECT_ID }}" \
+            --project="${{ vars.BOOTSTRAP_PROJECT_ID }}" \
             --data-file=- > /dev/null
           echo "Synced TFC_NOTIFICATION_SECRET → tfc-notification-secret and GH_APP_PRIVATE_KEY → github-app-private-key (new versions added)."
 
@@ -186,7 +186,7 @@ jobs:
           set -euo pipefail
           gcloud run deploy "${{ env.SERVICE_NAME }}" \
             --image "${IMAGE}" \
-            --project="${{ secrets.GCP_PROJECT_ID }}" \
+            --project="${{ vars.BOOTSTRAP_PROJECT_ID }}" \
             --region="${{ env.REGION }}" \
             --platform=managed \
             --service-account="${{ secrets.GCP_RUNTIME_SERVICE_ACCOUNT }}" \
@@ -201,11 +201,11 @@ jobs:
         run: |
           set -euo pipefail
           SERVICE_URL=$(gcloud run services describe "${{ env.SERVICE_NAME }}" \
-            --project="${{ secrets.GCP_PROJECT_ID }}" \
+            --project="${{ vars.BOOTSTRAP_PROJECT_ID }}" \
             --region="${{ env.REGION }}" \
             --format='value(status.url)')
           SERVICE_REVISION=$(gcloud run services describe "${{ env.SERVICE_NAME }}" \
-            --project="${{ secrets.GCP_PROJECT_ID }}" \
+            --project="${{ vars.BOOTSTRAP_PROJECT_ID }}" \
             --region="${{ env.REGION }}" \
             --format='value(status.latestReadyRevisionName)')
           {

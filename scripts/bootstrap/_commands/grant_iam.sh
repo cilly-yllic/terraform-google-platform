@@ -2,17 +2,17 @@
 # Terraform Project Factory SA に必要な IAM role を付与する。
 #
 # 配置 (placement) に応じてスコープを決める。**folder が org に優先**する
-# (ensure_folder が FOLDER_ID を解決済み。folder mode では ORGANIZATION_ID が
+# (ensure_folder が BOOTSTRAP_FOLDER_ID を解決済み。folder mode では ORGANIZATION_ID が
 # 同時に設定されていても folder スコープで付与し、blast radius を folder 内に
 # 封じ込める)。
-#   Folder mode (FOLDER_ID あり)  : projectCreator + projectIamAdmin (folder スコープ)
+#   Folder mode (BOOTSTRAP_FOLDER_ID あり)  : projectCreator + projectIamAdmin (folder スコープ)
 #                                   (folder には billing IAM の親子関係が無いので、
 #                                   billing は下の per-account grant に委ねる)
 #   Org-direct mode (FOLDER 無し)  : projectCreator + projectIamAdmin + billing.user
 #                                   (billing.user を org-level に上げると org 所有の
 #                                   全 billing account に inherit され、billing account
 #                                   追加時の手動 grant が不要になる利便性のため)
-#   Billing Account (BILLING_ACCOUNT_ID, 常時)
+#   Billing Account (BOOTSTRAP_BILLING_ACCOUNT_ID, 常時)
 #                                : billing.user (.env の bootstrap project
 #                                  本体用 billing は per-account でも明示的
 #                                  に付与。ORG_ID set 時は org-level grant と
@@ -38,7 +38,7 @@ grant_iam() {
   member="serviceAccount:$(sa_email)"
 
   # --- Folder or Organization level (folder 優先) ---
-  if [[ -n "${FOLDER_ID:-}" ]]; then
+  if [[ -n "${BOOTSTRAP_FOLDER_ID:-}" ]]; then
     # folder mode: 付与を folder スコープに限定し、Factory SA の到達範囲を
     # その folder 内に封じ込める。billing は folder に inherit しないので
     # 下の per-account grant に委ねる。
@@ -48,7 +48,7 @@ grant_iam() {
     )
     for role in "${folder_roles[@]}"; do
       info "  Folder: ${role}"
-      gcloud resource-manager folders add-iam-policy-binding "${FOLDER_ID}" \
+      gcloud resource-manager folders add-iam-policy-binding "${BOOTSTRAP_FOLDER_ID}" \
         --member="${member}" \
         --role="${role}" \
         --quiet
@@ -73,10 +73,10 @@ grant_iam() {
 
   # --- Billing Account (.env の bootstrap project 本体用) ---
   # ORG_ID set 時は org-level grant と重複するが、冪等なので no-op。
-  # FOLDER_ID only setup でも bootstrap project の billing 紐付けが回るよう
+  # BOOTSTRAP_FOLDER_ID only setup でも bootstrap project の billing 紐付けが回るよう
   # に常時 per-account 付与する。
-  info "  Billing: roles/billing.user (on ${BILLING_ACCOUNT_ID})"
-  gcloud billing accounts add-iam-policy-binding "${BILLING_ACCOUNT_ID}" \
+  info "  Billing: roles/billing.user (on ${BOOTSTRAP_BILLING_ACCOUNT_ID})"
+  gcloud billing accounts add-iam-policy-binding "${BOOTSTRAP_BILLING_ACCOUNT_ID}" \
     --member="${member}" \
     --role="roles/billing.user" \
     --quiet

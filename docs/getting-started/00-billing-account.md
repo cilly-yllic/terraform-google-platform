@@ -64,16 +64,16 @@ make create-billing-account-print-env
 出力例:
 
 ```text
-BILLING_ACCOUNT_ID=ABCDEF-123456-GHIJKL
+BOOTSTRAP_BILLING_ACCOUNT_ID=ABCDEF-123456-GHIJKL
 ```
 
-この `BILLING_ACCOUNT_ID` を次の Step で使用します。
+この `BOOTSTRAP_BILLING_ACCOUNT_ID` を次の Step で使用します。
 
 ---
 
 ## 次のステップ
 
-→ [Step 1: Bootstrap](./01-bootstrap.md) — 出力された `BILLING_ACCOUNT_ID` を `.env` に設定して bootstrap を実行します。
+→ [Step 1: Bootstrap](./01-bootstrap.md) — 出力された `BOOTSTRAP_BILLING_ACCOUNT_ID` を `.env` に設定して bootstrap を実行します。
 
 ---
 
