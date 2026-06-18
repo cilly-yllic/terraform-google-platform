@@ -322,6 +322,7 @@ async function run(): Promise<void> {
       labels: inputLabelPatterns,
       source_repo: `${context.repo.owner}/${context.repo.repo}`,
       sha: context.sha,
+      module_version: resolvedModuleVersion,
     });
 
     core.info("Creating Terraform Cloud Run (auto-apply: true)");

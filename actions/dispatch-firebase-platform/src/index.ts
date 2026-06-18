@@ -275,6 +275,7 @@ async function run(): Promise<void> {
           labels: inputLabelPatterns,
           source_repo: sourceRepo,
           sha,
+          module_version: resolvedModuleVersion,
         });
         const runData = await createRun({
           workspaceId,
