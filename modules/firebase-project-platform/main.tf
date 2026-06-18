@@ -338,6 +338,11 @@ locals {
       "cloudfunctions.googleapis.com",
       "cloudbuild.googleapis.com",
       "artifactregistry.googleapis.com",
+      # Gen2 Functions は Cloud Run / Eventarc / Pub/Sub を内部利用するため、
+      # これらの API と service-agent binding が deploy に必須。
+      "run.googleapis.com",
+      "eventarc.googleapis.com",
+      "pubsub.googleapis.com",
     ] : [],
     length(var.service_accounts) > 0 || local.enable_ci_sa || local.enable_app_hosting ? [
       "iam.googleapis.com",
@@ -872,4 +877,60 @@ module "iam" {
   } : null
 
   depends_on = [google_project_service.this]
+}
+
+# ---------------------------------------------------------------------------
+# Gen2 Cloud Functions – service-agent IAM bindings
+#
+# Gen2 Functions は内部で Cloud Run / Eventarc / Pub/Sub を使うため、deploy 時に
+# 各 service-agent への IAM binding が要る。firebase CLI は自動付与を試みるが、
+# CI SA (ci-deploy) に projectIamAdmin が無いと "failed to modify the IAM policy"
+# で失敗する。ここで terraform が事前付与し、CI SA に広い IAM 権限を渡さずに済ませる。
+#
+# 付与内容 (firebase CLI が要求する standard Gen2 + Eventarc bindings):
+#   - Pub/Sub service agent          : iam.serviceAccountTokenCreator
+#   - Compute default SA (runtime)   : run.invoker, eventarc.eventReceiver
+# ---------------------------------------------------------------------------
+
+data "google_project" "this" {
+  count      = local.enable_cloud_functions ? 1 : 0
+  project_id = var.project_id
+  depends_on = [google_project_service.this]
+}
+
+# Pub/Sub service agent (service-{number}@gcp-sa-pubsub...) を確実に存在させる。
+resource "google_project_service_identity" "pubsub" {
+  count    = local.enable_cloud_functions ? 1 : 0
+  provider = google-beta
+  project  = var.project_id
+  service  = "pubsub.googleapis.com"
+
+  depends_on = [google_project_service.this]
+}
+
+locals {
+  gen2_compute_sa = local.enable_cloud_functions ? (
+    "${data.google_project.this[0].number}-compute@developer.gserviceaccount.com"
+  ) : ""
+}
+
+resource "google_project_iam_member" "gen2_pubsub_token_creator" {
+  count   = local.enable_cloud_functions ? 1 : 0
+  project = var.project_id
+  role    = "roles/iam.serviceAccountTokenCreator"
+  member  = "serviceAccount:${google_project_service_identity.pubsub[0].email}"
+}
+
+resource "google_project_iam_member" "gen2_compute_run_invoker" {
+  count   = local.enable_cloud_functions ? 1 : 0
+  project = var.project_id
+  role    = "roles/run.invoker"
+  member  = "serviceAccount:${local.gen2_compute_sa}"
+}
+
+resource "google_project_iam_member" "gen2_compute_eventarc_receiver" {
+  count   = local.enable_cloud_functions ? 1 : 0
+  project = var.project_id
+  role    = "roles/eventarc.eventReceiver"
+  member  = "serviceAccount:${local.gen2_compute_sa}"
 }
