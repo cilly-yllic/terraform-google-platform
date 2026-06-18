@@ -651,20 +651,21 @@ describe("buildTerraformVariables", () => {
   });
 
   it("passes github_connection through as an HCL object (App Hosting git 連携)", () => {
-    // github_connection は object passthrough。app_hosting[].repo を使う時に必須。
+    // github_connection は任意の object passthrough (FIREBASE タイプは connection_id /
+    // location の上書き用途。app_installation_id は通常 input で渡す)。
     const without = buildTerraformVariables("p", {});
     expect(without.find((v) => v.key === "github_connection")).toBeUndefined();
 
     const vars = buildTerraformVariables("p", {
       github_connection: {
-        app_installation_id: "12345678",
-        oauth_token_secret: "github-oauth-token",
+        connection_id: "github",
+        location: "asia-northeast1",
       },
     });
     const gc = vars.find((v) => v.key === "github_connection");
     expect(gc?.hcl).toBe(true);
     expect(gc?.value).toBe(
-      '{ "app_installation_id" = "12345678", "oauth_token_secret" = "github-oauth-token" }',
+      '{ "connection_id" = "github", "location" = "asia-northeast1" }',
     );
   });
 });

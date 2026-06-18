@@ -36,7 +36,6 @@ ${VERSION_PLACEHOLDER}
   ci_service_account = var.ci_service_account
   service_accounts   = var.service_accounts
   github_connection  = var.github_connection
-  github_oauth_token = var.github_oauth_token
 
   github_app_installation_id = var.github_app_installation_id
   app_hosting_repo           = var.app_hosting_repo
@@ -189,12 +188,6 @@ variable "service_accounts" {
 variable "github_connection" {
   type    = any
   default = null
-}
-
-variable "github_oauth_token" {
-  type      = string
-  default   = ""
-  sensitive = true
 }
 
 variable "github_app_installation_id" {

@@ -61,9 +61,6 @@ async function run(): Promise<void> {
     const webhookSecret = core.getInput("cloud_run_webhook_secret");
     const moduleVersion = core.getInput("module_version");
     const labelsInput = core.getInput("labels");
-    // App Hosting git 連携用の GitHub OAuth token (sensitive)。設定時のみ
-    // sensitive terraform 変数として各 workspace に注入する。
-    const githubOauthToken = core.getInput("github_oauth_token");
     // app_installation_id (org 共通・非機微)。設定時は settings.yml より優先。
     const githubAppInstallationId = core.getInput("github_app_installation_id");
     // App Hosting git 連携 backend の clone_uri。未指定なら「処理中の service repo」
@@ -77,7 +74,6 @@ async function run(): Promise<void> {
 
     core.setSecret(tfcToken);
     if (webhookSecret) core.setSecret(webhookSecret);
-    if (githubOauthToken) core.setSecret(githubOauthToken);
 
     // Default outputs so downstream `if:` checks are always safe.
     core.setOutput("skipped", "false");
@@ -249,17 +245,6 @@ async function run(): Promise<void> {
 
         // Variables
         const tfVars = buildTerraformVariables(projectId, firebasePlatform);
-        // App Hosting git 連携用 OAuth token は settings.yml に書かず、Action input
-        // 経由で sensitive terraform 変数として注入する (module が secret を作成)。
-        if (githubOauthToken) {
-          tfVars.push({
-            key: "github_oauth_token",
-            value: githubOauthToken,
-            category: "terraform",
-            hcl: false,
-            sensitive: true,
-          });
-        }
         // app_installation_id は非機微。設定時のみ注入し settings.yml より優先。
         if (githubAppInstallationId) {
           tfVars.push({
