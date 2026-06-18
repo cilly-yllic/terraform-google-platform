@@ -693,6 +693,7 @@ describe("buildRunMessage", () => {
       labels: ["^tier:dev$"],
       source_repo: "owner/repo",
       sha: "abc123",
+      module_version: "1.2.3",
     });
     expect(JSON.parse(msg)).toEqual({
       service: "svc",
@@ -700,6 +701,7 @@ describe("buildRunMessage", () => {
       labels: ["^tier:dev$"],
       source_repo: "owner/repo",
       sha: "abc123",
+      module_version: "1.2.3",
     });
   });
 
@@ -710,6 +712,7 @@ describe("buildRunMessage", () => {
       labels: [],
       source_repo: "o/r",
       sha: "x",
+      module_version: "1.2.3",
     });
     expect(JSON.parse(msg)).toMatchObject({
       environments: ["dev-001"],
