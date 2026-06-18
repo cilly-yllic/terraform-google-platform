@@ -564,7 +564,7 @@ make github-sync-apply YES=1
 
 | 分類 | 対象 | 挙動 |
 |------|------|------|
-| **derived** | `BOOTSTRAP_PROJECT_ID` / `GITHUB_APP_INSTALLATION_ID` (vars) / `GCP_PROJECT_ID` / `GCP_PROJECT_NUMBER` / `GCP_WORKLOAD_IDENTITY_PROVIDER` / `GCP_DEPLOY_SERVICE_ACCOUNT` / `GCP_RUNTIME_SERVICE_ACCOUNT` / `PARENT_FOLDER_ID` (secrets) | `.env` + `gcloud`/`gh` から決定的に導出。`apply` で set。SA / WIF provider 系は `ENABLE_CLOUD_RUN_DEPLOY_SETUP=true` の時のみ導出 (それ以外は SKIP)。`GITHUB_APP_INSTALLATION_ID` は `gh api /orgs/<org>/installations` から App slug で特定 (複数一致/不一致時は `GITHUB_APP_INSTALLATION_APP_SLUG` で明示 → SKIP 回避) |
+| **derived** | `BOOTSTRAP_PROJECT_ID` / `APPHOSTING_GITHUB_APP_INSTALLATION_ID` (vars) / `GCP_PROJECT_ID` / `GCP_PROJECT_NUMBER` / `GCP_WORKLOAD_IDENTITY_PROVIDER` / `GCP_DEPLOY_SERVICE_ACCOUNT` / `GCP_RUNTIME_SERVICE_ACCOUNT` / `PARENT_FOLDER_ID` (secrets) | `.env` + `gcloud`/`gh` から決定的に導出。`apply` で set。SA / WIF provider 系は `ENABLE_CLOUD_RUN_DEPLOY_SETUP=true` の時のみ導出 (それ以外は SKIP)。`APPHOSTING_GITHUB_APP_INSTALLATION_ID` は `gh api /orgs/<org>/installations` から App slug で特定 (複数一致/不一致時は `GITHUB_APP_INSTALLATION_APP_SLUG` で明示 → SKIP 回避。※ GitHub の制約で変数名は `GITHUB_` 始まり不可) |
 | **manual** | `GH_APP_ID` (var) / `GH_APP_PRIVATE_KEY` / `DEPLOY_WEBHOOK` / `TFC_TOKEN` (secrets) | 外部から取得する値。存在チェックのみ。同名で `export` していれば `apply` で set |
 | **workflow** | `CLOUD_RUN_WEBHOOK_URL` / `TFC_NOTIFICATION_SECRET` (secrets) | 他 workflow (deploy / init-router-hmac) が自動登録。存在チェックのみ |
 

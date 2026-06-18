@@ -115,7 +115,7 @@ org-wide value is not duplicated in every service's `settings.yml`:
   with:
     # ...
     github_oauth_token:          ${{ secrets.APPHOSTING_GITHUB_OAUTH_TOKEN }}
-    github_app_installation_id:  ${{ vars.GITHUB_APP_INSTALLATION_ID }}
+    github_app_installation_id:  ${{ vars.APPHOSTING_GITHUB_APP_INSTALLATION_ID }}
 ```
 
 Get the installation id with:
