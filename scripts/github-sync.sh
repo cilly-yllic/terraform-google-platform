@@ -41,7 +41,6 @@ ENTRIES=(
   "BOOTSTRAP_PROJECT_NUMBER|var|derived"
   "BOOTSTRAP_FOLDER_ID|var|derived"
   "GH_APP_ID|var|manual"
-  "APPHOSTING_GITHUB_APP_INSTALLATION_ID|var|derived"
 
   # deploy/WIF 用 (identity ではないので GCP_ のまま、Secret)
   "GCP_WORKLOAD_IDENTITY_PROVIDER|secret|derived"
@@ -128,37 +127,9 @@ project_number() {
   echo "${_PROJECT_NUMBER}"
 }
 
-# App Hosting git 連携用の GitHub App installation ID を gh から導出する。
-# org に Firebase の GitHub App がインストール済み (= 組織で1回のブラウザ認可後) なら引ける。
-# 要 org admin 権限。App slug は GITHUB_APP_INSTALLATION_APP_SLUG で明示可 (未指定は
-# firebase / app-hosting / developer-connect 系を regex マッチ)。
-_APP_INSTALLATION_DONE=""
-_APP_INSTALLATION_ID=""
-resolve_app_installation_id() {
-  if [[ -z "${_APP_INSTALLATION_DONE}" ]]; then
-    _APP_INSTALLATION_DONE="1"
-    local owner="${GITHUB_REPOSITORY%%/*}"
-    local rows
-    rows="$(gh api "/orgs/${owner}/installations" --jq '.installations[] | "\(.id)\t\(.app_slug)"' 2>/dev/null || true)"
-    if [[ -z "${rows}" ]]; then
-      REASON="gh api /orgs/${owner}/installations が空 (org admin 権限 / App 未インストール?)"
-      return
-    fi
-    local matches
-    if [[ -n "${GITHUB_APP_INSTALLATION_APP_SLUG:-}" ]]; then
-      matches="$(awk -F'\t' -v s="${GITHUB_APP_INSTALLATION_APP_SLUG}" '$2==s{print $1}' <<<"${rows}")"
-    else
-      matches="$(awk -F'\t' 'tolower($2) ~ /firebase|app-?hosting|developer-?connect|devconnect/{print $1}' <<<"${rows}")"
-    fi
-    local n; n="$(grep -c . <<<"${matches}" 2>/dev/null || echo 0)"
-    if [[ "${n}" -eq 1 ]]; then
-      _APP_INSTALLATION_ID="$(head -1 <<<"${matches}")"
-    elif [[ "${n}" -eq 0 ]]; then
-      REASON="該当 App installation なし。GITHUB_APP_INSTALLATION_APP_SLUG を明示 (一覧: gh api /orgs/${owner}/installations)"
-    else
-      REASON="App installation が複数一致 (${n})。GITHUB_APP_INSTALLATION_APP_SLUG で一意化"
-    fi
-  fi
+# 指定 repo の Variable 値を返す (無ければ空)。サービス repo 同期で使う。
+svc_var() {
+  gh variable list --repo "$1" --json name,value --jq ".[] | select(.name==\"$2\") | .value" 2>/dev/null || true
 }
 
 # derived な値をグローバル DESIRED / REASON にセットする。
@@ -178,8 +149,6 @@ set_desired() {
     BOOTSTRAP_FOLDER_ID)
       # サービス project の fallback 親 folder (= bootstrap/infra folder)。.env 値そのまま。
       if [[ -z "${BOOTSTRAP_FOLDER_ID:-}" ]]; then REASON="folder mode 未使用 (.env BOOTSTRAP_FOLDER_ID 空)"; else DESIRED="${BOOTSTRAP_FOLDER_ID}"; fi ;;
-    APPHOSTING_GITHUB_APP_INSTALLATION_ID)
-      resolve_app_installation_id; DESIRED="${_APP_INSTALLATION_ID}" ;;
     GCP_WORKLOAD_IDENTITY_PROVIDER)
       if [[ "${ENABLE_CLOUD_RUN_DEPLOY_SETUP}" != "true" ]]; then REASON="ENABLE_CLOUD_RUN_DEPLOY_SETUP!=true (github WIF provider 未作成)"; else
         DESIRED="projects/$(project_number)/locations/global/workloadIdentityPools/${WORKLOAD_IDENTITY_POOL_ID}/providers/${GITHUB_WIF_PROVIDER_ID}"; fi ;;
@@ -249,6 +218,20 @@ cmd_check() {
     fi
     printf "%-32s %-7s %-9s %s\n" "${name}" "${kind}" "${source}" "${status}"
   done
+
+  # サービス repo (deploy.yml が WIF で使う) の BOOTSTRAP_PROJECT_NUMBER も確認。
+  if [[ -n "${SERVICE_GITHUB_REPOS:-}" ]]; then
+    local num; num="$(project_number)"
+    echo; info "サービス repo の BOOTSTRAP_PROJECT_NUMBER (deploy.yml WIF 用):"
+    local repo cur st
+    for repo in ${SERVICE_GITHUB_REPOS}; do
+      cur="$(svc_var "${repo}" BOOTSTRAP_PROJECT_NUMBER)"
+      if [[ -z "${cur}" ]]; then st="MISSING → set '${num}'"
+      elif [[ "${cur}" == "${num}" ]]; then st="OK (${num})"
+      else st="DRIFT cur='${cur}' want='${num}'"; fi
+      printf "  %-28s %s\n" "${repo}" "${st}"
+    done
+  fi
   echo
   info "derived の MISSING/DRIFT を反映するには: scripts/github-sync.sh apply"
 }
@@ -270,6 +253,18 @@ cmd_apply() {
       to_set_desc+=("secret ${name} = $(mask "${desired}")")
     fi
   done
+
+  # サービス repo の BOOTSTRAP_PROJECT_NUMBER も差分に含める。
+  local svc_num=""
+  if [[ -n "${SERVICE_GITHUB_REPOS:-}" ]]; then
+    svc_num="$(project_number)"
+    local repo cur
+    for repo in ${SERVICE_GITHUB_REPOS}; do
+      cur="$(svc_var "${repo}" BOOTSTRAP_PROJECT_NUMBER)"
+      [[ "${cur}" == "${svc_num}" ]] && continue
+      to_set_desc+=("var    BOOTSTRAP_PROJECT_NUMBER = ${svc_num}  [${repo}]")
+    done
+  fi
 
   if [[ "${#to_set_desc[@]}" -eq 0 ]]; then
     info "差分なし — set すべき derived/manual(env) はありません。"
@@ -299,6 +294,17 @@ cmd_apply() {
       info "secret set: ${name}"
     fi
   done
+
+  # サービス repo に BOOTSTRAP_PROJECT_NUMBER を set。
+  if [[ -n "${SERVICE_GITHUB_REPOS:-}" ]]; then
+    local repo cur
+    for repo in ${SERVICE_GITHUB_REPOS}; do
+      cur="$(svc_var "${repo}" BOOTSTRAP_PROJECT_NUMBER)"
+      [[ "${cur}" == "${svc_num}" ]] && continue
+      gh variable set BOOTSTRAP_PROJECT_NUMBER --repo "${repo}" --body "${svc_num}"
+      info "var set: BOOTSTRAP_PROJECT_NUMBER [${repo}]"
+    done
+  fi
   echo
   info "完了。手動登録が必要な値 (manual で未設定) は check の出力を参照してください。"
 }
@@ -319,13 +325,13 @@ manual (外部トークン) を apply で set したい場合は同名で export
     GH_APP_PRIVATE_KEY="\$(cat key.pem)" scripts/github-sync.sh apply
 
 ENVIRONMENT (.env から読む)
-  GITHUB_REPOSITORY              同期先 repo (owner/repo, 必須)
+  GITHUB_REPOSITORY              orchestrator 同期先 repo (owner/repo, 必須)
   BOOTSTRAP_PROJECT_ID           infra プロジェクト ID (必須)
   BOOTSTRAP_FOLDER_ID            サービス project の fallback 親 folder (folder mode 時)
   ENABLE_CLOUD_RUN_DEPLOY_SETUP  true の時のみ deploy/runtime SA + github WIF を導出
-  GITHUB_APP_INSTALLATION_APP_SLUG  App Hosting git 連携用 GitHub App の slug を明示
-                                 (未指定は firebase/app-hosting/developer-connect 系を
-                                  自動マッチ。複数一致や不一致時はこれで一意化)
+  SERVICE_GITHUB_REPOS           サービス repo (deploy.yml が WIF で使う) を空白区切りで列挙。
+                                 各 repo に BOOTSTRAP_PROJECT_NUMBER (Variable) を同期する。
+                                 例: "MoooDoNE/cmonoth MoooDoNE/draft-craft"
 EOF
 }
 

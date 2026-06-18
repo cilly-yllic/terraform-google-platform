@@ -190,13 +190,6 @@ locals {
       app_id           = try(a.app_id, "")
       service_account  = try(a.service_account, "")
       serving_locality = try(a.serving_locality, "GLOBAL_ACCESS")
-      # git 連携 (Developer Connect) backend 用。repo (clone_uri) が指定された
-      # backend は codebase + 自動ロールアウト (branch) を構成する。空なら bare backend。
-      repo           = try(a.repo, "")
-      branch         = try(a.branch, "")
-      root_directory = try(a.root_directory, "")
-      # git_repository_link_id。省略時は clone_uri の owner/repo から導出。
-      repo_link_id = try(a.repo_link_id, "")
     }
   ]
 
@@ -248,69 +241,6 @@ locals {
   app_hosting_default_sa_needed = length([
     for a in local.app_hosting_list : a if a.service_account == ""
   ]) > 0
-
-  # ---- App Hosting git 連携 (Developer Connect) 用の導出 ----
-  # git 連携対象 = repo / branch / root_directory のいずれかが指定された backend
-  # (これらは git 連携でのみ意味を持つフィールド)。bare backend は全て空なので非対象。
-  app_hosting_git_backends = [
-    for a in local.app_hosting_list : a if a.repo != "" || a.branch != "" || a.root_directory != ""
-  ]
-  enable_app_hosting_git = length(local.app_hosting_git_backends) > 0
-
-  # フェーズ2 ゲート: connection 認可 (ブラウザ) 完了後に repo link / codebase /
-  # rollout を作る。app_hosting_git_ready=true で有効化。
-  app_hosting_git_link = local.enable_app_hosting_git && var.app_hosting_git_ready
-
-  # backend ごとの clone_uri。per-backend repo を最優先し、無ければ module 全体の
-  # default (var.app_hosting_repo、= Action B が「処理中の service repo」から自動注入)
-  # を使う。settings.yml に clone_uri を重複させないための仕組み。
-  app_hosting_clone_uri = {
-    for a in local.app_hosting_git_backends : a.backend_id => (
-      a.repo != "" ? a.repo : var.app_hosting_repo
-    )
-  }
-
-  # backend ごとの git_repository_link_id。明示が無ければ clone_uri の末尾2セグメント
-  # (owner/repo) から導出する。例: https://github.com/MoooDoNE/cmonoth.git
-  #   -> trimsuffix で .git 除去 -> 末尾2要素 [MoooDoNE, cmonoth] -> "moooedone-cmonoth"
-  app_hosting_repo_link_id = {
-    for a in local.app_hosting_git_backends : a.backend_id => (
-      a.repo_link_id != "" ? a.repo_link_id : lower(replace(
-        join("-", slice(
-          split("/", trimsuffix(local.app_hosting_clone_uri[a.backend_id], ".git")),
-          length(split("/", trimsuffix(local.app_hosting_clone_uri[a.backend_id], ".git"))) - 2,
-          length(split("/", trimsuffix(local.app_hosting_clone_uri[a.backend_id], ".git")))
-        )),
-        "_", "-"
-      ))
-    )
-  }
-
-  # git_repository_link を link_id 単位で dedup (同 repo を複数 backend が別 root で
-  # 参照しても link は 1 つに集約)。canonical = link_id ごとの最初の clone_uri。
-  app_hosting_repo_links = {
-    for a in local.app_hosting_git_backends :
-    local.app_hosting_repo_link_id[a.backend_id] => local.app_hosting_clone_uri[a.backend_id]...
-  }
-  app_hosting_repo_links_canonical = {
-    for link_id, uris in local.app_hosting_repo_links : link_id => uris[0]
-  }
-
-  # GitHub connection 設定。
-  #   app_installation_id : Firebase GitHub App のインストール ID (組織レベル・再利用可)
-  #   connection_id       : connection 名 (default "github"、project-unique)
-  #   location            : connection / repo link の location (default var.region)
-  #
-  # 注: github_app = "FIREBASE" のコネクションは OAuth token / authorizer_credential を
-  # 使わない。GitHub↔GCP の認可は「組織への Firebase GitHub App インストール」(= 一度きり)
-  # で成立し、Developer Connect が内部で credential を保持する。よって terraform に必要なのは
-  # app_installation_id だけ (token secret は不要)。
-  github_connection_location = try(var.github_connection.location, "") != "" ? var.github_connection.location : var.region
-  github_connection_id       = try(var.github_connection.connection_id, "") != "" ? var.github_connection.connection_id : "github"
-  # app_installation_id は org 共通の安定値 (非機微)。専用変数 (Action input / repo
-  # Variable 経由) を優先し、無ければ settings.yml の github_connection.app_installation_id に
-  # フォールバックする。
-  github_app_installation_id = var.github_app_installation_id != "" ? var.github_app_installation_id : try(var.github_connection.app_installation_id, "")
 }
 
 # ---------------------------------------------------------------------------
@@ -351,11 +281,11 @@ locals {
     ] : [],
     local.enable_app_hosting ? [
       "firebaseapphosting.googleapis.com",
+      # CLI (`firebase deploy --only apphosting`, local source) は Cloud Build で
+      # ビルドし Cloud Run + Artifact Registry にデプロイするため必須。
       "run.googleapis.com",
       "cloudbuild.googleapis.com",
       "artifactregistry.googleapis.com",
-      # App Hosting は GitHub ソース接続に Developer Connect を使う。
-      "developerconnect.googleapis.com",
     ] : [],
     local.enable_data_connect ? [
       "firebasedataconnect.googleapis.com",
@@ -703,72 +633,16 @@ resource "terraform_data" "validate_app_hosting_refs" {
 }
 
 # ---------------------------------------------------------------------------
-# App Hosting git 連携 (Developer Connect)
+# App Hosting backend (bare)
 #
 # 運用モデル:
-#   - GitHub App のインストール / 初回 OAuth 認可は「GitHub 組織あたり1回」人間が実施し、
-#     得た app_installation_id と OAuth token を渡す (token は対象プロジェクトの
-#     Secret Manager に格納)。以降の connection / repo link 作成は非対話 (terraform
-#     のみ) で完結 = env が増えても再認可不要。
-#   - connection は project スコープ。1 project に 1 connection を作り、repo (clone_uri)
-#     単位で git_repository_link を張る。
-#   - push をトリガに App Hosting のサービスエージェントが build & rollout する。
-#     CI は git push のみで GCP 権限ゼロ。
+#   - terraform は backend の「箱」と compute SA だけを作る。
+#   - 実際のコードのデプロイは firebase CLI (`firebase deploy --only apphosting`,
+#     local source) が build / rollout を作って行う (terraform 管理外の別レイヤ →
+#     state 汚染なし)。CI SA は ci_sa_auto_roles の firebaseapphosting.admin /
+#     iam.serviceAccountUser で rollout 可能 (backend / compute SA は terraform が
+#     先に作るので CLI は serviceAccounts.create を必要としない)。
 # ---------------------------------------------------------------------------
-
-# git 連携 backend の事前条件チェック。
-resource "terraform_data" "validate_app_hosting_git" {
-  count = local.enable_app_hosting_git ? 1 : 0
-
-  lifecycle {
-    precondition {
-      # repo 連携を張る段階 (app_hosting_git_ready=true) では clone_uri が解決できる必要がある。
-      condition     = !local.app_hosting_git_link || length([for id, uri in local.app_hosting_clone_uri : id if uri == ""]) == 0
-      error_message = "git 連携 backend の clone_uri を解決できません。app_hosting[].repo を指定するか、app_hosting_repo 変数 (Action B が service repo から自動注入) を渡してください。"
-    }
-  }
-}
-
-# App Hosting git 連携 (github_app = "FIREBASE") は 2 フェーズ:
-#   フェーズ1 (app_hosting_git_ready=false): この connection だけを作る。
-#     github_app="FIREBASE" のみ指定 → connection は PENDING で作成される。
-#     その後、人間が install URI をブラウザで開いて Firebase GitHub App を認可 →
-#     Developer Connect が credential を保持し connection が COMPLETE になる。
-#       URI 確認: gcloud developer-connect connections describe <id> --location=<region> --project=<p>
-#   フェーズ2 (app_hosting_git_ready=true): COMPLETE 後に repo link / codebase /
-#     rollout_policy を作る (下の app_hosting_git_link で gate)。
-#
-# 認可で connection に app_installation_id が内部設定されるが、terraform は github_app
-# しか管理しないので app_installation_id の差分は無視する (drift 防止)。
-resource "google_developer_connect_connection" "github" {
-  count         = local.enable_app_hosting_git ? 1 : 0
-  project       = var.project_id
-  location      = local.github_connection_location
-  connection_id = local.github_connection_id
-
-  github_config {
-    github_app = "FIREBASE"
-  }
-
-  lifecycle {
-    ignore_changes = [github_config[0].app_installation_id]
-  }
-
-  depends_on = [
-    google_project_service.this,
-    terraform_data.validate_app_hosting_git,
-  ]
-}
-
-# repo link はフェーズ2 (connection 認可済み) のみ作成する。
-resource "google_developer_connect_git_repository_link" "this" {
-  for_each               = local.app_hosting_git_link ? local.app_hosting_repo_links_canonical : {}
-  project                = var.project_id
-  location               = local.github_connection_location
-  parent_connection      = google_developer_connect_connection.github[0].connection_id
-  git_repository_link_id = each.key
-  clone_uri              = each.value
-}
 
 module "app_hosting" {
   for_each   = local.app_hosting_map
@@ -782,23 +656,12 @@ module "app_hosting" {
   service_account  = each.value.service_account != "" ? each.value.service_account : google_service_account.app_hosting_default[0].email
   serving_locality = each.value.serving_locality
 
-  # codebase / rollout はフェーズ2 (app_hosting_git_link=true、connection 認可済み) のみ。
-  # フェーズ1 では bare backend として作成し、認可後に codebase を後付けする。
-  # try() は非 git backend / repo_link 未作成時にキーが無いケースを "" に落とすため。
-  codebase_repository = local.app_hosting_git_link ? try(
-    google_developer_connect_git_repository_link.this[local.app_hosting_repo_link_id[each.value.backend_id]].name,
-    ""
-  ) : ""
-  root_directory = each.value.root_directory
-  rollout_branch = local.app_hosting_git_link ? each.value.branch : ""
-
   depends_on = [
     google_project_service.this,
     module.firebase,
     module.apps_web,
     google_project_iam_member.app_hosting_runner,
     terraform_data.validate_app_hosting_refs,
-    google_developer_connect_git_repository_link.this,
   ]
 }
 
@@ -979,11 +842,12 @@ locals {
   ci_sa_auto_roles = local.enable_ci_sa ? distinct(concat(
     ["roles/runtimeconfig.admin"],
     local.enable_hosting ? ["roles/firebasehosting.admin"] : [],
-    # App Hosting は git 連携 (Developer Connect) モデルで運用する。backend /
-    # connection / repo link / rollout_policy(監視ブランチ) は terraform が所有し、
-    # build / rollout は push をトリガに App Hosting のサービスエージェントが実行する。
-    # よって CI (firebase deploy / git push) は App Hosting に対する GCP 権限を
-    # 一切必要としない → ci_sa への App Hosting ロール付与は無し。
+    # App Hosting は `firebase deploy --only apphosting` (local source) で CI から
+    # rollout する。backend / compute SA は terraform が先に作るので CLI は
+    # serviceAccounts.create を必要とせず、rollout に必要なのは以下のみ:
+    #   firebaseapphosting.admin : build / rollout / traffic の作成
+    #   iam.serviceAccountUser   : compute SA (firebase-app-hosting-compute) を act-as
+    local.enable_app_hosting ? ["roles/firebaseapphosting.admin", "roles/iam.serviceAccountUser"] : [],
     local.enable_cloud_functions ? ["roles/cloudfunctions.admin", "roles/iam.serviceAccountUser", "roles/artifactregistry.admin"] : [],
     local.enable_firestore ? ["roles/datastore.indexAdmin", "roles/firebaserules.admin"] : [],
     # Data Connect の schema / connector を CI (firebase deploy) でデプロイするために必要。

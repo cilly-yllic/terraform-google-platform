@@ -87,27 +87,6 @@ inputs:
       input is required).
     required: false
     default: ""
-  github_app_installation_id:
-    description: >
-      Firebase GitHub App の installation ID (組織あたり1個・安定・非機微)。
-      設定すると terraform 変数 github_app_installation_id として注入され、
-      settings.yml の github_connection.app_installation_id より優先される。
-      org 共通値を各 settings.yml に重複させないため、repo Variable
-      (例 vars.APPHOSTING_GITHUB_APP_INSTALLATION_ID。GitHub の制約で GITHUB_ 始まりは不可)
-      を渡す運用を想定。空でよい
-      (その場合 settings.yml の値にフォールバック)。
-    required: false
-    default: ""
-  app_hosting_repo:
-    description: >
-      App Hosting git 連携 backend の clone_uri の default
-      (例 https://github.com/owner/repo.git)。
-      未指定時は「処理中の service repo」
-      https://github.com/<GITHUB_REPOSITORY_OWNER>/<service>.git を自動導出して注入する。
-      settings.yml に clone_uri を書かなくてよくなる。service repo が orchestrator と
-      別 owner / 別リポジトリ名の場合のみ明示的に指定する。
-    required: false
-    default: ""
 
 outputs:
   applied_envs:
