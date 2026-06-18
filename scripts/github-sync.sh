@@ -35,16 +35,18 @@ error() { echo "[ERROR] $*" >&2; exit 1; }
 # ---- entry registry ------------------------------------------------------
 # "NAME|KIND|SOURCE"  KIND=var|secret  SOURCE=derived|manual|workflow
 ENTRIES=(
+  # bootstrap (infra) identity — 非機微なので Variable に統一 (旧 GCP_PROJECT_ID /
+  # GCP_PROJECT_NUMBER / PARENT_FOLDER_ID の重複を廃し BOOTSTRAP_* に集約)。
   "BOOTSTRAP_PROJECT_ID|var|derived"
+  "BOOTSTRAP_PROJECT_NUMBER|var|derived"
+  "BOOTSTRAP_FOLDER_ID|var|derived"
   "GH_APP_ID|var|manual"
   "APPHOSTING_GITHUB_APP_INSTALLATION_ID|var|derived"
 
-  "GCP_PROJECT_ID|secret|derived"
-  "GCP_PROJECT_NUMBER|secret|derived"
+  # deploy/WIF 用 (identity ではないので GCP_ のまま、Secret)
   "GCP_WORKLOAD_IDENTITY_PROVIDER|secret|derived"
   "GCP_DEPLOY_SERVICE_ACCOUNT|secret|derived"
   "GCP_RUNTIME_SERVICE_ACCOUNT|secret|derived"
-  "PARENT_FOLDER_ID|secret|derived"
 
   "GH_APP_PRIVATE_KEY|secret|manual"
   "DEPLOY_WEBHOOK|secret|manual"
@@ -58,6 +60,17 @@ load_env() {
   [[ -f "${ENV_FILE}" ]] || error ".env not found at ${ENV_FILE}. Copy scripts/bootstrap.example.env to .env first."
   # shellcheck source=/dev/null
   source "${ENV_FILE}"
+
+  # backward-compat: 旧変数名 (prefix 無し) → 新名 (BOOTSTRAP_*)。bootstrap の load_env
+  # と挙動を揃える。DEPRECATED — 次の major で削除予定。
+  for pair in "BILLING_ACCOUNT_ID:BOOTSTRAP_BILLING_ACCOUNT_ID" "FOLDER_NAME:BOOTSTRAP_FOLDER_NAME" "FOLDER_ID:BOOTSTRAP_FOLDER_ID"; do
+    old="${pair%%:*}"; new="${pair##*:}"
+    if [[ -n "${!old:-}" && -z "${!new:-}" ]]; then
+      echo "[WARN]  .env: '${old}' は非推奨です。'${new}' に改名してください (今回は自動マップ)。" >&2
+      export "${new}"="${!old}"
+    fi
+  done
+
   [[ -n "${GITHUB_REPOSITORY:-}" ]] || error "GITHUB_REPOSITORY is required in .env (format: owner/repo)."
   [[ "${GITHUB_REPOSITORY}" =~ ^[^/]+/[^/]+$ ]] || error "GITHUB_REPOSITORY must be 'owner/repo', got: ${GITHUB_REPOSITORY}"
   [[ -n "${BOOTSTRAP_PROJECT_ID:-}" ]] || error "BOOTSTRAP_PROJECT_ID is required in .env."
@@ -78,7 +91,7 @@ check_prereqs() {
 
 # .env の BOOTSTRAP_PROJECT_ID に WIF pool/provider が実在するか検証する。
 #
-# 目的 (重要): derived 値 (特に GCP_PROJECT_NUMBER) は BOOTSTRAP_PROJECT_ID から
+# 目的 (重要): derived 値 (特に BOOTSTRAP_PROJECT_NUMBER) は BOOTSTRAP_PROJECT_ID から
 # gcloud で導出するため、.env が stale (例: 旧 bootstrap project を指したまま) だと
 # 「実在しない / 別 project の番号」を黙って set してしまい、Action B の WIF audience が
 # invalid_target で落ちる。ここで実在チェックして不一致なら set 前に中止する。
@@ -90,7 +103,7 @@ verify_bootstrap_wif() {
   local loc=global
   gcloud iam workload-identity-pools describe "${WORKLOAD_IDENTITY_POOL_ID}" \
     --project="${BOOTSTRAP_PROJECT_ID}" --location="${loc}" --format='value(state)' >/dev/null 2>&1 \
-    || error "WIF pool '${WORKLOAD_IDENTITY_POOL_ID}' が ${BOOTSTRAP_PROJECT_ID} に見つかりません。.env の BOOTSTRAP_PROJECT_ID が正しいか / make bootstrap 済みか確認してください (stale な値だと誤った GCP_PROJECT_NUMBER を set してしまうため中止しました)。"
+    || error "WIF pool '${WORKLOAD_IDENTITY_POOL_ID}' が ${BOOTSTRAP_PROJECT_ID} に見つかりません。.env の BOOTSTRAP_PROJECT_ID が正しいか / make bootstrap 済みか確認してください (stale な値だと誤った BOOTSTRAP_PROJECT_NUMBER を set してしまうため中止しました)。"
   gcloud iam workload-identity-pools providers describe "${WORKLOAD_IDENTITY_PROVIDER_ID}" \
     --workload-identity-pool="${WORKLOAD_IDENTITY_POOL_ID}" \
     --project="${BOOTSTRAP_PROJECT_ID}" --location="${loc}" --format='value(state)' >/dev/null 2>&1 \
@@ -108,7 +121,7 @@ verify_bootstrap_wif() {
 _PROJECT_NUMBER=""
 project_number() {
   if [[ -z "${_PROJECT_NUMBER}" ]]; then
-    command -v gcloud >/dev/null 2>&1 || error "'gcloud' not found (needed to resolve GCP_PROJECT_NUMBER)."
+    command -v gcloud >/dev/null 2>&1 || error "'gcloud' not found (needed to resolve BOOTSTRAP_PROJECT_NUMBER)."
     _PROJECT_NUMBER="$(gcloud projects describe "${BOOTSTRAP_PROJECT_ID}" --format='value(projectNumber)' 2>/dev/null || true)"
     [[ -n "${_PROJECT_NUMBER}" ]] || error "could not resolve project number for ${BOOTSTRAP_PROJECT_ID} (gcloud auth / project exist?)."
   fi
@@ -158,14 +171,15 @@ set_desired() {
   REASON=""
   DESIRED=""
   case "${name}" in
-    BOOTSTRAP_PROJECT_ID|GCP_PROJECT_ID)
+    BOOTSTRAP_PROJECT_ID)
       DESIRED="${BOOTSTRAP_PROJECT_ID}" ;;
-    GCP_PROJECT_NUMBER)
+    BOOTSTRAP_PROJECT_NUMBER)
       DESIRED="$(project_number)" ;; # project_number は失敗時 error で exit
+    BOOTSTRAP_FOLDER_ID)
+      # サービス project の fallback 親 folder (= bootstrap/infra folder)。.env 値そのまま。
+      if [[ -z "${BOOTSTRAP_FOLDER_ID:-}" ]]; then REASON="folder mode 未使用 (.env BOOTSTRAP_FOLDER_ID 空)"; else DESIRED="${BOOTSTRAP_FOLDER_ID}"; fi ;;
     APPHOSTING_GITHUB_APP_INSTALLATION_ID)
       resolve_app_installation_id; DESIRED="${_APP_INSTALLATION_ID}" ;;
-    PARENT_FOLDER_ID)
-      if [[ -z "${FOLDER_ID:-}" ]]; then REASON="folder mode 未使用 (.env FOLDER_ID 空)"; else DESIRED="${FOLDER_ID}"; fi ;;
     GCP_WORKLOAD_IDENTITY_PROVIDER)
       if [[ "${ENABLE_CLOUD_RUN_DEPLOY_SETUP}" != "true" ]]; then REASON="ENABLE_CLOUD_RUN_DEPLOY_SETUP!=true (github WIF provider 未作成)"; else
         DESIRED="projects/$(project_number)/locations/global/workloadIdentityPools/${WORKLOAD_IDENTITY_POOL_ID}/providers/${GITHUB_WIF_PROVIDER_ID}"; fi ;;
@@ -307,7 +321,7 @@ manual (外部トークン) を apply で set したい場合は同名で export
 ENVIRONMENT (.env から読む)
   GITHUB_REPOSITORY              同期先 repo (owner/repo, 必須)
   BOOTSTRAP_PROJECT_ID           infra プロジェクト ID (必須)
-  FOLDER_ID                      PARENT_FOLDER_ID の元 (folder mode 時)
+  BOOTSTRAP_FOLDER_ID            サービス project の fallback 親 folder (folder mode 時)
   ENABLE_CLOUD_RUN_DEPLOY_SETUP  true の時のみ deploy/runtime SA + github WIF を導出
   GITHUB_APP_INSTALLATION_APP_SLUG  App Hosting git 連携用 GitHub App の slug を明示
                                  (未指定は firebase/app-hosting/developer-connect 系を

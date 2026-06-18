@@ -107,7 +107,7 @@ scripts/bootstrap.sh -d
 ============================================
   BOOTSTRAP_PROJECT_ID                          in***ot
   BOOTSTRAP_PROJECT_NAME                        in***ot
-  BILLING_ACCOUNT_ID                            XX***XX
+  BOOTSTRAP_BILLING_ACCOUNT_ID                            XX***XX
   ...
 
 ============================================
@@ -152,7 +152,7 @@ scripts/bootstrap.sh --init=envrc
 |--------|------|
 | `BOOTSTRAP_PROJECT_ID` | Bootstrap 用 GCP Project ID |
 | `BOOTSTRAP_PROJECT_NAME` | Project の表示名 |
-| `BILLING_ACCOUNT_ID` | 紐付ける Billing Account ID |
+| `BOOTSTRAP_BILLING_ACCOUNT_ID` | 紐付ける Billing Account ID |
 | `TERRAFORM_PROJECT_FACTORY_SA_ID` | Terraform 用 Service Account ID |
 | `WORKLOAD_IDENTITY_POOL_ID` | WIF Pool ID |
 | `WORKLOAD_IDENTITY_PROVIDER_ID` | WIF Provider ID |
@@ -163,7 +163,7 @@ scripts/bootstrap.sh --init=envrc
 | 変数名 | 説明 |
 |--------|------|
 | `ORGANIZATION_ID` | GCP 組織の数値 ID |
-| `FOLDER_ID` | GCP フォルダの数値 ID |
+| `BOOTSTRAP_FOLDER_ID` | GCP フォルダの数値 ID |
 
 両方同時に指定するとエラーになります。いずれか一方のみを設定してください。
 
@@ -235,7 +235,7 @@ bootstrap を回す principal (例: `user:you@example.com`) には **`roles/orgp
 1. **常時 (core)**: `set_skip_default_network_policy` が placement (folder/org) に `compute.skipDefaultNetworkCreation` を enforce する。service project は `auto_create_network=false` で作られるため、これを設定しないと作成時に default network 削除で Compute API を要求して 403 になる。
 2. **`ENABLE_CLOUD_RUN_DEPLOY_SETUP=true` 時**: `override_org_policy_allow_all_users` が `iam.allowedPolicyMemberDomains` を override する。
 
-加えて folder を `FOLDER_NAME` で find-or-create する場合は **`roles/resourcemanager.folderCreator`**、project 作成に **`roles/resourcemanager.projectCreator`**、folder への IAM 付与に folder 管理権限が必要（要は org/folder 管理者相当）。
+加えて folder を `BOOTSTRAP_FOLDER_NAME` で find-or-create する場合は **`roles/resourcemanager.folderCreator`**、project 作成に **`roles/resourcemanager.projectCreator`**、folder への IAM 付与に folder 管理権限が必要（要は org/folder 管理者相当）。
 
 ```bash
 # org 直下の project の場合
@@ -244,7 +244,7 @@ gcloud organizations add-iam-policy-binding <ORG_ID> \
   --role="roles/orgpolicy.policyAdmin"
 
 # folder 配下の project の場合
-gcloud resource-manager folders add-iam-policy-binding <FOLDER_ID> \
+gcloud resource-manager folders add-iam-policy-binding <BOOTSTRAP_FOLDER_ID> \
   --member="user:you@example.com" \
   --role="roles/orgpolicy.policyAdmin"
 ```
@@ -287,7 +287,11 @@ make bootstrap-print-env
  GitHub Actions Repository Variables / Secrets
 ============================================
 
-GCP_PROJECT_ID=infra-bootstrap
+# Variables (非機微・bootstrap identity は BOOTSTRAP_ に統一)
+BOOTSTRAP_PROJECT_ID=infra-bootstrap
+BOOTSTRAP_PROJECT_NUMBER={number}
+BOOTSTRAP_FOLDER_ID={folder mode 時のみ}
+# Secrets (deploy/WIF 用)
 GCP_WORKLOAD_IDENTITY_PROVIDER=projects/{number}/locations/global/workloadIdentityPools/terraform-cloud/providers/github-actions
 GCP_DEPLOY_SERVICE_ACCOUNT=cloud-run-router-deploy@infra-bootstrap.iam.gserviceaccount.com
 GCP_RUNTIME_SERVICE_ACCOUNT=cloud-run-router-runtime@infra-bootstrap.iam.gserviceaccount.com
@@ -310,9 +314,9 @@ Terraform Project Factory SA が新規 project を作るとき、`billing.resour
 | 設定パス | 挙動 | カバーされる billing account |
 |---|---|---|
 | `ORGANIZATION_ID` set | **org-level に `roles/billing.user` を grant** | その org が所有する **全 billing account** (inherit) |
-| `FOLDER_ID` only | folder には billing IAM の親子関係が無いので、`.env` の `BILLING_ACCOUNT_ID` のみ per-account grant | 指定の 1 件 |
+| `BOOTSTRAP_FOLDER_ID` only | folder には billing IAM の親子関係が無いので、`.env` の `BOOTSTRAP_BILLING_ACCOUNT_ID` のみ per-account grant | 指定の 1 件 |
 
-加えて bootstrap project 本体用 (`.env` の `BILLING_ACCOUNT_ID`) は常に per-account でも grant します (ORG_ID set 時は冗長だが冪等なので no-op、FOLDER_ID-only setup でもブートストラップが回る保険)。
+加えて bootstrap project 本体用 (`.env` の `BOOTSTRAP_BILLING_ACCOUNT_ID`) は常に per-account でも grant します (ORG_ID set 時は冗長だが冪等なので no-op、BOOTSTRAP_FOLDER_ID-only setup でもブートストラップが回る保険)。
 
 ### なぜ org-level grant を推奨するか
 
@@ -396,9 +400,9 @@ deploy workflow ([`examples/cloud-run-router-deploy/deploy-cloud-run-router.yml`
     GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
   run: |
     printf '%s' "${TFC_NOTIFICATION_SECRET}"      | gcloud secrets versions add tfc-notification-secret \
-      --project="${{ vars.GCP_PROJECT_ID }}" --data-file=-
+      --project="${{ vars.BOOTSTRAP_PROJECT_ID }}" --data-file=-
     printf '%s' "${GH_APP_PRIVATE_KEY}"  | gcloud secrets versions add github-app-private-key \
-      --project="${{ vars.GCP_PROJECT_ID }}" --data-file=-
+      --project="${{ vars.BOOTSTRAP_PROJECT_ID }}" --data-file=-
 ```
 
 を実行し、各 secret に新 version を追加してから Cloud Run の新 revision を deploy。新 revision は最新 version を読むので、**deploy ごとに最新 GitHub Secret 値が確実に runtime に反映** されます。
@@ -489,7 +493,7 @@ TFC_NOTIFICATION_SECRET_REPOS="your-org/service1 your-org/service2"
 ## create-billing-account.sh
 
 GCP Billing Account を master billing account 配下に新規作成するスクリプト。
-作成した Billing Account ID は `bootstrap.sh` の `.env` (`BILLING_ACCOUNT_ID`) に設定して使用します。
+作成した Billing Account ID は `bootstrap.sh` の `.env` (`BOOTSTRAP_BILLING_ACCOUNT_ID`) に設定して使用します。
 
 詳細な背景・前提条件・トラブルシューティングは [docs/project-bootstrap/create-billing-account.md](../docs/project-bootstrap/create-billing-account.md) を参照してください。
 
@@ -564,7 +568,7 @@ make github-sync-apply YES=1
 
 | 分類 | 対象 | 挙動 |
 |------|------|------|
-| **derived** | `BOOTSTRAP_PROJECT_ID` / `APPHOSTING_GITHUB_APP_INSTALLATION_ID` (vars) / `GCP_PROJECT_ID` / `GCP_PROJECT_NUMBER` / `GCP_WORKLOAD_IDENTITY_PROVIDER` / `GCP_DEPLOY_SERVICE_ACCOUNT` / `GCP_RUNTIME_SERVICE_ACCOUNT` / `PARENT_FOLDER_ID` (secrets) | `.env` + `gcloud`/`gh` から決定的に導出。`apply` で set。SA / WIF provider 系は `ENABLE_CLOUD_RUN_DEPLOY_SETUP=true` の時のみ導出 (それ以外は SKIP)。`APPHOSTING_GITHUB_APP_INSTALLATION_ID` は `gh api /orgs/<org>/installations` から App slug で特定 (複数一致/不一致時は `GITHUB_APP_INSTALLATION_APP_SLUG` で明示 → SKIP 回避。※ GitHub の制約で変数名は `GITHUB_` 始まり不可) |
+| **derived** | **vars**: `BOOTSTRAP_PROJECT_ID` / `BOOTSTRAP_PROJECT_NUMBER` / `BOOTSTRAP_FOLDER_ID` / `APPHOSTING_GITHUB_APP_INSTALLATION_ID`、**secrets**: `GCP_WORKLOAD_IDENTITY_PROVIDER` / `GCP_DEPLOY_SERVICE_ACCOUNT` / `GCP_RUNTIME_SERVICE_ACCOUNT` | `.env` + `gcloud`/`gh` から決定的に導出。`apply` で set。bootstrap identity (project id/number/folder) は非機微なので **Variable** に統一 (旧 `GCP_PROJECT_ID`/`GCP_PROJECT_NUMBER`/`PARENT_FOLDER_ID` の重複を廃止)。SA / WIF provider 系は `ENABLE_CLOUD_RUN_DEPLOY_SETUP=true` の時のみ導出 (それ以外 SKIP)。`APPHOSTING_GITHUB_APP_INSTALLATION_ID` は `gh api /orgs/<org>/installations` から特定 (※ 変数名は GitHub 制約で `GITHUB_` 始まり不可) |
 | **manual** | `GH_APP_ID` (var) / `GH_APP_PRIVATE_KEY` / `DEPLOY_WEBHOOK` / `TFC_TOKEN` (secrets) | 外部から取得する値。存在チェックのみ。同名で `export` していれば `apply` で set |
 | **workflow** | `CLOUD_RUN_WEBHOOK_URL` / `TFC_NOTIFICATION_SECRET` (secrets) | 他 workflow (deploy / init-router-hmac) が自動登録。存在チェックのみ |
 
