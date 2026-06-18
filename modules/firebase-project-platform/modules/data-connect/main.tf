@@ -105,6 +105,16 @@ resource "google_sql_database_instance" "this" {
     edition           = "ENTERPRISE"
     availability_type = "ZONAL"
 
+    # Firebase Data Connect は Cloud SQL への接続に IAM 認証を要求する。
+    # このフラグが無いと firebase CLI が deploy 時にインスタンスを更新しようとし、
+    # "settings are not compatible with Firebase SQL Connect" → instance update で
+    # 409 (operation already in progress) になる。terraform 側で最初から有効化して
+    # おくことで CLI による変更を不要にする (Postgres は cloudsql.iam_authentication=on)。
+    database_flags {
+      name  = "cloudsql.iam_authentication"
+      value = "on"
+    }
+
     backup_configuration {
       enabled = true
     }
