@@ -568,7 +568,8 @@ make github-sync-apply YES=1
 
 | 分類 | 対象 | 挙動 |
 |------|------|------|
-| **derived** | **vars**: `BOOTSTRAP_PROJECT_ID` / `BOOTSTRAP_PROJECT_NUMBER` / `BOOTSTRAP_FOLDER_ID` / `APPHOSTING_GITHUB_APP_INSTALLATION_ID`、**secrets**: `GCP_WORKLOAD_IDENTITY_PROVIDER` / `GCP_DEPLOY_SERVICE_ACCOUNT` / `GCP_RUNTIME_SERVICE_ACCOUNT` | `.env` + `gcloud`/`gh` から決定的に導出。`apply` で set。bootstrap identity (project id/number/folder) は非機微なので **Variable** に統一 (旧 `GCP_PROJECT_ID`/`GCP_PROJECT_NUMBER`/`PARENT_FOLDER_ID` の重複を廃止)。SA / WIF provider 系は `ENABLE_CLOUD_RUN_DEPLOY_SETUP=true` の時のみ導出 (それ以外 SKIP)。`APPHOSTING_GITHUB_APP_INSTALLATION_ID` は `gh api /orgs/<org>/installations` から特定 (※ 変数名は GitHub 制約で `GITHUB_` 始まり不可) |
+| **derived** | **vars**: `BOOTSTRAP_PROJECT_ID` / `BOOTSTRAP_PROJECT_NUMBER` / `BOOTSTRAP_FOLDER_ID`、**secrets**: `GCP_WORKLOAD_IDENTITY_PROVIDER` / `GCP_DEPLOY_SERVICE_ACCOUNT` / `GCP_RUNTIME_SERVICE_ACCOUNT` | `.env` + `gcloud` から決定的に導出。`apply` で set。bootstrap identity (project id/number/folder) は非機微なので **Variable** に統一 (旧 `GCP_PROJECT_ID`/`GCP_PROJECT_NUMBER`/`PARENT_FOLDER_ID` の重複を廃止)。SA / WIF provider 系は `ENABLE_CLOUD_RUN_DEPLOY_SETUP=true` の時のみ導出 (それ以外 SKIP) |
+| **service** | 各サービス repo (`SERVICE_GITHUB_REPOS`) の `BOOTSTRAP_PROJECT_NUMBER` (var) | サービス repo の deploy.yml が WIF で使う。`apply` で各 repo に set (再作成時の再設定を1コマンドに) |
 | **manual** | `GH_APP_ID` (var) / `GH_APP_PRIVATE_KEY` / `DEPLOY_WEBHOOK` / `TFC_TOKEN` (secrets) | 外部から取得する値。存在チェックのみ。同名で `export` していれば `apply` で set |
 | **workflow** | `CLOUD_RUN_WEBHOOK_URL` / `TFC_NOTIFICATION_SECRET` (secrets) | 他 workflow (deploy / init-router-hmac) が自動登録。存在チェックのみ |
 
