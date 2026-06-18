@@ -100,7 +100,7 @@ mv init-router-hmac.yml .github/workflows/
 
 | Secret | 例 / 用途 | 値の入手元 |
 |--------|----------|----------|
-| `GCP_PROJECT_ID` | `infra-bootstrap` | bootstrap-print-env |
+| `BOOTSTRAP_PROJECT_ID` | `infra-bootstrap` | bootstrap-print-env |
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/<num>/locations/global/workloadIdentityPools/terraform-cloud/providers/github-actions` | bootstrap-print-env |
 | `GCP_DEPLOY_SERVICE_ACCOUNT` | `cloud-run-router-deploy@<project>.iam.gserviceaccount.com` | bootstrap-print-env |
 | `GCP_RUNTIME_SERVICE_ACCOUNT` | `cloud-run-router-runtime@<project>.iam.gserviceaccount.com` | bootstrap-print-env |
@@ -224,7 +224,7 @@ WIF 認証失敗。確認すべきこと:
 
 ```bash
 gcloud iam workload-identity-pools providers describe github-actions \
-  --project=<GCP_PROJECT_ID> \
+  --project=<BOOTSTRAP_PROJECT_ID> \
   --location=global \
   --workload-identity-pool=terraform-cloud \
   --format='value(attributeCondition)'
