@@ -826,8 +826,11 @@ locals {
     local.enable_cloud_functions ? ["roles/cloudfunctions.admin", "roles/iam.serviceAccountUser", "roles/artifactregistry.admin"] : [],
     local.enable_firestore ? ["roles/datastore.indexAdmin", "roles/firebaserules.admin"] : [],
     # Data Connect の schema / connector を CI (firebase deploy) でデプロイするために必要。
-    # 無いと firebasedataconnect API (schemas list 等) が 403 になる。
-    local.enable_data_connect ? ["roles/firebasedataconnect.admin"] : [],
+    #   firebasedataconnect.admin : schemas/connectors API (無いと schemas list 等が 403)
+    #   cloudsql.admin            : firebase CLI が deploy 時に Cloud SQL instance を
+    #                               確認・構成する (無いと sqladmin instances GET が
+    #                               "client is not authorized" 403)
+    local.enable_data_connect ? ["roles/firebasedataconnect.admin", "roles/cloudsql.admin"] : [],
     local.enable_storage ? ["roles/firebasestorage.viewer", "roles/storage.objectAdmin", "roles/storage.admin"] : [],
     local.enable_cloud_scheduler ? ["roles/cloudscheduler.admin"] : [],
     local.enable_cloud_tasks ? ["roles/cloudtasks.queueAdmin"] : [],
