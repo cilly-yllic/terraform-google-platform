@@ -832,6 +832,12 @@ locals {
   ci_sa_auto_roles = local.enable_ci_sa ? distinct(concat(
     ["roles/runtimeconfig.admin"],
     local.enable_hosting ? ["roles/firebasehosting.admin"] : [],
+    # App Hosting を CI (firebase deploy --only apphosting, local-source) でロールアウト
+    # するために必要。backend / runner SA は terraform 所有なので CI は SA を作らず
+    # ロールアウトのみ行う想定。
+    #   firebaseapphosting.admin : build / rollout / traffic の作成
+    #   iam.serviceAccountUser   : runner SA (firebase-app-hosting-compute) を act-as
+    local.enable_app_hosting ? ["roles/firebaseapphosting.admin", "roles/iam.serviceAccountUser"] : [],
     local.enable_cloud_functions ? ["roles/cloudfunctions.admin", "roles/iam.serviceAccountUser", "roles/artifactregistry.admin"] : [],
     local.enable_firestore ? ["roles/datastore.indexAdmin", "roles/firebaserules.admin"] : [],
     # Data Connect の schema / connector を CI (firebase deploy) でデプロイするために必要。
