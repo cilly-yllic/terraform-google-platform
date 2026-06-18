@@ -4,7 +4,7 @@
 
 この script は、`gcloud billing accounts create` を使用して GCP Billing Account を master billing account 配下に新規作成するためのものです。
 
-作成した Billing Account ID は、bootstrap script (`.env` の `BILLING_ACCOUNT_ID`) に設定して使用します。
+作成した Billing Account ID は、bootstrap script (`.env` の `BOOTSTRAP_BILLING_ACCOUNT_ID`) に設定して使用します。
 
 ## 前提条件
 
@@ -80,7 +80,7 @@ make create-billing-account-print-env
  Billing Account Information
 ============================================
 
-BILLING_ACCOUNT_ID=ABCDEF-123456-GHIJKL
+BOOTSTRAP_BILLING_ACCOUNT_ID=ABCDEF-123456-GHIJKL
 BILLING_DISPLAY_NAME=My Project Billing
 MASTER_BILLING_ACCOUNT_ID=XXXXXX-XXXXXX-XXXXXX
 
@@ -88,16 +88,16 @@ MASTER_BILLING_ACCOUNT_ID=XXXXXX-XXXXXX-XXXXXX
  bootstrap.sh .env に設定する値:
 --------------------------------------------
 
-BILLING_ACCOUNT_ID="ABCDEF-123456-GHIJKL"
+BOOTSTRAP_BILLING_ACCOUNT_ID="ABCDEF-123456-GHIJKL"
 ```
 
 ## bootstrap への連携
 
-`make create-billing-account-print-env` の出力にある `BILLING_ACCOUNT_ID` の値を `scripts/bootstrap.example.env` (または `.env`) の `BILLING_ACCOUNT_ID` に設定してください。
+`make create-billing-account-print-env` の出力にある `BOOTSTRAP_BILLING_ACCOUNT_ID` の値を `scripts/bootstrap.example.env` (または `.env`) の `BOOTSTRAP_BILLING_ACCOUNT_ID` に設定してください。
 
 ```bash
 # .env (bootstrap 用)
-BILLING_ACCOUNT_ID="ABCDEF-123456-GHIJKL"
+BOOTSTRAP_BILLING_ACCOUNT_ID="ABCDEF-123456-GHIJKL"
 ```
 
 その後、通常の bootstrap フローを実行:

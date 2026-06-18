@@ -27,7 +27,7 @@ ENVIRONMENT VARIABLES (loaded from .env)
   Required:
     BOOTSTRAP_PROJECT_ID                 GCP Project ID for bootstrap
     BOOTSTRAP_PROJECT_NAME               Display name for the project
-    BILLING_ACCOUNT_ID                   Billing Account to link
+    BOOTSTRAP_BILLING_ACCOUNT_ID                   Billing Account to link
     TERRAFORM_PROJECT_FACTORY_SA_ID      Service Account ID
     WORKLOAD_IDENTITY_POOL_ID            WIF Pool ID
     WORKLOAD_IDENTITY_PROVIDER_ID        WIF Provider ID
@@ -35,7 +35,7 @@ ENVIRONMENT VARIABLES (loaded from .env)
 
   Required (one of):
     ORGANIZATION_ID                      Numeric org ID
-    FOLDER_ID                            Numeric folder ID
+    BOOTSTRAP_FOLDER_ID                            Numeric folder ID
 
   Optional:
     TERRAFORM_PROJECT_FACTORY_SA_DISPLAY_NAME

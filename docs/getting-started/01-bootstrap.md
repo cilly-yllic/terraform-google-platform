@@ -58,19 +58,19 @@ scripts/bootstrap.sh --init=envrc    # 非対話 (.envrc / direnv 向け)
 |--------|:---:|------|
 | `BOOTSTRAP_PROJECT_ID` | Yes | Bootstrap 用 GCP Project ID |
 | `BOOTSTRAP_PROJECT_NAME` | Yes | Project の表示名 |
-| `BILLING_ACCOUNT_ID` | Yes | 紐付ける Billing Account ID |
+| `BOOTSTRAP_BILLING_ACCOUNT_ID` | Yes | 紐付ける Billing Account ID |
 | `TERRAFORM_PROJECT_FACTORY_SA_ID` | Yes | Terraform 用 Service Account ID |
 | `WORKLOAD_IDENTITY_POOL_ID` | Yes | WIF Pool ID |
 | `WORKLOAD_IDENTITY_PROVIDER_ID` | Yes | WIF Provider ID |
 | `TFC_ORGANIZATION_NAME` | Yes | Terraform Cloud Organization 名 |
 | `ORGANIZATION_ID` | 配置※ | GCP 組織の数値 ID。folder の親 / org 直下運用の配置先 |
-| `FOLDER_NAME` | 配置※ | folder の display name（例 `infra`）。`ORGANIZATION_ID` 配下で検索し、無ければ作成、得られた `FOLDER_ID` を `.env` に書き戻す。**推奨** |
-| `FOLDER_ID` | 配置※ | 既存 folder を数値 ID で直接指定する場合。`FOLDER_NAME` 利用時は自動で書き込まれる |
+| `BOOTSTRAP_FOLDER_NAME` | 配置※ | folder の display name（例 `infra`）。`ORGANIZATION_ID` 配下で検索し、無ければ作成、得られた `BOOTSTRAP_FOLDER_ID` を `.env` に書き戻す。**推奨** |
+| `BOOTSTRAP_FOLDER_ID` | 配置※ | 既存 folder を数値 ID で直接指定する場合。`BOOTSTRAP_FOLDER_NAME` 利用時は自動で書き込まれる |
 
 ※ 配置モードは次の 3 通り（詳細は [`bootstrap.example.env`](../../scripts/bootstrap.example.env)）:
 
-1. **`FOLDER_NAME` + `ORGANIZATION_ID`（推奨・一番楽）** — folder を find-or-create して `FOLDER_ID` を自動解決。folder ID は GCP 自動採番なので display name で扱う。要 caller 権限 `roles/resourcemanager.folderCreator`（org）。
-2. **`FOLDER_ID`（+ `ORGANIZATION_ID`）** — 既存 folder を直接指定。
+1. **`BOOTSTRAP_FOLDER_NAME` + `ORGANIZATION_ID`（推奨・一番楽）** — folder を find-or-create して `BOOTSTRAP_FOLDER_ID` を自動解決。folder ID は GCP 自動採番なので display name で扱う。要 caller 権限 `roles/resourcemanager.folderCreator`（org）。
+2. **`BOOTSTRAP_FOLDER_ID`（+ `ORGANIZATION_ID`）** — 既存 folder を直接指定。
 3. **`ORGANIZATION_ID` のみ** — folder を使わず org 直下。
 
 > **folder 推奨理由**: folder mode では Factory SA の `projectCreator` / `projectIamAdmin` がその folder 内に限定され、影響範囲（blast radius）を封じ込められます。org 直下でも動作しますが Factory SA の到達範囲が org 全体になります（その場合も「factory workspace のみ impersonate 可」の floor は効きます）。

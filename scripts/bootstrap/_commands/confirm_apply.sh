@@ -6,7 +6,7 @@ confirm_apply() {
     echo ""
     echo "The following resources will be created (if not already present):"
     echo "  - GCP Project: ${BOOTSTRAP_PROJECT_ID}"
-    echo "  - Billing link: ${BILLING_ACCOUNT_ID} -> ${BOOTSTRAP_PROJECT_ID}"
+    echo "  - Billing link: ${BOOTSTRAP_BILLING_ACCOUNT_ID} -> ${BOOTSTRAP_PROJECT_ID}"
     echo "  - APIs: ${REQUIRED_APIS[*]}"
     echo "  - Service Account: $(sa_email)"
     echo "  - Workload Identity Pool: ${WORKLOAD_IDENTITY_POOL_ID}"
