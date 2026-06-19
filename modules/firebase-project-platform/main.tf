@@ -849,7 +849,12 @@ locals {
     #   iam.serviceAccountCreator  : firebase CLI は compute SA が既存でも毎回
     #     「ensure (= create)」を試みるため必須 (firebase-tools#8840)。SA は terraform が
     #     先に作るので create は 409 で握り潰されるが、create 権限自体は要る。
-    local.enable_app_hosting ? ["roles/firebaseapphosting.admin", "roles/iam.serviceAccountUser", "roles/iam.serviceAccountCreator"] : [],
+    #   resourcemanager.projectIamAdmin : firebase CLI の compute SA ensure は SA 作成後に
+    #     プロジェクト IAM を書き換える (projects.setIamPolicy) ため必須。これは Owner 級の
+    #     強い権限 (= 任意ロールを誰にでも付与できる) で、Firebase 公式の「最初の backend は
+    #     Owner が作る」要件の実体。CLI デプロイ (option ③) を CI から回すには避けられないが、
+    #     CI SA が実質 Owner 相当になる点はトレードオフとして許容している (ユーザー判断)。
+    local.enable_app_hosting ? ["roles/firebaseapphosting.admin", "roles/iam.serviceAccountUser", "roles/iam.serviceAccountCreator", "roles/resourcemanager.projectIamAdmin"] : [],
     local.enable_cloud_functions ? ["roles/cloudfunctions.admin", "roles/iam.serviceAccountUser", "roles/artifactregistry.admin"] : [],
     local.enable_firestore ? ["roles/datastore.indexAdmin", "roles/firebaserules.admin"] : [],
     # Data Connect の schema / connector を CI (firebase deploy) でデプロイするために必要。
