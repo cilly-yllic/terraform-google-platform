@@ -69,37 +69,22 @@ make bootstrap-print-env
 詳しい配置手順 / Variables・Secrets の登録方法 / Secret Manager のセットアップは:
 → [`examples/cloud-run-router-deploy/README.md`](../../examples/cloud-run-router-deploy/README.md)
 
-### A-3. Secret Manager に runtime secret を作成
+### A-3. runtime secret の登録 (GitHub Secrets が single source of truth)
 
-Cloud Run service の runtime 側で読む secret を Secret Manager に登録:
+方式 A では Secret Manager への**値の投入は deploy workflow が自動で行う**ため、`gcloud secrets create` を手で叩く必要はありません。Secret Manager の空 container (`tfc-notification-secret` / `github-app-private-key`) は A-1 の `make bootstrap` で作成済みです。値の流れは次の通り:
 
-```bash
-gcloud secrets create tfc-notification-secret \
-  --data-file=<(printf '%s' "<TFC HMAC shared secret>") \
-  --project=<BOOTSTRAP_PROJECT_ID>
+- **`TFC_NOTIFICATION_SECRET`** (HMAC 共有 secret): `init-router-hmac.yml` workflow を `rotate=false` で実行すると `openssl rand -hex 32` で生成され、deploy repo の Repository Secret に登録されます。値は **TFC 側の Notification 設定の Token と一致** させる必要がありますが、Action A の `enable_webhook_notification` 経由で Notification を作る場合はこの GitHub Secret が両者の single source of truth になります。
+- **`GH_APP_PRIVATE_KEY`** (GitHub App PEM): GitHub App 設定画面で生成した `.pem` を deploy repo の Repository Secret に手動登録します。
 
-gcloud secrets create github-app-private-key \
-  --data-file=path/to/github-app-private-key.pem \
-  --project=<BOOTSTRAP_PROJECT_ID>
-```
+deploy workflow は実行のたびにこの 2 つの GitHub Secrets を Secret Manager へ sync (`gcloud secrets versions add`) し、新しい Cloud Run revision が `:latest` を読みます。詳細な登録手順は [`examples/cloud-run-router-deploy/README.md`](../../examples/cloud-run-router-deploy/README.md) の Step 4〜6 を参照してください。
 
-`tfc-notification-secret` の値は **TFC 側の Notification 設定の Token と必ず一致** させてください。
+> Option A / `both` モード (`METADATA_SOURCE`) を使う場合は `tfc-api-token` container を別途作成し、deploy workflow の `--set-secrets` に `TFC_API_TOKEN=tfc-api-token:latest` を追記してください。
 
-> Option A / `both` モードを使う場合は `tfc-api-token` も追加します:
-> ```bash
-> gcloud secrets create tfc-api-token --data-file=<(printf '%s' "<TFC_API_TOKEN>") --project=<BOOTSTRAP_PROJECT_ID>
-> ```
-> deploy workflow 側の `--set-secrets` にも `TFC_API_TOKEN=tfc-api-token:latest` を追記してください。
+### A-4. deploy workflow を起動
 
-### A-4. タグを切ってデプロイ
+`init-router-hmac.yml` を `rotate=false` で実行して `TFC_NOTIFICATION_SECRET` を初期化すると、**deploy workflow (`Deploy cloud-run-router`) が `workflow_run` trigger で自動起動**します (tag 入力は廃止済み。常に source repo の main HEAD を build & deploy します)。
 
-```bash
-# source repo の main で
-git tag cloud-run-router-v1.0.0
-git push origin cloud-run-router-v1.0.0
-```
-
-private deploy repo の **Actions → "Deploy cloud-run-router" → Run workflow** で `cloud-run-router-v1.0.0` を指定して実行。Slack に Cloud Run URL と `/webhook` endpoint URL が通知されます。
+source repo の main に新しい commit を反映したいときは、private deploy repo の **Actions → "Deploy cloud-run-router" → Run workflow** で手動起動します。完了すると Slack に Cloud Run URL と `/webhook` endpoint URL が通知され、`CLOUD_RUN_WEBHOOK_URL` Repository Secret に自動登録されます。
 
 ---
 
@@ -114,12 +99,14 @@ gcloud run deploy cloud-run-router \
   --source . \
   --region asia-northeast1 \
   --service-account cloud-run-router-runtime@<BOOTSTRAP_PROJECT_ID>.iam.gserviceaccount.com \
-  --set-env-vars "GITHUB_APP_ID=<app-id>,DISPATCH_EVENT_TYPE=firebase_platform_requested" \
+  --set-env-vars "GITHUB_APP_ID=<app-id>,METADATA_SOURCE=run_message,DISPATCH_EVENT_TYPE=firebase_platform_requested" \
   --set-secrets "TFC_NOTIFICATION_SECRET=tfc-notification-secret:latest,GITHUB_APP_PRIVATE_KEY=github-app-private-key:latest" \
   --allow-unauthenticated
 ```
 
 > `--allow-unauthenticated` は TFC からの webhook を受信するために必要です。HMAC-SHA512 署名検証でセキュリティを確保しています。
+>
+> `METADATA_SOURCE` を省略すると default は `both` になり `TFC_API_TOKEN` が必須です（未設定だと起動時に fail fast で落ちます）。TFC API を使わない構成では上記のように `run_message` を明示してください。
 
 deploy 後、Cloud Run の URL を控えてください (例: `https://cloud-run-router-xxxxx.run.app`)。
 

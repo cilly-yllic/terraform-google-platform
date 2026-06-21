@@ -471,6 +471,29 @@ describe("buildTerraformVariables", () => {
     );
   });
 
+  it("passes app_hosting_compute_sa_roles through as an HCL list", () => {
+    const vars = buildTerraformVariables("p", {
+      app_hosting: [{ backend_id: "web", location: "asia-northeast1" }],
+      app_hosting_compute_sa_roles: [
+        "roles/cloudtasks.enqueuer",
+        "roles/iam.serviceAccountUser",
+      ],
+    });
+    const r = vars.find((v) => v.key === "app_hosting_compute_sa_roles");
+    expect(r?.value).toBe(
+      '["roles/cloudtasks.enqueuer", "roles/iam.serviceAccountUser"]',
+    );
+  });
+
+  it("omits app_hosting_compute_sa_roles entirely when not set (uses module default)", () => {
+    const vars = buildTerraformVariables("p", {
+      app_hosting: [{ backend_id: "web", location: "asia-northeast1" }],
+    });
+    expect(
+      vars.find((v) => v.key === "app_hosting_compute_sa_roles"),
+    ).toBeUndefined();
+  });
+
   it("throws when list-feature value is not an array", () => {
     expect(() =>
       buildTerraformVariables("p", {

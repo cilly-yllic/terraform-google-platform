@@ -20,7 +20,9 @@ module "project_factory" {
     service = "myservice"
   }
 
+  # infra-bootstrap project の数値 project number (WIF principalSet パス組み立て用、必須)。
   bootstrap_project_id          = "my-infra-bootstrap"
+  bootstrap_project_number      = "123456789012"
   workload_identity_pool_id     = "my-terraform-pool"
   workload_identity_provider_id = "my-terraform-provider"
 }

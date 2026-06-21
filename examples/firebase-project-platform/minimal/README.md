@@ -50,7 +50,7 @@ Firebase 化 + Firestore のみの最小構成。
 ### Run
 
 ```bash
-cd examples/minimal
+cd examples/firebase-project-platform/minimal
 
 # Rewrite project_id with your real value, or pass via -var
 terraform init

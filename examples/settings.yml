@@ -165,13 +165,13 @@ environments:
         # 将来 iOS / Android を増やす時のコメントアウト例:
         # - name: main-ios
         #   type: ios
-        #   bundle_id: com.mooodone.main
+        #   bundle_id: com.example.main
         #   display_name: "Main iOS"
         #   app_store_id: "123456789"    # optional
         #   team_id: "ABCDE12345"        # optional
         # - name: main-android
         #   type: android
-        #   package_name: com.mooodone.main
+        #   package_name: com.example.main
         #   display_name: "Main Android"
         #   sha1_hashes:                 # optional, App Check / Dynamic Links 用
         #     - "DA:39:..."
@@ -197,9 +197,16 @@ environments:
           location: us-central1
           app: main
           serving_locality: REGION_LOCKED
-        - backend_id: admin-api                 # admin 用 backend → admin web_app に link
+        - backend_id: admin-api                 # admin 用 backend → admin web app (apps[].name) に link
           location: asia-northeast1
           app: admin
+
+      # 共有 compute SA に追加付与する project-level role（任意・追加分のみ）。
+      # backend の runtime が他の GCP API を叩く場合に必要。computeRunner は自動付与。
+      # 例: backend が Cloud Tasks に enqueue する → roles/cloudtasks.enqueuer が無いと
+      #     runtime で cloudtasks.tasks.create 不足の 500 になる。
+      app_hosting_compute_sa_roles:
+        - roles/cloudtasks.enqueuer
 
       # Data Connect services。同 instance_id を指す entries は自動 dedup されて
       # 1 Cloud SQL Instance に集約 (コスト最適化)。

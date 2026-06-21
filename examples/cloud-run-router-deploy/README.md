@@ -90,9 +90,12 @@ mv init-router-hmac.yml .github/workflows/
 
 | Variable | 例 | 取得元 |
 |----------|---|--------|
+| `BOOTSTRAP_PROJECT_ID` | `infra-bootstrap` | bootstrap-print-env |
 | `GH_APP_ID` | `123456` (数値) | GitHub App 設定画面の App ID |
 
 > **注意**: `GITHUB_APP_ID` という名前は GitHub Actions の予約 prefix `GITHUB_` に当たるため Variable / Secret として作成できません。`GH_APP_ID` で登録し、workflow 内で `--set-env-vars="GITHUB_APP_ID=${{ vars.GH_APP_ID }}"` の形で env 名をリマップします。
+>
+> `BOOTSTRAP_PROJECT_ID` は project ID (= 識別子) であり workflow 内では `${{ vars.BOOTSTRAP_PROJECT_ID }}` として参照されるため **Variable** で登録します (Secret ではありません)。
 
 ### 4. private deploy repo の Secrets を登録 (手動)
 
@@ -100,7 +103,6 @@ mv init-router-hmac.yml .github/workflows/
 
 | Secret | 例 / 用途 | 値の入手元 |
 |--------|----------|----------|
-| `BOOTSTRAP_PROJECT_ID` | `infra-bootstrap` | bootstrap-print-env |
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/<num>/locations/global/workloadIdentityPools/terraform-cloud/providers/github-actions` | bootstrap-print-env |
 | `GCP_DEPLOY_SERVICE_ACCOUNT` | `cloud-run-router-deploy@<project>.iam.gserviceaccount.com` | bootstrap-print-env |
 | `GCP_RUNTIME_SERVICE_ACCOUNT` | `cloud-run-router-runtime@<project>.iam.gserviceaccount.com` | bootstrap-print-env |
