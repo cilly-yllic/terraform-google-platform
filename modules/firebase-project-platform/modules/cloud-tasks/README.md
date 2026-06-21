@@ -21,7 +21,9 @@ None. Queues (`google_cloud_tasks_queue`) are not created by this module.
 
 ## Outputs
 
-None.
+| Name | Description |
+|------|-------------|
+| `enabled` | Always `true` (constant marker that Cloud Tasks is enabled) |
 
 ## Related APIs
 
