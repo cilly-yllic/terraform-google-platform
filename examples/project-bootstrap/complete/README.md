@@ -7,7 +7,7 @@
 ```hcl
 module "project_factory" {
   source  = "cilly-yllic/platform/google//modules/project-bootstrap"
-  version = "~> 0.1"
+  version = "~> 0.0"
 
   project_id                   = "myservice-prd-001"
   project_name                 = "My Service Production"
@@ -26,6 +26,7 @@ module "project_factory" {
   }
 
   bootstrap_project_id          = "my-infra-bootstrap"
+  bootstrap_project_number      = "123456789012" # 必須: WIF principalSet パス組み立て用
   workload_identity_pool_id     = "my-terraform-pool"
   workload_identity_provider_id = "my-terraform-provider"
 }

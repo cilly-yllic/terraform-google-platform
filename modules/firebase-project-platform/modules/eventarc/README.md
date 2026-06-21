@@ -21,7 +21,9 @@ None. Triggers are not created by this module.
 
 ## Outputs
 
-None.
+| Name | Description |
+|------|-------------|
+| `enabled` | Always `true` (constant marker that Eventarc is enabled) |
 
 ## Related APIs
 

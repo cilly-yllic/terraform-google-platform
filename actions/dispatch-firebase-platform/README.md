@@ -246,7 +246,8 @@ jobs:
           service: ${{ github.event.client_payload.service }}
           environments: ${{ github.event.client_payload.environments }}
           tfc_org: my-tfc-org
-          bootstrap_project_number: ${{ secrets.BOOTSTRAP_PROJECT_NUMBER }}
+          # project number は非機密なので Secret ではなく Variable で渡す運用
+          bootstrap_project_number: ${{ vars.BOOTSTRAP_PROJECT_NUMBER }}
           tfc_token: ${{ secrets.TFC_TOKEN }}
           apply_policy: env-based
 ```
@@ -259,7 +260,7 @@ jobs:
           service: ${{ github.event.client_payload.service }}
           labels: ${{ github.event.client_payload.labels }}
           tfc_org: my-tfc-org
-          bootstrap_project_number: ${{ secrets.BOOTSTRAP_PROJECT_NUMBER }}
+          bootstrap_project_number: ${{ vars.BOOTSTRAP_PROJECT_NUMBER }}
           tfc_token: ${{ secrets.TFC_TOKEN }}
 ```
 
@@ -273,7 +274,7 @@ jobs:
     service: my-app
     labels: '["^tier:dev$"]'
     tfc_org: my-tfc-org
-    bootstrap_project_number: ${{ secrets.BOOTSTRAP_PROJECT_NUMBER }}
+    bootstrap_project_number: ${{ vars.BOOTSTRAP_PROJECT_NUMBER }}
     tfc_token: ${{ secrets.TFC_TOKEN }}
 ```
 
@@ -335,7 +336,7 @@ orchestrator workflow から `bootstrap_project_number` input に Secret を渡�
 # orchestrator workflow
 - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
   with:
-    service: example-service
+    service: my-app
     environments: '["dev-001"]'
     tfc_org: my-tfc-org
     bootstrap_project_number: ${{ vars.BOOTSTRAP_PROJECT_NUMBER }}
@@ -344,7 +345,7 @@ orchestrator workflow から `bootstrap_project_number` input に Secret を渡�
 
 ```yaml
 # service repo settings.yml
-service: example-service
+service: my-app
 environments:
   dev-001:
     firebase_platform:
@@ -354,7 +355,7 @@ environments:
           # ${BOOTSTRAP_PROJECT_NUMBER} は Action 側で展開される
           pool_resource_name: "projects/${BOOTSTRAP_PROJECT_NUMBER}/locations/global/workloadIdentityPools/terraform-cloud"
           principals:
-            - { attribute: repository, value: "your-org/${service}" }
+            - { attribute: repository, value: "my-org/${service}" }
             - { attribute: terraform_workspace, value: "${service}-${env}" }
 ```
 

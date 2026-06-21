@@ -9,7 +9,7 @@
 - `infra-bootstrap` GCP Project
 - `terraform-project-factory` Service Account
 - Workload Identity Pool / Provider (Terraform Cloud 用 OIDC)
-- Terraform Cloud Organization から `terraform-project-factory` を impersonate するための IAM binding
+- factory workspace (派生属性 `terraform_workspace_kind=factory`) から `terraform-project-factory` を impersonate するための IAM binding
 
 Service Account Key JSON は一切作成しません。
 
@@ -49,16 +49,19 @@ make bootstrap
 
 以下を順に実行します:
 
-1. 入力値検証
-2. `infra-bootstrap` Project 作成
-3. Billing Account 紐付け
-4. 必要 API 有効化
-5. `terraform-project-factory` Service Account 作成
-6. IAM role 付与
-7. Workload Identity Pool 作成
-8. Workload Identity Provider 作成
-9. Terraform Cloud Organization → `terraform-project-factory` の WIF binding 作成
-10. Terraform Cloud Workspace に設定すべき値の出力
+1. 入力値検証 (commands / 認証 / 必須環境変数 / org・folder / billing account)
+2. (folder mode 時) `BOOTSTRAP_FOLDER_NAME` から folder を find-or-create し `BOOTSTRAP_FOLDER_ID` を解決
+3. `infra-bootstrap` Project 作成
+4. Billing Account 紐付け
+5. 必要 API 有効化
+6. placement (folder/org) に org policy `compute.skipDefaultNetworkCreation` を enforce (default network を作らせない)
+7. `terraform-project-factory` Service Account 作成
+8. IAM role 付与
+9. Workload Identity Pool 作成
+10. Workload Identity Provider 作成
+11. factory workspace (`terraform_workspace_kind=factory`) → `terraform-project-factory` の WIF binding 作成
+12. (`BUDGET_AMOUNT` 設定時のみ) Budget 作成
+13. Terraform Cloud Workspace に設定すべき値の出力
 
 `CONFIRM_BEFORE_APPLY="true"` の場合、実行前に確認プロンプトが表示されます。
 
@@ -213,7 +216,7 @@ gcloud iam workload-identity-pools providers describe terraform-cloud \
 GitHub Actions の `google-github-actions/auth@v2` で `Failed to generate Google Cloud federated token` が出る場合:
 
 1. **`GCP_WORKLOAD_IDENTITY_PROVIDER` が正しいか** — `make bootstrap-print-env` の出力 (`projects/{number}/locations/global/workloadIdentityPools/.../providers/github-actions`) と一致するか
-2. **attribute condition の repo 名が一致しているか** — `.env` の `GITHUB_REPOSITORY` と、workflow を走らせている GitHub repo が完全一致 (`owner/repo` 形式) であること
+2. **attribute condition の owner が一致しているか** — provider の condition は `assertion.repository_owner == "<owner>"` の **org 単位**ゲート。`.env` の `GITHUB_OWNER` (未指定時は `GITHUB_REPOSITORY` の owner 部分) と、workflow を走らせている GitHub repo の owner が一致していること
 
 ```bash
 gcloud iam workload-identity-pools providers describe github-actions \

@@ -15,9 +15,9 @@ Configuration with every feature on. Exercises Firebase core / extensions / GCP 
 - Multiple users in `users` (editor + deploy / viewer)
 - `ci_service_account` configured explicitly with `additional_roles`
 - A deploy SA defined in `service_accounts`
-- Multiple databases via `firestore.databases`
-- Additional buckets + a Firestore-backup bucket via `storage.buckets` + `firestore_backup`
-- Cloud SQL provisioned via `data_connect.cloud_sql`
+- Multiple databases via the `firestore` list (default + 2 extra)
+- Additional buckets + a Firestore-backup bucket via `storage.buckets` + `storage.firestore_backup`
+- Cloud SQL provisioned via the `data_connect` list (shared instance dedup + an independent instance)
 
 <details><summary>Ja</summary>
 
@@ -26,9 +26,9 @@ Configuration with every feature on. Exercises Firebase core / extensions / GCP 
 - `users` に複数ユーザー (editor + deploy / viewer)
 - `ci_service_account` を `additional_roles` 付きで明示指定
 - `service_accounts` で deploy 用追加 SA を作成
-- `firestore.databases` で複数 DB を作成
-- `storage.buckets` + `firestore_backup` で追加 bucket と backup bucket を作成
-- `data_connect.cloud_sql` で Cloud SQL も含めて作成
+- `firestore` list で複数 DB を作成 (default + 追加 2 件)
+- `storage.buckets` + `storage.firestore_backup` で追加 bucket と backup bucket を作成
+- `data_connect` list で Cloud SQL も含めて作成 (共有 instance dedup + 独立 instance)
 
 </details>
 
@@ -37,7 +37,7 @@ Configuration with every feature on. Exercises Firebase core / extensions / GCP 
 | Category | Resource |
 |----------|----------|
 | API enablement | 30+ APIs (feature on/off + `iap.googleapis.com`) |
-| Firebase core | Firebase project / Identity Platform / Firestore default + 2 databases (`analytics-db`, `logs-db`) / RTDB / Hosting site + Web App / Storage default + 2 buckets (`{project_id}-uploads`, `{project_id}-icons`, `auto_prefix=true`) + Firestore-backup bucket (`{project_id}-firestore-backups`) / Data Connect service + Cloud SQL instance |
+| Firebase core | Firebase project / Identity Platform / Firestore default + 2 databases (`analytics-db`, `logs-db`) / RTDB / Hosting site + Web App / Storage 2 buckets (`{project_id}-icons`, `{project_id}-uploads`, `auto_prefix=true`) + Firestore-backup bucket (`{project_id}-firestore-backups`). default bucket は `default_bucket` 未指定 (=false) なので未作成 — Console で事前作成済みなら `default_bucket = true` を足す / Data Connect service + Cloud SQL instance |
 | Firebase extensions | FCM / Remote Config / App Check / Crashlytics / Performance / Analytics / Extensions all API-enabled |
 | GCP services | Secret Manager / Cloud Tasks / Cloud Scheduler / Pub/Sub / Eventarc / Cloud Run / Cloud Functions all API-enabled |
 | IAM | 2 user bindings + CI SA (`ci-deploy` + auto roles + `roles/viewer`) + additional SA (`app-runtime`) |
@@ -63,7 +63,7 @@ Details: [`main.tf`](./main.tf).
 ### Run
 
 ```bash
-cd examples/full
+cd examples/firebase-project-platform/full
 terraform init
 terraform plan
 terraform apply

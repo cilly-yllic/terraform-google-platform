@@ -182,6 +182,28 @@ variable "app_hosting" {
   default     = null
 }
 
+variable "app_hosting_compute_sa_roles" {
+  description = <<-EOT
+    App Hosting の共有 compute SA (firebase-app-hosting-compute@<project>) に
+    **追加で** 付与する project-level role のリスト。
+
+    前提: App Hosting backend は Cloud Run 上でこの compute SA として実行される。
+    backend の runtime コードが他の GCP API を叩く場合、その API の権限を SA に
+    付ける必要がある。代表例:
+      - Cloud Tasks へ task を enqueue する  → "roles/cloudtasks.enqueuer"
+      - 他 SA を impersonate して OIDC invoke → "roles/iam.serviceAccountUser"
+
+    既定の "roles/firebaseapphosting.computeRunner" は別途自動付与されるので、
+    ここには追加分だけを書く。
+
+    注意: 全 backend に custom service_account を指定していて共有 compute SA を
+    作らない構成では、共有 SA が存在しないため本付与は no-op になる
+    (その場合は custom SA 側で権限を管理すること)。
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 variable "data_connect" {
   description = <<-EOT
     Firebase Data Connect services (1 project に複数 service)。
