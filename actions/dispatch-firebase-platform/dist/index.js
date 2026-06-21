@@ -41154,6 +41154,8 @@ ${VERSION_PLACEHOLDER}
   users              = var.users
   ci_service_account = var.ci_service_account
   service_accounts   = var.service_accounts
+
+  app_hosting_compute_sa_roles = var.app_hosting_compute_sa_roles
 }
 
 variable "project_id" {
@@ -41203,6 +41205,11 @@ variable "hosting" {
 variable "app_hosting" {
   type    = any
   default = null
+}
+
+variable "app_hosting_compute_sa_roles" {
+  type    = list(string)
+  default = []
 }
 
 variable "data_connect" {
