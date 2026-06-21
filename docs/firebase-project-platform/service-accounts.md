@@ -49,8 +49,10 @@ When `enable_*` is `true` for a given feature, the following are added (deduped 
 |---------|---------------|
 | (always) | `roles/runtimeconfig.admin` |
 | `hosting` | `roles/firebasehosting.admin` |
+| `app_hosting` | `roles/firebaseapphosting.admin`, `roles/iam.serviceAccountUser`, `roles/iam.serviceAccountCreator`, `roles/resourcemanager.projectIamAdmin` (the last is Owner-class; see [app-hosting.md](./app-hosting.md)) |
 | `cloud_functions` | `roles/cloudfunctions.admin`, `roles/iam.serviceAccountUser`, `roles/artifactregistry.admin` |
 | `firestore` | `roles/datastore.indexAdmin`, `roles/firebaserules.admin` |
+| `data_connect` | `roles/firebasedataconnect.admin`, `roles/cloudsql.admin` |
 | `storage` | `roles/firebasestorage.viewer`, `roles/storage.objectAdmin`, `roles/storage.admin` |
 | `cloud_scheduler` | `roles/cloudscheduler.admin` |
 | `cloud_tasks` | `roles/cloudtasks.queueAdmin` |

@@ -196,7 +196,8 @@ scripts/bootstrap.sh --init=envrc
 | 変数名 | デフォルト | 説明 |
 |--------|-----------|------|
 | `ENABLE_CLOUD_RUN_DEPLOY_SETUP` | `false` | `true` で拡張機能を有効化 (opt-in) |
-| `GITHUB_REPOSITORY` | — | `owner/repo`。WIF Provider の attribute condition で deploy を許可する repo (拡張機能有効時は必須) |
+| `GITHUB_REPOSITORY` | — | `owner/repo`。deploy SA の WIF binding (`attribute.repository/<owner>/<repo>`) で deploy を許可する repo (拡張機能有効時は必須) |
+| `GITHUB_OWNER` | `GITHUB_REPOSITORY` の owner | GitHub WIF Provider の attribute condition (`assertion.repository_owner == "<owner>"`) で使う **org 単位**のゲート。サービス repo が別 owner の場合のみ明示 |
 | `CLOUD_RUN_DEPLOY_SA_ID` | `cloud-run-router-deploy` | deploy SA ID |
 | `CLOUD_RUN_DEPLOY_SA_DISPLAY_NAME` | `Cloud Run Router Deploy` | deploy SA 表示名 |
 | `CLOUD_RUN_RUNTIME_SA_ID` | `cloud-run-router-runtime` | runtime SA ID (Cloud Run service の実行 identity) |
@@ -338,7 +339,7 @@ Terraform Project Factory SA が新規 project を作るとき、`billing.resour
 
 #### 認証バリア (実際の防御線)
 
-- WIF + attribute_condition で MoooDoNE org の TFC workspace 経由しか SA impersonation 不可
+- WIF + attribute_condition で `TFC_ORGANIZATION_NAME` で指定した TFC org の workspace 経由しか SA impersonation 不可
 - TFC RBAC で workspace 実行ユーザーを絞れる
 - Cloud Audit Logs で全 billing API call が記録される
 

@@ -165,8 +165,11 @@ cloud-run-router は TFC notification が設定されていない限り呼ばれ
 | Resource-creating | `firestore` | `google_firestore_database`, `google_firebaserules_ruleset/release` |
 | Resource-creating | `rtdb` | `google_firebase_database_instance` |
 | Resource-creating | `storage` | `google_firebase_storage_bucket`, `google_storage_bucket`, `google_storage_bucket_iam_member`, `google_firebaserules_ruleset/release` |
-| Resource-creating | `hosting` | `google_firebase_web_app`, `google_firebase_hosting_site` |
-| Resource-creating | `app-hosting` | `google_firebase_app_hosting_backend`, `google_service_account`, `google_project_iam_member` |
+| Resource-creating | `web-app` | `google_firebase_web_app` (one per `apps[]` of `type: "web"`) |
+| Resource-creating | `ios-app` | `google_firebase_apple_app` (one per `apps[]` of `type: "ios"`) |
+| Resource-creating | `android-app` | `google_firebase_android_app` (one per `apps[]` of `type: "android"`) |
+| Resource-creating | `hosting` | `google_firebase_hosting_site` (one per `hosting[]`; the linked Web App comes from `web-app`) |
+| Resource-creating | `app-hosting` | `google_firebase_app_hosting_backend` (one per `app_hosting[]`). The shared compute SA (`google_service_account` + `google_project_iam_member`) is created in the root `main.tf`, not the submodule. |
 | Resource-creating | `data-connect` | `google_firebase_data_connect_service`, `google_sql_database_instance`, `google_sql_database` |
 | API placeholder | `fcm`, `remote-config`, `app-check`, `crashlytics`, `performance`, `analytics`, `extensions` | None (API enablement only) |
 | API placeholder | `secret-manager`, `cloud-tasks`, `cloud-scheduler`, `pubsub`, `eventarc` | None (API enablement only) |
@@ -183,8 +186,11 @@ cloud-run-router は TFC notification が設定されていない限り呼ばれ
 | リソース作成型 | `firestore` | `google_firestore_database`, `google_firebaserules_ruleset/release` |
 | リソース作成型 | `rtdb` | `google_firebase_database_instance` |
 | リソース作成型 | `storage` | `google_firebase_storage_bucket`, `google_storage_bucket`, `google_storage_bucket_iam_member`, `google_firebaserules_ruleset/release` |
-| リソース作成型 | `hosting` | `google_firebase_web_app`, `google_firebase_hosting_site` |
-| リソース作成型 | `app-hosting` | `google_firebase_app_hosting_backend`, `google_service_account`, `google_project_iam_member` |
+| リソース作成型 | `web-app` | `google_firebase_web_app` (`type: "web"` の `apps[]` ごとに 1 つ) |
+| リソース作成型 | `ios-app` | `google_firebase_apple_app` (`type: "ios"` の `apps[]` ごとに 1 つ) |
+| リソース作成型 | `android-app` | `google_firebase_android_app` (`type: "android"` の `apps[]` ごとに 1 つ) |
+| リソース作成型 | `hosting` | `google_firebase_hosting_site` (`hosting[]` ごとに 1 つ。link 先の Web App は `web-app` 側が作る) |
+| リソース作成型 | `app-hosting` | `google_firebase_app_hosting_backend` (`app_hosting[]` ごとに 1 つ)。共有 compute SA (`google_service_account` + `google_project_iam_member`) は submodule ではなくルートの `main.tf` で作成される。 |
 | リソース作成型 | `data-connect` | `google_firebase_data_connect_service`, `google_sql_database_instance`, `google_sql_database` |
 | API有効化のみ | `fcm`, `remote-config`, `app-check`, `crashlytics`, `performance`, `analytics`, `extensions` | なし (API 有効化のみ) |
 | API有効化のみ | `secret-manager`, `cloud-tasks`, `cloud-scheduler`, `pubsub`, `eventarc` | なし (API 有効化のみ) |
@@ -224,7 +230,7 @@ To avoid making callers enumerate `google_project_service` individually, the mod
 
 - `firestore = true` → `firestore.googleapis.com`, `firebaserules.googleapis.com`
 - `app_hosting = { ... }` → `firebaseapphosting.googleapis.com`, `run.googleapis.com`, `cloudbuild.googleapis.com`, `artifactregistry.googleapis.com`
-- `cloud_functions = true` → `cloudfunctions.googleapis.com`, `cloudbuild.googleapis.com`, `artifactregistry.googleapis.com`
+- `cloud_functions = true` → `cloudfunctions.googleapis.com`, `cloudbuild.googleapis.com`, `artifactregistry.googleapis.com`, `run.googleapis.com`, `eventarc.googleapis.com`, `pubsub.googleapis.com`
 
 The full mapping is in [api-auto-enablement.md](./api-auto-enablement.md).
 
@@ -265,11 +271,12 @@ If a feature is later disabled, Terraform destroys things normally (the API itse
 - `terraform >= 1.10.0`
 - `hashicorp/google` `>= 6.0, < 8.0`
 - `hashicorp/google-beta` `>= 6.0, < 8.0`
+- `hashicorp/time` `>= 0.9`
 
-`google-beta` is used only for Firebase-related resources (`google_firebase_*`).
+`google-beta` is used only for Firebase-related resources (`google_firebase_*`). `time` is used for `time_sleep.api_propagation`, which waits ~60s after API enablement before creating Firebase resources to avoid `SERVICE_DISABLED` propagation races.
 
 <details><summary>Ja</summary>
 
-`google-beta` は Firebase 関連リソース (`google_firebase_*`) でのみ利用している。
+`google-beta` は Firebase 関連リソース (`google_firebase_*`) でのみ利用している。`time` は `time_sleep.api_propagation` 用 — API 有効化後に約 60 秒待ってから Firebase リソースを作り、`SERVICE_DISABLED` の伝播 race を避ける。
 
 </details>

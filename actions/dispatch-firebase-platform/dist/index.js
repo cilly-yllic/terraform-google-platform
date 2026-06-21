@@ -40719,6 +40719,9 @@ const PASSTHROUGH_KEYS = [
     "users",
     "ci_service_account",
     "service_accounts",
+    // App Hosting 共有 compute SA への追加 role リスト (例: cloudtasks.enqueuer)。
+    // 値は settings.yml の文字列配列をそのまま HCL list として渡す。
+    "app_hosting_compute_sa_roles",
 ];
 function toHclValue(val) {
     if (val === null || val === undefined)

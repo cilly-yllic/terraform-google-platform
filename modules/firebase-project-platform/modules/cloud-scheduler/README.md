@@ -21,7 +21,9 @@ None. Jobs (`google_cloud_scheduler_job`) are not created by this module.
 
 ## Outputs
 
-None.
+| Name | Description |
+|------|-------------|
+| `enabled` | Always `true` (constant marker that Cloud Scheduler is enabled) |
 
 ## Related APIs
 

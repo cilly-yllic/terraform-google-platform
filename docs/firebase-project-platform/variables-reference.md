@@ -304,6 +304,25 @@ List of Firebase App Hosting backends.
 
 </details>
 
+### `app_hosting_compute_sa_roles`
+
+共有 compute SA (`firebase-app-hosting-compute@<project>`) に**追加で**付与する project-level role の list。`app_hosting` と同階層の top-level key。
+
+| Type | Default | Description |
+|------|---------|-------------|
+| `list(string)` | `[]` | backend の runtime が他 GCP API を叩く時に必要な role を列挙する。例: Cloud Tasks に enqueue するなら `roles/cloudtasks.enqueuer`。既定の `roles/firebaseapphosting.computeRunner` は自動付与されるので**追加分だけ**を書く。`google_project_iam_member`（non-authoritative）で付与。全 backend に custom `service_account` を指定して共有 SA を作らない構成では no-op。 |
+
+```yaml
+firebase_platform:
+  app_hosting:
+    - backend_id: web-app
+      location: asia-northeast1
+  app_hosting_compute_sa_roles:
+    - roles/cloudtasks.enqueuer
+```
+
+詳細・2 段目（invoke 権限）の注意点は [app-hosting.md の Runtime IAM](./app-hosting.md#runtime-iamcompute-sa-に追加権限を付与) を参照。
+
 ### `data_connect`
 
 List of Data Connect services (1 project に複数 service)。各 service は GraphQL endpoint を持ち、Cloud SQL Instance + Database を backend にする。

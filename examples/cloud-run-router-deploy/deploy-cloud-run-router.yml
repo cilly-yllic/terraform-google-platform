@@ -14,12 +14,13 @@ name: Deploy cloud-run-router
 #   4. `scripts/bootstrap.sh` の opt-in セットアップで作成した WIF Provider の
 #      `attribute.repository == "<your-org>/<your-deploy-repo>"` を、
 #      **deploy 用 private repo に向けて**おくこと
-#   5. private repo 側の Variables / Secrets を設定:
-#      - Variables: BOOTSTRAP_PROJECT_ID / GCP_WORKLOAD_IDENTITY_PROVIDER /
-#                   GCP_DEPLOY_SERVICE_ACCOUNT / GCP_RUNTIME_SERVICE_ACCOUNT /
-#                   GH_APP_ID
-#      - Secrets:   DEPLOY_WEBHOOK (Slack incoming webhook URL),
-#                   GH_APP_PRIVATE_KEY (GitHub App PEM)
+#   5. private repo 側の Variables / Secrets を設定 (本 workflow が実際に参照する名前):
+#      - Variables: BOOTSTRAP_PROJECT_ID / GH_APP_ID
+#      - Secrets:   GCP_WORKLOAD_IDENTITY_PROVIDER / GCP_DEPLOY_SERVICE_ACCOUNT /
+#                   GCP_RUNTIME_SERVICE_ACCOUNT / TFC_NOTIFICATION_SECRET /
+#                   GH_APP_PRIVATE_KEY / DEPLOY_WEBHOOK (Slack incoming webhook URL)
+#                   (TFC_NOTIFICATION_SECRET は init-router-hmac.yml が自動登録、
+#                    CLOUD_RUN_WEBHOOK_URL は本 workflow が deploy 後に自動登録)
 #
 # 詳細: examples/cloud-run-router-deploy/README.md
 # ============================================================================

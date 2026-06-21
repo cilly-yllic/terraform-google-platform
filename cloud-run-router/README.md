@@ -283,11 +283,11 @@ npm start
 
 ## Deployment
 
-`deploy/` ディレクトリは `.gitignore` 対象で、利用者が自組織に合わせて構成する。**推奨デプロイ経路は GitHub Actions + Workload Identity Federation** (下記 0 番) で、`gcloud` での手動 deploy は緊急時 fallback / ローカル検証 / reference として残してある。
+**推奨デプロイ経路は GitHub Actions + Workload Identity Federation** (下記 2 番) で、reference workflow は [`examples/cloud-run-router-deploy/`](../examples/cloud-run-router-deploy/) に置いてある (利用者が自組織の private な deploy 用 repo にコピーして使う想定)。`gcloud` での手動 deploy は緊急時 fallback / ローカル検証 / reference として下記 3 番に残してある。
 
 <details><summary>En</summary>
 
-The `deploy/` directory is `.gitignore`d; users configure it for their own organization. **The recommended deploy path is GitHub Actions + Workload Identity Federation** (section 0 below); manual `gcloud` deploy remains as a fallback / local testing path / reference.
+**The recommended deploy path is GitHub Actions + Workload Identity Federation** (section 2 below); the reference workflows live in [`examples/cloud-run-router-deploy/`](../examples/cloud-run-router-deploy/) for users to copy into their own private deploy repo. Manual `gcloud` deploy remains as a fallback / local testing path / reference (section 3 below).
 
 </details>
 
@@ -348,8 +348,8 @@ deploy 用の **reference workflow** を [`examples/cloud-run-router-deploy/`](.
 | 項目 | 値 |
 |------|---|
 | WIF Provider attribute condition | `assertion.repository == "<your-deploy-repo>"` (= bootstrap の `GITHUB_REPOSITORY`) |
-| Variables (deploy repo) | `BOOTSTRAP_PROJECT_ID` / `GCP_WORKLOAD_IDENTITY_PROVIDER` / `GCP_DEPLOY_SERVICE_ACCOUNT` / `GCP_RUNTIME_SERVICE_ACCOUNT` / `GH_APP_ID` |
-| Secrets (deploy repo) | `DEPLOY_WEBHOOK` (Slack) |
+| Variables (deploy repo) | `BOOTSTRAP_PROJECT_ID` / `GH_APP_ID` |
+| Secrets (deploy repo) | `GCP_WORKLOAD_IDENTITY_PROVIDER` / `GCP_DEPLOY_SERVICE_ACCOUNT` / `GCP_RUNTIME_SERVICE_ACCOUNT` / `TFC_NOTIFICATION_SECRET` (init workflow が自動登録) / `GH_APP_PRIVATE_KEY` / `DEPLOY_WEBHOOK` (Slack) / `CLOUD_RUN_WEBHOOK_URL` (deploy workflow が自動登録) |
 | GCP Secret Manager | `tfc-notification-secret` / `github-app-private-key` |
 
 > **注意**: GitHub Actions の Variable / Secret 名は `GITHUB_` prefix が予約されており作成できないため、GitHub App ID は `GH_APP_ID` という名前で登録します。workflow 内で Cloud Run service に渡す際は `--set-env-vars="GITHUB_APP_ID=${{ vars.GH_APP_ID }}"` の形で env 名を `GITHUB_APP_ID` にリマップしてください (cloud-run-router の runtime は `GITHUB_APP_ID` env を読みます)。
@@ -370,8 +370,13 @@ gcloud run deploy cloud-run-router \
   --allow-unauthenticated \
   --service-account "cloud-run-router-runtime@${PROJECT_ID}.iam.gserviceaccount.com" \
   --set-secrets "TFC_NOTIFICATION_SECRET=tfc-notification-secret:latest,GITHUB_APP_PRIVATE_KEY=github-app-private-key:latest" \
-  --set-env-vars "GITHUB_APP_ID=${GITHUB_APP_ID},DISPATCH_EVENT_TYPE=firebase_platform_requested"
+  --set-env-vars "GITHUB_APP_ID=${GITHUB_APP_ID},METADATA_SOURCE=run_message,DISPATCH_EVENT_TYPE=firebase_platform_requested"
 ```
+
+> **注意**: `METADATA_SOURCE` を省略すると default は `both` になり、`TFC_API_TOKEN` が
+> 必須 (未設定だと起動時に fail fast で落ちる)。TFC API を使わない構成では上記のように
+> `METADATA_SOURCE=run_message` を明示してください。`both` / `run_variables` を使う場合は
+> `--set-secrets` に `TFC_API_TOKEN=tfc-api-token:latest` も追加します。
 
 ### 4. TFC notification setup
 

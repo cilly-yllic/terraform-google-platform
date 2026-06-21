@@ -56,13 +56,14 @@ serviceusage.googleapis.com
 | Feature variable | APIs enabled |
 |------------------|--------------|
 | `firebase` | `firebase.googleapis.com` |
+| `apps` | `firebase.googleapis.com` (Firebase App registration requires the Firebase API even when `firebase = null`) |
 | `authentication` | `identitytoolkit.googleapis.com` |
 | `firestore` | `firestore.googleapis.com`, `firebaserules.googleapis.com` |
 | `rtdb` | `firebasedatabase.googleapis.com` |
 | `storage` | `firebasestorage.googleapis.com`, `storage.googleapis.com`, `firebaserules.googleapis.com` |
 | `hosting` | `firebasehosting.googleapis.com` |
 | `app_hosting` | `firebaseapphosting.googleapis.com`, `run.googleapis.com`, `cloudbuild.googleapis.com`, `artifactregistry.googleapis.com` |
-| `data_connect` | `firebasedataconnect.googleapis.com`, `sqladmin.googleapis.com` |
+| `data_connect` | `firebasedataconnect.googleapis.com`, `sqladmin.googleapis.com`, `cloudbilling.googleapis.com` |
 | `fcm` | `fcm.googleapis.com` |
 | `remote_config` | `firebaseremoteconfig.googleapis.com` |
 | `app_check` | `firebaseappcheck.googleapis.com` |
@@ -76,7 +77,7 @@ serviceusage.googleapis.com
 | `pubsub` | `pubsub.googleapis.com` |
 | `eventarc` | `eventarc.googleapis.com` |
 | `cloud_run` | `run.googleapis.com` |
-| `cloud_functions` | `cloudfunctions.googleapis.com`, `cloudbuild.googleapis.com`, `artifactregistry.googleapis.com` |
+| `cloud_functions` | `cloudfunctions.googleapis.com`, `cloudbuild.googleapis.com`, `artifactregistry.googleapis.com`, `run.googleapis.com`, `eventarc.googleapis.com`, `pubsub.googleapis.com` (Gen2 Functions internally use Cloud Run / Eventarc / Pub/Sub) |
 
 `distinct()` deduplicates the final list, so APIs requested by multiple features are only enabled once.
 
