@@ -69,4 +69,27 @@ describe("buildTemplateFiles", () => {
       );
     }
   });
+
+  it("declares AND forwards non-feature passthrough variables (incl. app_hosting_compute_sa_roles)", () => {
+    const { "main.tf": main } = buildTemplateFiles(undefined);
+    // PASSTHROUGH_KEYS (dispatch/index.ts) に対応する root 変数。宣言だけでなく
+    // module ブロックへの受け渡しまで無いと、tfvars に値があっても TFC が
+    // "Value for undeclared variable" 警告を出して値を無視する。
+    const passthrough = [
+      "additional_apis",
+      "users",
+      "ci_service_account",
+      "service_accounts",
+      "app_hosting_compute_sa_roles",
+    ];
+    for (const k of passthrough) {
+      expect(main, `should declare variable ${k}`).toContain(
+        `variable "${k}"`,
+      );
+      // alignment 用の連続 space を許容するため regex で照合
+      expect(main, `should forward ${k} to the module`).toMatch(
+        new RegExp(`${k}\\s*=\\s*var\\.${k}\\b`),
+      );
+    }
+  });
 });
