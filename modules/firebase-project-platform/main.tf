@@ -611,6 +611,18 @@ resource "google_project_iam_member" "app_hosting_runner" {
   member  = google_service_account.app_hosting_default[0].member
 }
 
+# 共有 compute SA への追加 role 付与 (runtime で他 API を叩く用)。
+# 例: backend が Cloud Tasks に enqueue するなら "roles/cloudtasks.enqueuer"。
+# 共有 default SA が作られる時のみ有効 (全 backend が custom SA を使う構成では
+# toset([]) で no-op になり、google_service_account.app_hosting_default[0] も
+# 評価されない)。non-authoritative な iam_member なので既存 binding を壊さない。
+resource "google_project_iam_member" "app_hosting_compute_extra" {
+  for_each = local.app_hosting_default_sa_needed ? toset(var.app_hosting_compute_sa_roles) : toset([])
+  project  = var.project_id
+  role     = each.value
+  member   = google_service_account.app_hosting_default[0].member
+}
+
 # app_hosting の参照整合性を plan-time validate。
 #   - app_id (外部 pin) と app (内部参照) は排他
 #   - 外部 pin でない時は app refs を解決できる必要あり (type=web のみ)

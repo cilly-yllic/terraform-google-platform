@@ -16,6 +16,12 @@ Project Repository の Workflow で `dispatch-project-bootstrap` (Action A) と 
 
 > Phase 2 で Cloud Run Router から `repository_dispatch` を発火する場合、Router 側に GitHub App credentials を持たせる構成です。Project Repo 側の workflow には Router 用 secret は不要です。
 
+- 以下の GitHub Variables が設定済み (Secret ではなく **Variable**):
+
+| Variable | 説明 |
+|----------|------|
+| `BOOTSTRAP_PROJECT_NUMBER` | Bootstrap project の numeric な project number。WIF provider のリソース名に使うだけで機密値ではないため、Secret ではなく Variable (`vars.*`) で渡すのが実運用パターン |
+
 ---
 
 ## settings.yml の準備
@@ -201,7 +207,7 @@ jobs:
           service: ${{ github.event.client_payload.service }}
           environments: ${{ github.event.client_payload.environments }}
           tfc_org: my-tfc-org
-          bootstrap_project_number: ${{ secrets.BOOTSTRAP_PROJECT_NUMBER }}
+          bootstrap_project_number: ${{ vars.BOOTSTRAP_PROJECT_NUMBER }}
           tfc_token: ${{ secrets.TFC_TOKEN }}
 ```
 
@@ -213,7 +219,7 @@ jobs:
           service: ${{ github.event.client_payload.service }}
           labels: ${{ github.event.client_payload.labels }}
           tfc_org: my-tfc-org
-          bootstrap_project_number: ${{ secrets.BOOTSTRAP_PROJECT_NUMBER }}
+          bootstrap_project_number: ${{ vars.BOOTSTRAP_PROJECT_NUMBER }}
           tfc_token: ${{ secrets.TFC_TOKEN }}
 ```
 
@@ -288,7 +294,7 @@ jobs:
           environments: ${{ steps.prep.outputs.environments }}
           labels: ${{ steps.prep.outputs.use_resolve_labels == 'true' && '' || steps.prep.outputs.labels }}
           tfc_org: my-tfc-org
-          bootstrap_project_number: ${{ secrets.BOOTSTRAP_PROJECT_NUMBER }}
+          bootstrap_project_number: ${{ vars.BOOTSTRAP_PROJECT_NUMBER }}
           tfc_token: ${{ secrets.TFC_TOKEN }}
 ```
 

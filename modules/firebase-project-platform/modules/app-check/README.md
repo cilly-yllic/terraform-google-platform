@@ -20,7 +20,9 @@ None. An attach point that only enables the relevant API.
 
 ## Outputs
 
-None.
+| Name | Description |
+|------|-------------|
+| `enabled` | Always `true` (constant marker that the feature is enabled) |
 
 ## Related APIs
 
