@@ -40722,6 +40722,9 @@ const PASSTHROUGH_KEYS = [
     // App Hosting 共有 compute SA への追加 role リスト (例: cloudtasks.enqueuer)。
     // 値は settings.yml の文字列配列をそのまま HCL list として渡す。
     "app_hosting_compute_sa_roles",
+    // Gen2 functions / 既定 Cloud Run の既定 compute SA への追加 role リスト
+    // (例: secretmanager.secretAccessor)。
+    "default_compute_sa_roles",
 ];
 function toHclValue(val) {
     if (val === null || val === undefined)
@@ -41156,6 +41159,7 @@ ${VERSION_PLACEHOLDER}
   service_accounts   = var.service_accounts
 
   app_hosting_compute_sa_roles = var.app_hosting_compute_sa_roles
+  default_compute_sa_roles     = var.default_compute_sa_roles
 }
 
 variable "project_id" {
@@ -41208,6 +41212,11 @@ variable "app_hosting" {
 }
 
 variable "app_hosting_compute_sa_roles" {
+  type    = list(string)
+  default = []
+}
+
+variable "default_compute_sa_roles" {
   type    = list(string)
   default = []
 }

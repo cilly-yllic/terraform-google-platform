@@ -108,6 +108,15 @@ _anchors:
     secret_manager: true
     cloud_run: true
     cloud_functions: true
+
+    # Gen2 functions / 既定 Cloud Run の runtime SA (<project-number>-compute@developer)
+    # への追加 role。runtime が他 API を叩く場合に付与する。
+    # 例: function が Secret Manager の値を読むなら secretAccessor が必要
+    #   (既定 SA の editor には secretmanager.versions.access が含まれないため)。
+    # App Hosting backend は別 SA なので app_hosting_compute_sa_roles を使う。
+    default_compute_sa_roles:
+      - roles/secretmanager.secretAccessor
+
     region: asia-northeast1
 
 environments:

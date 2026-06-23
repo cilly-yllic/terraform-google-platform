@@ -37,6 +37,7 @@ ${VERSION_PLACEHOLDER}
   service_accounts   = var.service_accounts
 
   app_hosting_compute_sa_roles = var.app_hosting_compute_sa_roles
+  default_compute_sa_roles     = var.default_compute_sa_roles
 }
 
 variable "project_id" {
@@ -89,6 +90,11 @@ variable "app_hosting" {
 }
 
 variable "app_hosting_compute_sa_roles" {
+  type    = list(string)
+  default = []
+}
+
+variable "default_compute_sa_roles" {
   type    = list(string)
   default = []
 }
