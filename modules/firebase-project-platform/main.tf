@@ -932,7 +932,9 @@ module "iam" {
 # ---------------------------------------------------------------------------
 
 data "google_project" "this" {
-  count      = local.enable_cloud_functions ? 1 : 0
+  # cloud_functions 有効時 (gen2 compute SA bindings 用) か、default_compute_sa_roles が
+  # 指定された時 (SA email の project number 解決用) に取得する。
+  count      = (local.enable_cloud_functions || length(var.default_compute_sa_roles) > 0) ? 1 : 0
   project_id = var.project_id
   depends_on = [google_project_service.this]
 }
@@ -948,9 +950,12 @@ resource "google_project_service_identity" "pubsub" {
 }
 
 locals {
-  gen2_compute_sa = local.enable_cloud_functions ? (
+  # Compute Engine 既定 SA (<project-number>-compute@developer)。Gen2 Cloud Functions /
+  # 既定 Cloud Run の runtime SA。data source は上記 count 条件で取得される。
+  compute_default_sa = length(data.google_project.this) > 0 ? (
     "${data.google_project.this[0].number}-compute@developer.gserviceaccount.com"
   ) : ""
+  gen2_compute_sa = local.enable_cloud_functions ? local.compute_default_sa : ""
 }
 
 resource "google_project_iam_member" "gen2_pubsub_token_creator" {
@@ -972,4 +977,16 @@ resource "google_project_iam_member" "gen2_compute_eventarc_receiver" {
   project = var.project_id
   role    = "roles/eventarc.eventReceiver"
   member  = "serviceAccount:${local.gen2_compute_sa}"
+}
+
+# 既定 compute SA への追加 role 付与 (runtime が他 API を叩く用)。
+# 例: Gen2 Function (cmn-v2-api-*) が Secret Manager の暗号鍵を読むなら
+#     "roles/secretmanager.secretAccessor" (editor には versions.access が無いため別途必要)。
+# 専用 runtime SA 未分離の構成では全 Gen2 functions / 既定 Cloud Run に影響する点に注意。
+# for_each が空なら compute_default_sa も評価されない (data source も未取得で OK)。
+resource "google_project_iam_member" "default_compute_extra" {
+  for_each = toset(var.default_compute_sa_roles)
+  project  = var.project_id
+  role     = each.value
+  member   = "serviceAccount:${local.compute_default_sa}"
 }
