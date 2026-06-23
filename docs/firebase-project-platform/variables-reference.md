@@ -408,6 +408,24 @@ Setting `cloud_run` / `cloud_functions` to `true` also makes them participate in
 |-------|------|---------|-------------|
 | `location` | `string` | `var.region` | location |
 
+### `default_compute_sa_roles`
+
+Compute Engine 既定 SA (`<project-number>-compute@developer`) に**追加で**付与する project-level role の list。`cloud_functions` / `cloud_run` 系の top-level key と同階層。
+
+| Type | Default | Description |
+|------|---------|-------------|
+| `list(string)` | `[]` | Gen2 Cloud Functions / 既定 Cloud Run の **runtime SA**（専用 SA 未分離の構成ではこの既定 compute SA）が他 GCP API を叩く時に必要な role を列挙。例: function が Secret Manager の値を読むなら `roles/secretmanager.secretAccessor`（既定 SA は `roles/editor` を持つが editor に `secretmanager.versions.access` は含まれない）。既定付与の `run.invoker` / `eventarc.eventReceiver` は自動なので**追加分だけ**書く。`google_project_iam_member`（non-authoritative）で付与。SA email 解決に project number が要るため、本 list が非空なら `cloud_functions` 無効でも `google_project` data を取得する。 |
+
+```yaml
+firebase_platform:
+  cloud_functions: true
+  secret_manager: true
+  default_compute_sa_roles:
+    - roles/secretmanager.secretAccessor
+```
+
+> 注意: 専用 runtime SA を分離していない構成では、この付与は**全 Gen2 functions / 既定 Cloud Run に影響**する。secret 単位に絞るならモジュール外で個別 binding する。App Hosting backend の runtime は別 SA（`firebase-app-hosting-compute`）なので [`app_hosting_compute_sa_roles`](#app_hosting_compute_sa_roles) を使う。
+
 ---
 
 ## API management
