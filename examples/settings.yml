@@ -117,6 +117,19 @@ _anchors:
     default_compute_sa_roles:
       - roles/secretmanager.secretAccessor
 
+    # apply 結果通知 (任意)。各 env workspace に TFC notification を設定し、
+    # run の終端状態 (success / error / needs_attention) を webhook に通知する。
+    # 未設定・空でも no-op (エラーにならない)。詳細は Action B README を参照。
+    notifications:
+      # Slack は URL host から自動判定 (destination-type=slack, HMAC 不要)。
+      # ⚠ Slack Incoming Webhook URL は実質機密。private repo 前提で直書きする。
+      - url: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXX
+      # generic webhook の例 (任意 URL、署名するなら hmac_secret):
+      # - url: https://example.com/tfc-hook
+      #   type: generic
+      #   triggers: [run:errored]
+      #   hmac_secret: "your-shared-secret"
+
     region: asia-northeast1
 
 environments:

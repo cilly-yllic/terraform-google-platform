@@ -475,6 +475,72 @@ export function buildEnvVariables(
 }
 
 // ---------------------------------------------------------------------------
+// Apply-result notifications (settings.yml の firebase_platform.notifications)
+// ---------------------------------------------------------------------------
+
+export const NOTIFICATION_NAME_PREFIX = "firebase-platform-notify-";
+const DEFAULT_NOTIFICATION_TRIGGERS = [
+  "run:completed",
+  "run:errored",
+  "run:needs_attention",
+];
+const VALID_DESTINATION_TYPES = ["slack", "generic", "microsoft-teams"];
+
+export interface ParsedNotification {
+  url: string;
+  destinationType: string;
+  triggers: string[];
+  hmacToken?: string;
+}
+
+/**
+ * settings.yml の firebase_platform.notifications をパースする。
+ *
+ * apply 結果を webhook (Slack 等) に通知する TFC notification の宣言。各 entry:
+ *   url      = 通知先 URL (必須。空ならその entry は skip)
+ *   type     = "slack" | "generic" | "microsoft-teams" (省略時 host 自動判定:
+ *              hooks.slack.com を含めば slack、それ以外 generic)
+ *   triggers = TFC trigger 配列 (省略時 run:completed / errored / needs_attention)
+ *   hmac_secret = generic 用の署名 secret (任意)
+ *
+ * オプション機能なので **未設定・空・不正でも throw せず** 寛容に握りつぶす
+ * (通知設定の不備で apply dispatch 全体を失敗させない)。
+ */
+export function parseNotifications(
+  firebasePlatform: FirebasePlatformConfig,
+): ParsedNotification[] {
+  const raw = firebasePlatform["notifications"];
+  if (raw === undefined || raw === null || !Array.isArray(raw)) return [];
+  const out: ParsedNotification[] = [];
+  for (const item of raw) {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      continue;
+    }
+    const o = item as Record<string, unknown>;
+    const url = typeof o.url === "string" ? o.url.trim() : "";
+    if (url === "") continue; // url 未設定はエラーにせず skip
+    const destinationType =
+      typeof o.type === "string" && VALID_DESTINATION_TYPES.includes(o.type)
+        ? o.type
+        : url.includes("hooks.slack.com")
+          ? "slack"
+          : "generic";
+    const triggers =
+      Array.isArray(o.triggers) &&
+      o.triggers.length > 0 &&
+      o.triggers.every((t) => typeof t === "string")
+        ? (o.triggers as string[])
+        : DEFAULT_NOTIFICATION_TRIGGERS;
+    const hmacToken =
+      typeof o.hmac_secret === "string" && o.hmac_secret !== ""
+        ? o.hmac_secret
+        : undefined;
+    out.push({ url, destinationType, triggers, hmacToken });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Run message (metadata JSON for Phase 2 webhook routing)
 // ---------------------------------------------------------------------------
 
