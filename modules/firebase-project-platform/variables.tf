@@ -204,6 +204,30 @@ variable "app_hosting_compute_sa_roles" {
   default     = []
 }
 
+variable "default_compute_sa_roles" {
+  description = <<-EOT
+    Compute Engine 既定 SA (<project-number>-compute@developer) に **追加で**
+    付与する project-level role のリスト。
+
+    前提: Gen2 Cloud Functions / 既定 Cloud Run の **runtime SA** はこの既定 compute SA
+    (専用 SA 未分離の構成)。runtime コードが他の GCP API を叩く場合に必要。代表例:
+      - Secret Manager の値を読む (secretmanager.versions.access)
+                                    → "roles/secretmanager.secretAccessor"
+        ※ 既定 compute SA は roles/editor を持つが editor には
+          secretmanager.versions.access が含まれないため別途必要。
+
+    既定で付与される run.invoker / eventarc.eventReceiver は別途自動付与されるので、
+    ここには追加分だけを書く。SA email の解決に project number が要るため、本リストが
+    非空なら cloud_functions 無効でも google_project data を取得する。
+
+    注意: 専用 runtime SA を分離していない場合、この付与は **全 Gen2 functions /
+    既定 Cloud Run に影響** する (最小権限にしたい場合は secret 単位の binding を
+    モジュール外で行う)。
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 variable "data_connect" {
   description = <<-EOT
     Firebase Data Connect services (1 project に複数 service)。
