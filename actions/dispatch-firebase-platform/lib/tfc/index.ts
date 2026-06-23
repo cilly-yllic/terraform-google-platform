@@ -471,21 +471,21 @@ export async function syncVariables(
 // Notification Configuration
 // ---------------------------------------------------------------------------
 
-export async function upsertNotification(
+export interface NotifData {
+  id: string;
+  attributes: {
+    name: string;
+    url: string;
+    "destination-type": string;
+    enabled: boolean;
+  };
+}
+
+// workspace の notification-configurations を全 page 取得する。
+export async function listNotifications(
   workspaceId: string,
-  url: string,
-  hmacSecret: string,
   token: string,
-): Promise<void> {
-  interface NotifData {
-    id: string;
-    attributes: {
-      name: string;
-      url: string;
-      "destination-type": string;
-      enabled: boolean;
-    };
-  }
+): Promise<NotifData[]> {
   interface ListResp {
     data: NotifData[];
     meta?: { pagination?: { next_page?: number | null } };
@@ -502,7 +502,17 @@ export async function upsertNotification(
     if (!next) break;
     page = next;
   }
+  return all;
+}
 
+// Cloud Run Router 用 generic notification (HMAC 署名付き)。Phase 2 連鎖用。
+export async function upsertNotification(
+  workspaceId: string,
+  url: string,
+  hmacSecret: string,
+  token: string,
+): Promise<void> {
+  const all = await listNotifications(workspaceId, token);
   const existing = all.find(
     (n) =>
       n.attributes["destination-type"] === "generic" &&
@@ -519,28 +529,79 @@ export async function upsertNotification(
   };
 
   if (existing) {
-    await api<unknown>(
-      `/notification-configurations/${existing.id}`,
-      {
-        method: "PATCH",
-        token,
-        body: {
-          data: { type: "notification-configurations", attributes: attrs },
-        },
+    await api<unknown>(`/notification-configurations/${existing.id}`, {
+      method: "PATCH",
+      token,
+      body: {
+        data: { type: "notification-configurations", attributes: attrs },
       },
-    );
+    });
   } else {
-    await api<unknown>(
-      `/workspaces/${workspaceId}/notification-configurations`,
-      {
-        method: "POST",
-        token,
-        body: {
-          data: { type: "notification-configurations", attributes: attrs },
-        },
+    await api<unknown>(`/workspaces/${workspaceId}/notification-configurations`, {
+      method: "POST",
+      token,
+      body: {
+        data: { type: "notification-configurations", attributes: attrs },
       },
-    );
+    });
   }
+}
+
+// apply 結果通知 (Slack 等) を name 単位で upsert する。Router 用とは別名で共存。
+// slack: destination-type=slack, HMAC token 不要 (TFC が Slack 整形)。
+// generic: destination-type=generic, hmacToken があれば署名付与。
+export interface NotificationConfigSpec {
+  name: string;
+  destinationType: string;
+  url: string;
+  triggers: string[];
+  hmacToken?: string;
+}
+
+export async function upsertNotificationConfig(
+  workspaceId: string,
+  spec: NotificationConfigSpec,
+  existing: NotifData[],
+  token: string,
+): Promise<void> {
+  const attrs: Record<string, unknown> = {
+    name: spec.name,
+    "destination-type": spec.destinationType,
+    url: spec.url,
+    enabled: true,
+    triggers: spec.triggers,
+  };
+  if (spec.destinationType === "generic" && spec.hmacToken) {
+    attrs.token = spec.hmacToken;
+  }
+  const found = existing.find((n) => n.attributes.name === spec.name);
+  if (found) {
+    await api<unknown>(`/notification-configurations/${found.id}`, {
+      method: "PATCH",
+      token,
+      body: {
+        data: { type: "notification-configurations", attributes: attrs },
+      },
+    });
+  } else {
+    await api<unknown>(`/workspaces/${workspaceId}/notification-configurations`, {
+      method: "POST",
+      token,
+      body: {
+        data: { type: "notification-configurations", attributes: attrs },
+      },
+    });
+  }
+}
+
+export async function deleteNotification(
+  id: string,
+  token: string,
+): Promise<void> {
+  await api<unknown>(`/notification-configurations/${id}`, {
+    method: "DELETE",
+    token,
+  });
 }
 
 // ---------------------------------------------------------------------------
