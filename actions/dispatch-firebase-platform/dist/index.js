@@ -36245,10 +36245,8 @@ async function syncVariables(workspaceId, desired, token) {
         await deleteVariable(stale.id, workspaceId, token);
     }
 }
-// ---------------------------------------------------------------------------
-// Notification Configuration
-// ---------------------------------------------------------------------------
-async function upsertNotification(workspaceId, url, hmacSecret, token) {
+// workspace の notification-configurations を全 page 取得する。
+async function listNotifications(workspaceId, token) {
     const all = [];
     let page = 1;
     while (true) {
@@ -36259,6 +36257,11 @@ async function upsertNotification(workspaceId, url, hmacSecret, token) {
             break;
         page = next;
     }
+    return all;
+}
+// Cloud Run Router 用 generic notification (HMAC 署名付き)。Phase 2 連鎖用。
+async function upsertNotification(workspaceId, url, hmacSecret, token) {
+    const all = await listNotifications(workspaceId, token);
     const existing = all.find((n) => n.attributes["destination-type"] === "generic" &&
         n.attributes.name === "firebase-platform-webhook");
     const attrs = {
@@ -36287,6 +36290,43 @@ async function upsertNotification(workspaceId, url, hmacSecret, token) {
             },
         });
     }
+}
+async function upsertNotificationConfig(workspaceId, spec, existing, token) {
+    const attrs = {
+        name: spec.name,
+        "destination-type": spec.destinationType,
+        url: spec.url,
+        enabled: true,
+        triggers: spec.triggers,
+    };
+    if (spec.destinationType === "generic" && spec.hmacToken) {
+        attrs.token = spec.hmacToken;
+    }
+    const found = existing.find((n) => n.attributes.name === spec.name);
+    if (found) {
+        await api(`/notification-configurations/${found.id}`, {
+            method: "PATCH",
+            token,
+            body: {
+                data: { type: "notification-configurations", attributes: attrs },
+            },
+        });
+    }
+    else {
+        await api(`/workspaces/${workspaceId}/notification-configurations`, {
+            method: "POST",
+            token,
+            body: {
+                data: { type: "notification-configurations", attributes: attrs },
+            },
+        });
+    }
+}
+async function deleteNotification(id, token) {
+    await api(`/notification-configurations/${id}`, {
+        method: "DELETE",
+        token,
+    });
 }
 async function createConfigurationVersion(workspaceId, autoQueueRuns, token) {
     const resp = await api(`/workspaces/${workspaceId}/configuration-versions`, {
@@ -40948,6 +40988,59 @@ function buildEnvVariables(saEmail, targetProjectId, bootstrapProjectNumber, poo
         },
     ];
 }
+// ---------------------------------------------------------------------------
+// Apply-result notifications (settings.yml の firebase_platform.notifications)
+// ---------------------------------------------------------------------------
+const NOTIFICATION_NAME_PREFIX = "firebase-platform-notify-";
+const DEFAULT_NOTIFICATION_TRIGGERS = [
+    "run:completed",
+    "run:errored",
+    "run:needs_attention",
+];
+const VALID_DESTINATION_TYPES = ["slack", "generic", "microsoft-teams"];
+/**
+ * settings.yml の firebase_platform.notifications をパースする。
+ *
+ * apply 結果を webhook (Slack 等) に通知する TFC notification の宣言。各 entry:
+ *   url      = 通知先 URL (必須。空ならその entry は skip)
+ *   type     = "slack" | "generic" | "microsoft-teams" (省略時 host 自動判定:
+ *              hooks.slack.com を含めば slack、それ以外 generic)
+ *   triggers = TFC trigger 配列 (省略時 run:completed / errored / needs_attention)
+ *   hmac_secret = generic 用の署名 secret (任意)
+ *
+ * オプション機能なので **未設定・空・不正でも throw せず** 寛容に握りつぶす
+ * (通知設定の不備で apply dispatch 全体を失敗させない)。
+ */
+function parseNotifications(firebasePlatform) {
+    const raw = firebasePlatform["notifications"];
+    if (raw === undefined || raw === null || !Array.isArray(raw))
+        return [];
+    const out = [];
+    for (const item of raw) {
+        if (typeof item !== "object" || item === null || Array.isArray(item)) {
+            continue;
+        }
+        const o = item;
+        const url = typeof o.url === "string" ? o.url.trim() : "";
+        if (url === "")
+            continue; // url 未設定はエラーにせず skip
+        const destinationType = typeof o.type === "string" && VALID_DESTINATION_TYPES.includes(o.type)
+            ? o.type
+            : url.includes("hooks.slack.com")
+                ? "slack"
+                : "generic";
+        const triggers = Array.isArray(o.triggers) &&
+            o.triggers.length > 0 &&
+            o.triggers.every((t) => typeof t === "string")
+            ? o.triggers
+            : DEFAULT_NOTIFICATION_TRIGGERS;
+        const hmacToken = typeof o.hmac_secret === "string" && o.hmac_secret !== ""
+            ? o.hmac_secret
+            : undefined;
+        out.push({ url, destinationType, triggers, hmacToken });
+    }
+    return out;
+}
 function buildRunMessage(meta) {
     return JSON.stringify(meta);
 }
@@ -41644,6 +41737,35 @@ async function run() {
                         throw new Error("cloud_run_webhook_secret is required when enable_webhook_notification=true");
                     }
                     await upsertNotification(workspaceId, webhookUrl, webhookSecret, tfcToken);
+                }
+                // apply 結果通知 (Slack 等) — settings.yml の firebase_platform.notifications を
+                // 各 env workspace の TFC notification として reconcile する。
+                // オプション機能なので未設定なら no-op。Router 用 firebase-platform-webhook
+                // とは別名 (firebase-platform-notify-*) で共存する。
+                const notifications = parseNotifications(firebasePlatform);
+                // Slack URL 等は機密なのでログ mask する。
+                for (const n of notifications)
+                    core.setSecret(n.url);
+                const existingNotifs = await listNotifications(workspaceId, tfcToken);
+                for (let ni = 0; ni < notifications.length; ni++) {
+                    const n = notifications[ni];
+                    await upsertNotificationConfig(workspaceId, {
+                        name: `${NOTIFICATION_NAME_PREFIX}${ni}`,
+                        destinationType: n.destinationType,
+                        url: n.url,
+                        triggers: n.triggers,
+                        hmacToken: n.hmacToken,
+                    }, existingNotifs, tfcToken);
+                }
+                // 宣言から消えた firebase-platform-notify-* は削除 (reconcile)。
+                for (const e of existingNotifs) {
+                    const m = e.attributes.name.match(/^firebase-platform-notify-(\d+)$/);
+                    if (m && Number(m[1]) >= notifications.length) {
+                        await deleteNotification(e.id, tfcToken);
+                    }
+                }
+                if (notifications.length > 0) {
+                    core.info(`[${env}] Synced ${notifications.length} apply-result notification(s)`);
                 }
                 // Variables
                 const tfVars = buildTerraformVariables(projectId, firebasePlatform);

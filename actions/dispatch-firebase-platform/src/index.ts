@@ -7,6 +7,9 @@ import {
   deleteWorkspace,
   syncVariables,
   upsertNotification,
+  listNotifications,
+  upsertNotificationConfig,
+  deleteNotification,
   createRun,
   createConfigurationVersion,
   uploadConfigurationVersion,
@@ -29,6 +32,8 @@ import {
   selectTargetEnvs,
   buildMarkerTag,
   deriveEnvFromWorkspaceName,
+  parseNotifications,
+  NOTIFICATION_NAME_PREFIX,
 } from "../lib/dispatch/index.js";
 import { buildTemplateFiles } from "../lib/templates/index.js";
 import { resolveModuleVersion } from "../lib/registry/index.js";
@@ -230,6 +235,42 @@ async function run(): Promise<void> {
             webhookUrl,
             webhookSecret,
             tfcToken,
+          );
+        }
+
+        // apply 結果通知 (Slack 等) — settings.yml の firebase_platform.notifications を
+        // 各 env workspace の TFC notification として reconcile する。
+        // オプション機能なので未設定なら no-op。Router 用 firebase-platform-webhook
+        // とは別名 (firebase-platform-notify-*) で共存する。
+        const notifications = parseNotifications(firebasePlatform);
+        // Slack URL 等は機密なのでログ mask する。
+        for (const n of notifications) core.setSecret(n.url);
+        const existingNotifs = await listNotifications(workspaceId, tfcToken);
+        for (let ni = 0; ni < notifications.length; ni++) {
+          const n = notifications[ni];
+          await upsertNotificationConfig(
+            workspaceId,
+            {
+              name: `${NOTIFICATION_NAME_PREFIX}${ni}`,
+              destinationType: n.destinationType,
+              url: n.url,
+              triggers: n.triggers,
+              hmacToken: n.hmacToken,
+            },
+            existingNotifs,
+            tfcToken,
+          );
+        }
+        // 宣言から消えた firebase-platform-notify-* は削除 (reconcile)。
+        for (const e of existingNotifs) {
+          const m = e.attributes.name.match(/^firebase-platform-notify-(\d+)$/);
+          if (m && Number(m[1]) >= notifications.length) {
+            await deleteNotification(e.id, tfcToken);
+          }
+        }
+        if (notifications.length > 0) {
+          core.info(
+            `[${env}] Synced ${notifications.length} apply-result notification(s)`,
           );
         }
 

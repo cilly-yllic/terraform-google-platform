@@ -12,6 +12,7 @@ import {
   selectTargetEnvs,
   buildMarkerTag,
   deriveEnvFromWorkspaceName,
+  parseNotifications,
 } from "./index.js";
 
 describe("expandFirebasePlatformPlaceholders", () => {
@@ -1090,5 +1091,84 @@ describe("deriveEnvFromWorkspaceName", () => {
     expect(
       deriveEnvFromWorkspaceName("svc-anything", "{service}-static", "svc"),
     ).toBeNull();
+  });
+});
+
+describe("parseNotifications", () => {
+  it("returns [] when notifications is absent / null / non-array (no throw)", () => {
+    expect(parseNotifications({})).toEqual([]);
+    expect(parseNotifications({ notifications: null })).toEqual([]);
+    expect(parseNotifications({ notifications: "nope" })).toEqual([]);
+    expect(parseNotifications({ notifications: 123 })).toEqual([]);
+  });
+
+  it("skips entries without a url instead of throwing", () => {
+    const r = parseNotifications({
+      notifications: [
+        {},
+        { url: "" },
+        { url: "   " },
+        { foo: "bar" },
+        { url: "https://hooks.slack.com/services/T/B/x" },
+      ],
+    });
+    expect(r).toHaveLength(1);
+    expect(r[0].url).toBe("https://hooks.slack.com/services/T/B/x");
+  });
+
+  it("auto-detects slack from hooks.slack.com host, generic otherwise", () => {
+    const r = parseNotifications({
+      notifications: [
+        { url: "https://hooks.slack.com/services/T/B/x" },
+        { url: "https://example.com/my-hook" },
+      ],
+    });
+    expect(r[0].destinationType).toBe("slack");
+    expect(r[1].destinationType).toBe("generic");
+  });
+
+  it("honors explicit type and falls back to auto-detect on invalid type", () => {
+    const r = parseNotifications({
+      notifications: [
+        { url: "https://example.com/x", type: "slack" },
+        { url: "https://hooks.slack.com/x", type: "bogus" },
+      ],
+    });
+    expect(r[0].destinationType).toBe("slack"); // explicit override
+    expect(r[1].destinationType).toBe("slack"); // invalid → auto-detect
+  });
+
+  it("uses default triggers, or custom triggers when valid", () => {
+    const r = parseNotifications({
+      notifications: [
+        { url: "https://hooks.slack.com/x" },
+        { url: "https://hooks.slack.com/y", triggers: ["run:errored"] },
+        { url: "https://hooks.slack.com/z", triggers: [] },
+      ],
+    });
+    expect(r[0].triggers).toEqual([
+      "run:completed",
+      "run:errored",
+      "run:needs_attention",
+    ]);
+    expect(r[1].triggers).toEqual(["run:errored"]);
+    expect(r[2].triggers).toEqual([
+      "run:completed",
+      "run:errored",
+      "run:needs_attention",
+    ]); // empty → default
+  });
+
+  it("passes hmac_secret only when a non-empty string", () => {
+    const r = parseNotifications({
+      notifications: [
+        { url: "https://example.com/x", hmac_secret: "s3cret" },
+        { url: "https://example.com/y", hmac_secret: "" },
+        { url: "https://example.com/z" },
+      ],
+    });
+    expect(r[0].hmacToken).toBe("s3cret");
+    expect(r[1].hmacToken).toBeUndefined();
+    expect(r[2].hmacToken).toBeUndefined();
   });
 });

@@ -161,6 +161,38 @@ environments:
 
 ---
 
+## Apply 結果通知 (`firebase_platform.notifications`)
+
+apply の結果（success / error / needs_attention）を **TFC notification** 経由で webhook (Slack 等) に通知する。Action B は run を投げたら終わり（poll しない）なので、結果通知は run の終端状態を知っている **TFC が送る**。Action は各 env workspace に notification config を upsert/削除（reconcile）するだけ。
+
+```yaml
+firebase_platform:
+  notifications:
+    # Slack: URL host から自動判定 (destination-type=slack, HMAC 不要、TFC が Slack 整形)
+    - url: https://hooks.slack.com/services/T.../B.../xxxx
+    # generic webhook (任意の URL)。署名したい場合のみ hmac_secret を付ける
+    - url: https://example.com/tfc-hook
+      type: generic            # 省略時は host 自動判定 (hooks.slack.com → slack, それ以外 generic)
+      triggers:                # 省略時 [run:completed, run:errored, run:needs_attention]
+        - run:errored
+      hmac_secret: "..."       # generic のみ (X-TFE-Notification-Signature 署名用)
+```
+
+| Field | Type | Default | 説明 |
+|-------|------|---------|------|
+| `url` | `string` | (必須) | 通知先 URL。**空・未設定の entry は skip**（エラーにしない）。Slack URL は機密なのでログは mask される |
+| `type` | `slack \| generic \| microsoft-teams` | host 自動判定 | `hooks.slack.com` を含めば `slack`、それ以外 `generic` |
+| `triggers` | `string[]` | `[run:completed, run:errored, run:needs_attention]` | TFC notification trigger |
+| `hmac_secret` | `string` | (なし) | `generic` のみ。署名 secret |
+
+- **未設定なら no-op**。`notifications` 自体や個々の `url` が無くても **エラーにならない**（オプション機能）。
+- 各 entry は `firebase-platform-notify-{index}` という名前の config になる。Phase 2 連鎖用の `firebase-platform-webhook` (generic + HMAC) とは**別名で共存**。
+- `notifications` から消した entry は次回 Action B 実行で対応する config を**削除**（reconcile）。
+- URL は per-env。全 env 共通にするなら settings.yml の anchor (`&base`) に書く。
+- ⚠️ Slack Incoming Webhook URL は実質機密値（その channel に投稿可能）。settings.yml は git に乗るので **private repo 前提**。漏れたら Slack 側で revoke/再発行する。
+
+---
+
 ## Environment gating
 
 各 env を Run 対象に含めるかは以下の 2 段で判定される（Action A と同一ロジック）:
