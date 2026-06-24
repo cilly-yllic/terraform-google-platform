@@ -103,6 +103,23 @@ environments:
   it("throws when the file does not exist", async () => {
     await expect(loadSettings(path.join(dir, "missing.yml"))).rejects.toThrow();
   });
+
+  // teardown (全 env 撤去) シナリオ: env を全コメントアウトすると
+  // `environments: null` になるが、これは意図的な空状態として {} に正規化し、
+  // reconciliation (orphan workspace 削除) に乗せたい。
+  it("normalizes a null environments map to {} (full teardown)", async () => {
+    const p = write(`service: svc\nretained_envs:\n  - prd-001\nenvironments:\n`);
+    const settings = await loadSettings(p);
+    expect(settings.environments).toEqual({});
+    expect(settings.retained_envs).toEqual(["prd-001"]);
+  });
+
+  // 安全 floor: `environments:` キー自体の欠落は記述ミスの可能性が高いので
+  // 空 teardown と区別して従来どおりエラーにする (null は可、undefined は不可)。
+  it("throws when the environments key is entirely missing", async () => {
+    const p = write(`service: svc\nretained_envs:\n  - prd-001\n`);
+    await expect(loadSettings(p)).rejects.toThrow();
+  });
 });
 
 describe("status / labels defaults", () => {

@@ -40628,7 +40628,20 @@ const environmentSchema = objectType({
 });
 const settingsSchema = objectType({
     service: stringType(),
-    environments: recordType(stringType(), environmentSchema),
+    // teardown (全 env 撤去) シナリオを許容する。
+    // 前提: settings.yml の env を全てコメントアウトすると、YAML パーサは
+    //   `environments: null` を返す (キーは存在するが値が空)。これは「この
+    //   service の env を全撤去する」意図的な状態であり、reconciliation
+    //   (src/index.ts の orphan workspace 削除) に正規ルートで乗せたい。
+    //   ここで弾くと teardown が schema 段階でクラッシュして到達できない。
+    // 安全側の配慮: `.nullable()` は「キーは必須・値は null 可」を意味するため、
+    //   `environments:` 自体を丸ごと書き忘れた (= undefined) ケースは従来どおり
+    //   Required エラーになる。空 teardown と記述ミスを区別する安全 floor。
+    // 正規化: 後段は Object.keys(environments) で回す前提なので {} に潰す。
+    //   retained_envs に挙げた env は reconciliation 側で削除対象から外れる。
+    environments: recordType(stringType(), environmentSchema)
+        .nullable()
+        .transform((v) => v ?? {}),
     retained_envs: arrayType(stringType()).default([]),
 });
 async function loadSettings(path) {
