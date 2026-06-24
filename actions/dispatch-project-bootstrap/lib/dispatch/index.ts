@@ -231,6 +231,10 @@ export interface EnvEntry {
   billing_account_id: string;
   terraform_service_account_id: string;
   tfc_workspace_name: string;
+  // google_project.deletion_policy に渡す値。settings.yml の env で未指定なら
+  // 安全側の "PREVENT" を既定にする (root template 側でも lookup default を
+  // 持つが、ここで明示することで var.environments JSON だけ見ても意図が分かる)。
+  deletion_policy: "PREVENT" | "ABANDON" | "DELETE";
 }
 
 /**
@@ -254,5 +258,6 @@ export function buildEnvEntry(args: {
     billing_account_id: args.envConfig.billing_account_id,
     terraform_service_account_id,
     tfc_workspace_name: `${args.service}-${args.env}`,
+    deletion_policy: args.envConfig.deletion_policy ?? "PREVENT",
   };
 }
