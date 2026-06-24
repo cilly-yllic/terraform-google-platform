@@ -10,6 +10,9 @@ ${VERSION_PLACEHOLDER}
   billing_account_id           = each.value.billing_account_id
   terraform_service_account_id = each.value.terraform_service_account_id
   tfc_workspace_name           = each.value.tfc_workspace_name
+  # settings.yml の env で未指定なら安全側の PREVENT。DELETE を明示した env だけ
+  # teardown 時に project ごと削除できる (module default も PREVENT)。
+  deletion_policy = lookup(each.value, "deletion_policy", "PREVENT")
 
   org_id    = try(jsondecode(var.parent).organization_id, null)
   folder_id = try(jsondecode(var.parent).folder_id, null)

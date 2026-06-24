@@ -5,6 +5,17 @@ const environmentSchema = z.object({
   status: z.enum(["active", "inactive"]).default("active"),
   labels: z.array(z.string()).default([]),
   billing_account_id: z.string(),
+  // GCP project の削除ポリシー (project-bootstrap が作る google_project に渡す)。
+  // - PREVENT (既定): terraform destroy 時に project 削除を拒否する安全弁。
+  // - DELETE        : env を environments から外した際に project ごと削除する。
+  // - ABANDON       : project は GCP に残したまま terraform state からのみ外す。
+  // teardown で実際に project を消すには「先に DELETE を適用して state に焼く →
+  // その後 env を撤去して destroy」の 2 段階が必要 (terraform は for_each から
+  // 外れた instance を state 上の deletion_policy で destroy するため、PREVENT の
+  // まま env を消すと "Cannot destroy project as deletion_policy is set to
+  // PREVENT" で失敗する)。詳細は modules/project-bootstrap/variables.tf。
+  // 公開モジュールの安全 floor として既定は PREVENT を維持し、削除は明示 opt-in。
+  deletion_policy: z.enum(["PREVENT", "ABANDON", "DELETE"]).optional(),
   firebase_platform: z.record(z.unknown()).optional(),
 });
 
