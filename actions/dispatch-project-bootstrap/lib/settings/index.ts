@@ -17,7 +17,21 @@ const settingsSchema = z.object({
   // YAML でクォート無し (例 `folder_id: 123456789012`) だと number として
   // パースされるため、coerce で文字列化して受ける (クォート忘れを許容)。
   folder_id: z.coerce.string().optional(),
-  environments: z.record(z.string(), environmentSchema),
+  // teardown (全 env 撤去) シナリオを許容する。
+  // 前提: settings.yml の env を全てコメントアウトすると、YAML パーサは
+  //   `environments: null` を返す (キーは存在するが値が空)。project-bootstrap に
+  //   とって空 environments は「この service の全 project を撤去する」意図であり、
+  //   diff ロジック (computeReconciliation) は existing − settings − retained を
+  //   destroyKeys として既に算出できる。ここで schema が null を弾くと、その
+  //   destroy フローに到達できず "Expected object, received null" でクラッシュする。
+  // 安全側の配慮: `.nullable()` は「キーは必須・値は null 可」を意味するため、
+  //   `environments:` 自体を書き忘れた (= undefined) ケースは従来どおり Required
+  //   エラーになる。意図的な空 teardown と記述ミスを区別する安全 floor。
+  // 正規化: 後段は Object.keys(environments) で回す前提なので {} に潰す。
+  environments: z
+    .record(z.string(), environmentSchema)
+    .nullable()
+    .transform((v) => v ?? {}),
   retained_envs: z.array(z.string()).default([]),
 });
 
