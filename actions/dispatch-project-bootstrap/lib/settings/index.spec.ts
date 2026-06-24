@@ -129,6 +129,30 @@ environments:
       parseSettings("service: svc\nretained_envs:\n  - prd-001\n"),
     ).toThrow();
   });
+
+  // teardown で project ごと削除したい env だけ deletion_policy: DELETE を opt-in。
+  it("parses an explicit deletion_policy", () => {
+    const settings = parseSettings(
+      "service: svc\nenvironments:\n  dev-004:\n    billing_account_id: X\n    deletion_policy: DELETE\n",
+    );
+    expect(settings.environments["dev-004"].deletion_policy).toBe("DELETE");
+  });
+
+  // 既定は undefined (= 後段で安全側の PREVENT に倒す)。
+  it("leaves deletion_policy undefined when omitted", () => {
+    const settings = parseSettings(
+      "service: svc\nenvironments:\n  dev-004:\n    billing_account_id: X\n",
+    );
+    expect(settings.environments["dev-004"].deletion_policy).toBeUndefined();
+  });
+
+  it("rejects a deletion_policy outside the enum", () => {
+    expect(() =>
+      parseSettings(
+        "service: svc\nenvironments:\n  dev-004:\n    billing_account_id: X\n    deletion_policy: NUKE\n",
+      ),
+    ).toThrow();
+  });
 });
 
 describe("status / labels defaults", () => {
