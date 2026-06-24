@@ -54,6 +54,14 @@ describe("buildTemplateFiles", () => {
     expect(main).toContain("each.value.tfc_workspace_name");
   });
 
+  // deletion_policy は未指定 env でも安全側 PREVENT に倒すため lookup default 付き。
+  it("wires deletion_policy with a PREVENT default lookup", () => {
+    const { "main.tf": main } = buildTemplateFiles();
+    expect(main).toContain(
+      'deletion_policy = lookup(each.value, "deletion_policy", "PREVENT")',
+    );
+  });
+
   it("declares the google provider in versions.tf", () => {
     const { "versions.tf": versions } = buildTemplateFiles();
     expect(versions).toContain('source  = "hashicorp/google"');

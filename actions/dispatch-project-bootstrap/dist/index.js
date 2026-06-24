@@ -30233,6 +30233,7 @@ function buildEnvEntry(args) {
         billing_account_id: args.envConfig.billing_account_id,
         terraform_service_account_id,
         tfc_workspace_name: `${args.service}-${args.env}`,
+        deletion_policy: args.envConfig.deletion_policy ?? "PREVENT",
     };
 }
 
@@ -30368,6 +30369,17 @@ const environmentSchema = zod_1.z.object({
     status: zod_1.z.enum(["active", "inactive"]).default("active"),
     labels: zod_1.z.array(zod_1.z.string()).default([]),
     billing_account_id: zod_1.z.string(),
+    // GCP project の削除ポリシー (project-bootstrap が作る google_project に渡す)。
+    // - PREVENT (既定): terraform destroy 時に project 削除を拒否する安全弁。
+    // - DELETE        : env を environments から外した際に project ごと削除する。
+    // - ABANDON       : project は GCP に残したまま terraform state からのみ外す。
+    // teardown で実際に project を消すには「先に DELETE を適用して state に焼く →
+    // その後 env を撤去して destroy」の 2 段階が必要 (terraform は for_each から
+    // 外れた instance を state 上の deletion_policy で destroy するため、PREVENT の
+    // まま env を消すと "Cannot destroy project as deletion_policy is set to
+    // PREVENT" で失敗する)。詳細は modules/project-bootstrap/variables.tf。
+    // 公開モジュールの安全 floor として既定は PREVENT を維持し、削除は明示 opt-in。
+    deletion_policy: zod_1.z.enum(["PREVENT", "ABANDON", "DELETE"]).optional(),
     firebase_platform: zod_1.z.record(zod_1.z.unknown()).optional(),
 });
 const settingsSchema = zod_1.z.object({
@@ -30430,6 +30442,9 @@ ${VERSION_PLACEHOLDER}
   billing_account_id           = each.value.billing_account_id
   terraform_service_account_id = each.value.terraform_service_account_id
   tfc_workspace_name           = each.value.tfc_workspace_name
+  # settings.yml の env で未指定なら安全側の PREVENT。DELETE を明示した env だけ
+  # teardown 時に project ごと削除できる (module default も PREVENT)。
+  deletion_policy = lookup(each.value, "deletion_policy", "PREVENT")
 
   org_id    = try(jsondecode(var.parent).organization_id, null)
   folder_id = try(jsondecode(var.parent).folder_id, null)

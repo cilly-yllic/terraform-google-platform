@@ -405,7 +405,24 @@ describe("buildEnvEntry", () => {
       billing_account_id: "AAAA",
       terraform_service_account_id: "terraform-svc-prd-001",
       tfc_workspace_name: "svc-prd-001",
+      deletion_policy: "PREVENT",
     });
+  });
+
+  it("defaults deletion_policy to PREVENT (safe floor) when omitted", () => {
+    expect(
+      buildEnvEntry({ service: "svc", env: "prd-001", envConfig }).deletion_policy,
+    ).toBe("PREVENT");
+  });
+
+  it("passes through an explicit deletion_policy (e.g. DELETE for teardown)", () => {
+    expect(
+      buildEnvEntry({
+        service: "svc",
+        env: "dev-004",
+        envConfig: { ...envConfig, deletion_policy: "DELETE" as const },
+      }).deletion_policy,
+    ).toBe("DELETE");
   });
 
   it("throws when terraform SA id would exceed 30 chars", () => {
