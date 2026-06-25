@@ -336,11 +336,24 @@ retained_envs:
 **dev 系を捨てる PR**
 
 ```yaml
-# settings.yml の environments から削除するだけ
-# retained_envs にも書かない
+# 1段目: env は残したまま deletion_policy: DELETE を適用 (state を DELETE に焼く)
+environments:
+  dev-001:
+    status: active
+    labels: [tier:dev]
+    billing_account_id: "..."
+    deletion_policy: DELETE   # ← 既定は PREVENT なので destroy したい env は明示
+    firebase_platform: { ... }
+# 2段目: 上を Action A に適用した後、environments から dev-001 を削除する
+#        (retained_envs にも書かない)
 ```
 
-→ 次回 Action A 実行で GCP project が destroy、Action B 実行で TFC workspace が force-delete される。
+→ **2 段階**: ① `deletion_policy: DELETE` を env 付きで Action A 適用（state が DELETE になる）→ ② env を削除して Action A 実行で GCP project が destroy。Action B 実行で TFC workspace が force-delete される。
+
+> ⚠ いきなり env を消すと、project の `deletion_policy` が既定の `PREVENT` のままなので
+> `Error: Cannot destroy project as deletion_policy is set to PREVENT.` で失敗する。
+> terraform は `for_each` から外れた instance を **state 上の** `deletion_policy` で
+> destroy するため、先に DELETE を焼いておく必要がある。
 
 **prd 系を「もう要らない」にする PR**
 

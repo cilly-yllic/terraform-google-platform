@@ -15,6 +15,7 @@
 #   environments.<env_key>.status             → A & B  (active|inactive, default active)
 #   environments.<env_key>.labels             → A & B  (string[], default [])
 #   environments.<env_key>.billing_account_id → A    (B does not need it)
+#   environments.<env_key>.deletion_policy    → A    (PREVENT|ABANDON|DELETE, default PREVENT)
 #   environments.<env_key>.firebase_platform → B    (A passes through, ignores)
 #
 # Per-environment gating
@@ -40,6 +41,27 @@
 #   and torn down. Recommendation: add production envs to `retained_envs`
 #   the moment they're provisioned, as a safety net against accidental
 #   removal from `environments:`.
+#
+# Per-environment deletion_policy (Action A / project-bootstrap only)
+#   environments.<env_key>.deletion_policy controls how the underlying
+#   google_project is torn down: PREVENT (default) | ABANDON | DELETE.
+#     PREVENT — terraform destroy を拒否する安全弁 (誤削除防止)。既定。
+#     DELETE  — env を `environments:` から外すと project ごと削除する。
+#     ABANDON — project は GCP に残し terraform state からのみ外す。
+#   公開モジュールの安全 floor として未指定は PREVENT。削除は env ごとに
+#   DELETE を明示する opt-in。
+#
+#   ⚠ 実際に project を削除するには 2 段階が必要:
+#     1. env を `environments:` に残したまま `deletion_policy: DELETE` を適用
+#        (Action A Run)。これで state 上の deletion_policy が DELETE になる。
+#     2. env を `environments:` から外す (Action A Run) → destroy が成功する。
+#   terraform は for_each から外れた instance を **state 上の** deletion_policy
+#   で destroy するため、PREVENT のまま env を消すと
+#   "Cannot destroy project as deletion_policy is set to PREVENT" で失敗する。
+#
+#   retained_envs との関係: `retained_envs` が deletion_policy より優先。
+#   retained_envs に挙げた env は `removed { destroy = false }` で state 除外のみ
+#   となり (destroy を呼ばない)、deletion_policy が DELETE でも project は残る。
 #
 # firebase_platform.apps / hosting / app_hosting (array スキーマ)
 #   いずれも複数 entry を 1 project 内に登録できる array 型。
@@ -328,6 +350,10 @@ environments:
       - tier:dev
       - region:apne1
     billing_account_id: "BBBBBB-BBBBBB-BBBBBB"
+    # deletion_policy: 未指定なら PREVENT (安全側) で従来どおり。使い捨ての dev
+    # 環境を「environments: から外したら project ごと消す」運用にしたいときだけ
+    # DELETE を明示する (上の解説どおり実削除は 2 段階)。本番系には付けないこと。
+    deletion_policy: DELETE
     firebase_platform: *dev_firebase
 
   dev-002:
