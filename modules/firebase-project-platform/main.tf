@@ -367,24 +367,69 @@ resource "google_project_service" "this" {
 }
 
 # ---------------------------------------------------------------------------
-# API 有効化の伝播待ち
+# API 有効化の浸透待ち (実 readiness ポーリング)
 #
 # google_project_service は有効化リクエストが受理された時点で完了扱いになるが、
 # firebase.googleapis.com 等は実際に使えるようになるまで GCP 側で数分の伝播遅延が
 # ある。直後に Firebase Management API を叩く google_firebase_project が走ると
 # 403 SERVICE_DISABLED ("...has not been used... or it is disabled") になる race を
-# 起こすため、ここで待ってから Firebase 系リソースを作る。
+# 起こす。
+#
+# 旧実装は固定 60s の time_sleep だったが「待ちすぎ / 待り足りず race」のどちらにも
+# なりうるため、Firebase Management API を直接ポーリングして「浸透完了」を実判定する:
+#   - HTTP 403 (SERVICE_DISABLED) の間  → まだ浸透していないので待機
+#   - HTTP 200 (既に firebase 化済み)    → 疎通 OK = 浸透完了
+#   - HTTP 404 (API 疎通 OK・未 firebase 化) → 疎通 OK = 浸透完了
+# 準備でき次第すぐ進む。バックオフは 5→15→30→40→60→90→120s (合計 ~360s/6分)。
+# 全間隔を待っても浸透しなければ exit 1 で apply を明示的に fail させる。
+#
+# token は run SA (TFC dynamic credentials) の短命アクセストークン。ログ露出を
+# 避けるため command 文字列ではなく environment 経由で渡す。
+# 実行は TFC worker 上 (bash / curl / googleapis.com への egress が前提)。
 # 関連: modules/firebase/main.tf (google_firebase_project)
 # firebase / apps を作らない構成では不要なので count で抑止する。
 # ---------------------------------------------------------------------------
 
-resource "time_sleep" "api_propagation" {
-  count           = local.enable_firebase || local.enable_apps ? 1 : 0
-  create_duration = "60s"
+data "google_client_config" "current" {}
 
-  # API セットが変わった時だけ待ち直す (毎 apply で待たせない)
-  triggers = {
+resource "terraform_data" "wait_firebase_ready" {
+  count = local.enable_firebase || local.enable_apps ? 1 : 0
+
+  # API セットが変わった時だけ待ち直す (毎 apply では走らせない)
+  triggers_replace = {
     apis = join(",", local.all_apis)
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    environment = {
+      TOKEN      = data.google_client_config.current.access_token
+      PROJECT_ID = var.project_id
+    }
+    command = <<-EOT
+      check() {
+        curl -s -o /dev/null -w '%%{http_code}' \
+          -H "Authorization: Bearer $TOKEN" \
+          "https://firebase.googleapis.com/v1beta1/projects/$PROJECT_ID"
+      }
+      # 浸透判定: 200(firebase化済) / 404(API疎通OK・未firebase化) を OK、
+      #          403(SERVICE_DISABLED) や他は未浸透として次のバックオフへ。
+      ready() { case "$1" in 200|404) return 0 ;; *) return 1 ;; esac; }
+
+      code=$(check)
+      if ready "$code"; then echo "firebase API propagated (HTTP $code)"; exit 0; fi
+
+      # バックオフ間隔 (秒): 5 -> 15 -> 30 -> 40 -> 60 -> 90 -> 120 (合計 ~360s)。
+      # 全て待っても浸透しなければ exit 1 で apply を明示的に失敗させる。
+      for d in 5 15 30 40 60 90 120; do
+        echo "firebase API not ready (HTTP $code); waiting $d sec..."
+        sleep "$d"
+        code=$(check)
+        if ready "$code"; then echo "firebase API propagated (HTTP $code)"; exit 0; fi
+      done
+      echo "firebase API did not propagate within backoff schedule (last HTTP $code, project=$PROJECT_ID)" >&2
+      exit 1
+    EOT
   }
 
   depends_on = [google_project_service.this]
@@ -409,10 +454,10 @@ module "firebase" {
   source  = "./modules/firebase"
   project = var.project_id
 
-  # API 伝播待ちを挟む (time_sleep.api_propagation 参照)。大半の Firebase 系
-  # サブモジュールは module.firebase に depends_on しているので、ここを待たせれば
-  # 連鎖的に伝播 race を防げる。
-  depends_on = [google_project_service.this, time_sleep.api_propagation]
+  # API 浸透ポーリングを挟む (terraform_data.wait_firebase_ready 参照)。大半の
+  # Firebase 系サブモジュールは module.firebase に depends_on しているので、ここを
+  # 待たせれば連鎖的に伝播 race を防げる。
+  depends_on = [google_project_service.this, terraform_data.wait_firebase_ready]
 }
 
 # ---------------------------------------------------------------------------
@@ -497,8 +542,8 @@ module "apps_web" {
   display_name = each.value.display_name
 
   # firebase=false で apps だけ作る構成 (module.firebase が count 0) でも
-  # API 伝播 race を防ぐため time_sleep を直接待つ。
-  depends_on = [google_project_service.this, module.firebase, time_sleep.api_propagation]
+  # API 伝播 race を防ぐため浸透ポーリングを直接待つ。
+  depends_on = [google_project_service.this, module.firebase, terraform_data.wait_firebase_ready]
 }
 
 module "apps_ios" {
@@ -511,7 +556,7 @@ module "apps_ios" {
   app_store_id = each.value.app_store_id
   team_id      = each.value.team_id
 
-  depends_on = [google_project_service.this, module.firebase, time_sleep.api_propagation]
+  depends_on = [google_project_service.this, module.firebase, terraform_data.wait_firebase_ready]
 }
 
 module "apps_android" {
@@ -524,7 +569,7 @@ module "apps_android" {
   sha1_hashes   = each.value.sha1_hashes
   sha256_hashes = each.value.sha256_hashes
 
-  depends_on = [google_project_service.this, module.firebase, time_sleep.api_propagation]
+  depends_on = [google_project_service.this, module.firebase, terraform_data.wait_firebase_ready]
 }
 
 # apps 全体の name uniqueness を plan-time で validate (type 跨いで重複は許さない)。
