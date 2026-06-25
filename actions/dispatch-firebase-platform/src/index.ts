@@ -34,6 +34,7 @@ import {
   deriveEnvFromWorkspaceName,
   parseNotifications,
   NOTIFICATION_NAME_PREFIX,
+  resolveProjectPropagationWaitMs,
 } from "../lib/dispatch/index.js";
 import { buildTemplateFiles } from "../lib/templates/index.js";
 import { resolveModuleVersion } from "../lib/registry/index.js";
@@ -66,6 +67,9 @@ async function run(): Promise<void> {
     const webhookSecret = core.getInput("cloud_run_webhook_secret");
     const moduleVersion = core.getInput("module_version");
     const labelsInput = core.getInput("labels");
+    const projectPropagationWaitSeconds = Number(
+      core.getInput("project_propagation_wait_seconds") || "60",
+    );
 
     core.setSecret(tfcToken);
     if (webhookSecret) core.setSecret(webhookSecret);
@@ -112,6 +116,36 @@ async function run(): Promise<void> {
       core.info(`Target envs: ${targets.join(", ")}`);
     } else {
       core.info("No envs matched the filters.");
+    }
+
+    // -----------------------------------------------------------------------
+    // 3b. Project propagation pre-run wait (chained-from-A only)
+    //
+    // repository_dispatch = Cloud Run Router 経由で Action A の applied 直後に
+    // 起動されたケース。A が作ったばかりの project / SA / IAM / billing が GCP 側で
+    // 伝播する前に terraform run が走ると、run の最初の操作 (google_project_service
+    // の有効化 / run SA への WIF impersonation 認証) が project-not-ready /
+    // permission で落ちる。chain 起動時だけ run 作成の前に sleep して伝播を待つ
+    // (手動 workflow_dispatch は project 既存前提なので待たない)。
+    // 判定は副作用なしの resolveProjectPropagationWaitMs に集約 (テスト可能)。
+    // -----------------------------------------------------------------------
+    const eventName = process.env["GITHUB_EVENT_NAME"] ?? "";
+    const propagationWaitMs = resolveProjectPropagationWaitMs({
+      eventName,
+      waitSeconds: projectPropagationWaitSeconds,
+      hasTargets: targets.length > 0,
+    });
+    if (propagationWaitMs > 0) {
+      core.info(
+        `Chained from Action A (${eventName}); waiting ${Math.round(
+          propagationWaitMs / 1000,
+        )}s for project/IAM/billing propagation before creating TFC runs`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, propagationWaitMs));
+    } else if (targets.length > 0) {
+      core.info(
+        `Trigger=${eventName || "(none)"}; skipping project propagation wait`,
+      );
     }
 
     // -----------------------------------------------------------------------
