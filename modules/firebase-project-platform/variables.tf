@@ -29,6 +29,17 @@ variable "billing_account" {
   default     = ""
 }
 
+variable "firebase_api_propagation_wait" {
+  description = "Wait duration (Go duration string, e.g. \"120s\") inserted after API enablement before creating Firebase resources, to avoid SERVICE_DISABLED propagation races. Only applied once per API-set change (time_sleep with triggers). Tune up if 403 SERVICE_DISABLED still occurs."
+  type        = string
+  default     = "120s"
+
+  validation {
+    condition     = can(regex("^[0-9]+(s|m|h)$", var.firebase_api_propagation_wait))
+    error_message = "firebase_api_propagation_wait must be a Go duration string like \"120s\", \"3m\", or \"1h\"."
+  }
+}
+
 # ---------------------------------------------------------------------------
 # Feature configuration
 #

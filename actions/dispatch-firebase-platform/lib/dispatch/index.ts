@@ -794,3 +794,36 @@ export function deriveEnvFromWorkspaceName(
 export function buildMarkerTag(service: string): string {
   return `firebase-platform-${service}`;
 }
+
+// ---------------------------------------------------------------------------
+// Project propagation pre-run wait (chained-from-A only)
+// ---------------------------------------------------------------------------
+
+// repository_dispatch = Cloud Run Router 経由で Action A (project-bootstrap) の
+// applied 直後に起動されたケース。A が作ったばかりの project / SA / IAM / billing
+// が GCP 側で伝播しきる前に terraform run が走ると、run の最初の操作
+// (google_project_service の有効化や run SA への WIF impersonation 認証) が
+// project-not-ready / permission で落ちる race がある。chain 起動時だけ run 作成の
+// 前に sleep を挟んで伝播を待つ。
+//
+// workflow_dispatch (手動 console 実行) は project 既存前提なので待たない。
+// dispatch 先に GCP 作用が無い (= 作る run が 0 件) なら待っても無意味なので待たない。
+export const PROPAGATION_WAIT_EVENT = "repository_dispatch";
+
+/**
+ * pre-run sleep の待機ミリ秒を決める純関数 (副作用なし → テスト可能)。
+ *   - hasTargets が false (作る run 0 件) → 0
+ *   - eventName が repository_dispatch 以外 (手動等) → 0
+ *   - waitSeconds が 0 以下 / 非数 → 0
+ * それ以外は waitSeconds * 1000 を返す。
+ */
+export function resolveProjectPropagationWaitMs(args: {
+  eventName: string;
+  waitSeconds: number;
+  hasTargets: boolean;
+}): number {
+  if (!args.hasTargets) return 0;
+  if (args.eventName !== PROPAGATION_WAIT_EVENT) return 0;
+  if (!Number.isFinite(args.waitSeconds) || args.waitSeconds <= 0) return 0;
+  return Math.floor(args.waitSeconds * 1000);
+}
