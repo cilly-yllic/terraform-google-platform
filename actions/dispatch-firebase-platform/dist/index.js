@@ -41225,6 +41225,35 @@ function deriveEnvFromWorkspaceName(workspaceName, pattern, service) {
 function buildMarkerTag(service) {
     return `firebase-platform-${service}`;
 }
+// ---------------------------------------------------------------------------
+// Project propagation pre-run wait (chained-from-A only)
+// ---------------------------------------------------------------------------
+// repository_dispatch = Cloud Run Router 経由で Action A (project-bootstrap) の
+// applied 直後に起動されたケース。A が作ったばかりの project / SA / IAM / billing
+// が GCP 側で伝播しきる前に terraform run が走ると、run の最初の操作
+// (google_project_service の有効化や run SA への WIF impersonation 認証) が
+// project-not-ready / permission で落ちる race がある。chain 起動時だけ run 作成の
+// 前に sleep を挟んで伝播を待つ。
+//
+// workflow_dispatch (手動 console 実行) は project 既存前提なので待たない。
+// dispatch 先に GCP 作用が無い (= 作る run が 0 件) なら待っても無意味なので待たない。
+const PROPAGATION_WAIT_EVENT = "repository_dispatch";
+/**
+ * pre-run sleep の待機ミリ秒を決める純関数 (副作用なし → テスト可能)。
+ *   - hasTargets が false (作る run 0 件) → 0
+ *   - eventName が repository_dispatch 以外 (手動等) → 0
+ *   - waitSeconds が 0 以下 / 非数 → 0
+ * それ以外は waitSeconds * 1000 を返す。
+ */
+function resolveProjectPropagationWaitMs(args) {
+    if (!args.hasTargets)
+        return 0;
+    if (args.eventName !== PROPAGATION_WAIT_EVENT)
+        return 0;
+    if (!Number.isFinite(args.waitSeconds) || args.waitSeconds <= 0)
+        return 0;
+    return Math.floor(args.waitSeconds * 1000);
+}
 
 ;// CONCATENATED MODULE: ./lib/templates/index.ts
 const VERSION_PLACEHOLDER = "##MODULE_VERSION_LINE##";
@@ -41618,6 +41647,7 @@ async function run() {
         const webhookSecret = core.getInput("cloud_run_webhook_secret");
         const moduleVersion = core.getInput("module_version");
         const labelsInput = core.getInput("labels");
+        const projectPropagationWaitSeconds = Number(core.getInput("project_propagation_wait_seconds") || "60");
         core.setSecret(tfcToken);
         if (webhookSecret)
             core.setSecret(webhookSecret);
@@ -41660,6 +41690,30 @@ async function run() {
         }
         else {
             core.info("No envs matched the filters.");
+        }
+        // -----------------------------------------------------------------------
+        // 3b. Project propagation pre-run wait (chained-from-A only)
+        //
+        // repository_dispatch = Cloud Run Router 経由で Action A の applied 直後に
+        // 起動されたケース。A が作ったばかりの project / SA / IAM / billing が GCP 側で
+        // 伝播する前に terraform run が走ると、run の最初の操作 (google_project_service
+        // の有効化 / run SA への WIF impersonation 認証) が project-not-ready /
+        // permission で落ちる。chain 起動時だけ run 作成の前に sleep して伝播を待つ
+        // (手動 workflow_dispatch は project 既存前提なので待たない)。
+        // 判定は副作用なしの resolveProjectPropagationWaitMs に集約 (テスト可能)。
+        // -----------------------------------------------------------------------
+        const eventName = process.env["GITHUB_EVENT_NAME"] ?? "";
+        const propagationWaitMs = resolveProjectPropagationWaitMs({
+            eventName,
+            waitSeconds: projectPropagationWaitSeconds,
+            hasTargets: targets.length > 0,
+        });
+        if (propagationWaitMs > 0) {
+            core.info(`Chained from Action A (${eventName}); waiting ${Math.round(propagationWaitMs / 1000)}s for project/IAM/billing propagation before creating TFC runs`);
+            await new Promise((resolve) => setTimeout(resolve, propagationWaitMs));
+        }
+        else if (targets.length > 0) {
+            core.info(`Trigger=${eventName || "(none)"}; skipping project propagation wait`);
         }
         // -----------------------------------------------------------------------
         // 4. Resolve module version (auto-fetch latest from Terraform Registry
