@@ -271,11 +271,12 @@ If a feature is later disabled, Terraform destroys things normally (the API itse
 - `terraform >= 1.10.0`
 - `hashicorp/google` `>= 6.0, < 8.0`
 - `hashicorp/google-beta` `>= 6.0, < 8.0`
+- `hashicorp/time` `>= 0.9`
 
-`google-beta` is used only for Firebase-related resources (`google_firebase_*`). API-enablement propagation is handled by `terraform_data.wait_firebase_ready` (built-in, no extra provider): it polls the Firebase Management API with the run SA token (`local-exec` curl loop) and proceeds as soon as it stops returning `403 SERVICE_DISABLED` (200/404 = propagated), instead of a fixed sleep. Backoff schedule is `5 → 15 → 30 → 40 → 60 → 90 → 120s` (~6 min total); if it never propagates within that, the provisioner exits non-zero and the apply fails loudly. Runs on the TFC worker (requires `bash`/`curl` + egress to `googleapis.com`).
+`google-beta` is used only for Firebase-related resources (`google_firebase_*`). `time` is used for `time_sleep.api_propagation`, which waits `var.firebase_api_propagation_wait` (default `120s`) after API enablement before creating Firebase resources to avoid `SERVICE_DISABLED` propagation races. The wait only runs once per API-set change (`time_sleep` with `triggers`), and is tunable via `firebase_api_propagation_wait`. (A real Firebase Management API readiness poll was considered but `data.google_client_config` cannot mint a bearer token under TFC dynamic-credentials SA impersonation — `iam.serviceAccounts.getAccessToken` 403 — so a fixed, auth-free wait is used.)
 
 <details><summary>Ja</summary>
 
-`google-beta` は Firebase 関連リソース (`google_firebase_*`) でのみ利用している。API 有効化の浸透待ちは `terraform_data.wait_firebase_ready`（built-in、追加 provider 不要）が担当 — run SA のトークンで Firebase Management API を `local-exec` の curl でポーリングし、`403 SERVICE_DISABLED` が消え次第（200/404 = 浸透完了）進む。固定 sleep と違い待ちすぎず race も防ぐ。TFC worker 上で実行（`bash`/`curl` と `googleapis.com` への egress が前提）。
+`google-beta` は Firebase 関連リソース (`google_firebase_*`) でのみ利用している。`time` は `time_sleep.api_propagation` 用 — API 有効化後に `var.firebase_api_propagation_wait`（既定 `120s`）待ってから Firebase リソースを作り、`SERVICE_DISABLED` の伝播 race を避ける。待ちは API セット変更時のみ 1 回（`time_sleep` の `triggers`）で、`firebase_api_propagation_wait` で可変。（Firebase Management API を直接ポーリングする案も検討したが、TFC dynamic credentials の SA impersonation 下では `data.google_client_config` が bearer token を取得できず〔`iam.serviceAccounts.getAccessToken` 403〕成立しないため、auth 非依存の固定待ちにしている。）
 
 </details>

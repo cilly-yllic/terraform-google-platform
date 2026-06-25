@@ -87,6 +87,17 @@ inputs:
       input is required).
     required: false
     default: ""
+  project_propagation_wait_seconds:
+    description: >
+      Seconds to sleep before creating any TFC Run, but ONLY when this Action was
+      chained from Action A (project-bootstrap) via repository_dispatch. Gives the
+      just-created project / SA / IAM / billing time to propagate in GCP, so the
+      run's first operations (google_project_service, WIF impersonation) don't fail
+      with project-not-ready / permission errors. On manual workflow_dispatch the
+      project already exists, so the wait is skipped regardless of this value.
+      Set to "0" to disable entirely.
+    required: false
+    default: "60"
 
 outputs:
   applied_envs:
