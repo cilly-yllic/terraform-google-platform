@@ -94,6 +94,10 @@ environments:
       - tier:dev
       - region:apne1
     billing_account_id: "BBBB-BBBB-BBBB"
+    # deletion_policy: PREVENT(既定) | ABANDON | DELETE。env を environments: から
+    # 外したときの google_project の扱い。省略時は PREVENT(誤削除防止の安全弁)。
+    # 使い捨て dev 環境を project ごと消したいときだけ DELETE を明示する。
+    deletion_policy: DELETE
 ```
 
 完全なサンプル: [`examples/settings.yml`](../../examples/settings.yml)
@@ -119,8 +123,27 @@ environments:
 | ✅ | ✅ | — | 通常運用（誤削除に対する安全網として `retained_envs` が dormant 待機） |
 | ❌ | ✅ | ✅ | **state からだけ外す**（`removed { destroy = false }` 生成、GCP は残る） |
 | ❌ | ✅ | ❌ | no-op |
-| ❌ | ❌ | ✅ | **destroy**（`environments` map から消えて Terraform が `for_each` 差分で destroy） |
+| ❌ | ❌ | ✅ | **destroy**（`environments` map から消えて Terraform が `for_each` 差分で destroy。ただし state 上の `deletion_policy` が `PREVENT` だと destroy は拒否される → 下記参照） |
 | ❌ | ❌ | ❌ | no-op |
+
+## deletion_policy（project の削除ポリシー）
+
+`environments.<env>.deletion_policy` は `google_project` の削除挙動を制御する。`PREVENT`(既定) / `ABANDON` / `DELETE`。公開モジュールの安全 floor として未指定は `PREVENT`（= 既存 settings.yml は従来どおり、誤って project が消えることはない）。
+
+| 値 | destroy 時の挙動 |
+|---|---|
+| `PREVENT`（既定） | terraform が project 削除を拒否（誤削除防止の安全弁） |
+| `DELETE` | env を `environments:` から外すと project ごと削除 |
+| `ABANDON` | project は GCP に残し terraform state からのみ外す |
+
+⚠ **実削除は 2 段階が必須**。terraform は `for_each` から外れた instance を **state 上の** `deletion_policy` で destroy するため:
+
+1. env を `environments:` に**残したまま** `deletion_policy: DELETE` を適用（Run）→ state が DELETE になる
+2. env を `environments:` から外す（Run）→ destroy 成功
+
+`PREVENT` のまま env をいきなり外すと `Error: Cannot destroy project as deletion_policy is set to PREVENT.` で失敗する。
+
+**`retained_envs` との優先順位**: `retained_envs` が `deletion_policy` より強い。`retained_envs` に挙げた env は `removed { destroy = false }`（state 除外のみ・destroy を呼ばない）になるため、`deletion_policy: DELETE` でも project は残る（上のケース表 3 行目）。
 
 ## Notes
 
