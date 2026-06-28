@@ -166,8 +166,12 @@ Identity Platform configuration.
 |-------|------|---------|-------------|
 | `blocking_functions.before_create` | `string` | `""` | Cloud Function URI for the `beforeCreate` Identity Platform trigger |
 | `blocking_functions.before_sign_in` | `string` | `""` | Cloud Function URI for the `beforeSignIn` Identity Platform trigger |
+| `authorized_domains.include_defaults` | `bool` | `true` | OAuth 許可ドメインに `<project>.firebaseapp.com` + `<project>.web.app` を含めるか |
+| `authorized_domains.include_localhost` | `bool` | `true` | OAuth 許可ドメインに `localhost` を含めるか。stg/prd では `false` 推奨 |
 
 Providing just `{}` (= equivalent to defaults) is enough to create the Identity Platform config.
+
+**Authorized domains（OAuth リダイレクト許可ドメイン）**: ドメイン名そのものは `authentication` には書かない。`hosting[]` / `app_hosting[]` の `custom_domains` で `authorized_domain: true` にしたものが自動集約される（二重記述の回避）。`authentication.authorized_domains` は default の取り扱い（`include_defaults` / `include_localhost`）だけを制御する。`authorized_domains` ブロックを明示する、または `authorized_domain: true` の custom domain が 1 つでもあると、`authorized_domains` は terraform が **authoritative に全置換**して管理する（どちらも無ければ attribute を触らず Firebase デフォルトを温存）。
 
 <details><summary>Ja</summary>
 
@@ -175,8 +179,12 @@ Identity Platform 設定。
 
 - `blocking_functions.before_create` (string, default `""`): Cloud Function URI (Identity Platform `beforeCreate` トリガー)
 - `blocking_functions.before_sign_in` (string, default `""`): Cloud Function URI (Identity Platform `beforeSignIn` トリガー)
+- `authorized_domains.include_defaults` (bool, default `true`): `<project>.firebaseapp.com` + `<project>.web.app` を含めるか
+- `authorized_domains.include_localhost` (bool, default `true`): `localhost` を含めるか（stg/prd で `false` にして塞ぐ）
 
 `{}` のみ指定 (=デフォルト相当) で Identity Platform config が作成される。
+
+許可ドメインは `hosting[]` / `app_hosting[]` の `custom_domains`（`authorized_domain: true`）から集約される。env で localhost を判定するプロパティはモジュールに無いため、`include_localhost: false` を明示して制御する。
 
 </details>
 
@@ -276,10 +284,14 @@ List of Firebase Hosting sites.
 | `site_id` | `string` | (required) | Globally unique site ID (URL は `<site_id>.web.app`)。verbatim で扱う。`auto_prefix=true` の時のみ `{project_id}-{site_id}` に組み立てる |
 | `auto_prefix` | `bool` | `false` | `true` で `{project_id}-{site_id}` を最終的な site ID として使う (短い base name で衝突回避したい場合用) |
 | `app` | `string` | (type=web の app が 1 件のみ時に省略可) | 紐付ける `apps[].name`。**type=web のみ参照可**。複数 / 0 件で省略 / 存在しない名前 / 非 web type を指定 = plan-time error |
+| `custom_domains` | `list(string \| object)` | `[]` | 独自ドメイン。要素は文字列 `"example.com"` か `{ domain, authorized_domain }`。空なら作らない。DNS 登録は別レイヤ前提（`wait_dns_verification = false`、必要レコードは output 参照） |
+| `authorized_domain` | `bool` | `false` | `true` でこの entry の `custom_domains` を**全て** Firebase Auth の `authorized_domains` にも登録。個別に絞るなら `custom_domains` の object 形式で per-domain に指定 |
 
 <details><summary>Ja</summary>
 
 複数 Hosting site を登録できる list。`app` 省略時、type=web の `apps` が 1 件しかなければ自動 link、複数 / 0 件あるなら plan-time error。
+
+`custom_domains` は文字列と `{ domain, authorized_domain }` を混在できる。`authorized_domain: true`（entry 一括 or per-domain）にしたドメインは Firebase Auth の OAuth 許可ドメインにも自動登録される。
 
 </details>
 
@@ -295,6 +307,8 @@ List of Firebase App Hosting backends.
 | `app_id` | `string` | (省略可) | 外部 Web App を pin したい場合のみ指定。`app` と排他 (両方書くと plan-time error) |
 | `service_account` | `string` | (auto-created) | Compute SA email。Empty なら project 共有の `firebase-app-hosting-compute` SA を 1 つだけ自動作成して全 backend で共有 |
 | `serving_locality` | `string` | `"GLOBAL_ACCESS"` | `GLOBAL_ACCESS` / `REGION_LOCKED` |
+| `custom_domains` | `list(string \| object)` | `[]` | 独自ドメイン。hosting と同じく文字列か `{ domain, authorized_domain }`。空なら作らない。DNS 登録は別レイヤ前提 |
+| `authorized_domain` | `bool` | `false` | `true` でこの entry の `custom_domains` を全て Firebase Auth の `authorized_domains` にも登録 |
 
 <details><summary>Ja</summary>
 
@@ -482,9 +496,10 @@ roles は機能 on/off から自動決定される。詳細は [service-accounts
 |-------|------|---------|-------------|
 | `account_id` | `string` | (required) | SA ID |
 | `display_name` | `string` | Same as `account_id` | display name |
-| `type` | `string` | (required) | Currently only `"deploy"` |
+| `type` | `string` | (required) | `"deploy"` で `args` の sugar role を有効化。それ以外 (例 `"reader"`) は `roles` だけを付与 |
 | `roles` | `list(string)` | `[]` | Additional explicit roles |
 | `args` | `object` | `{}` | Feature flags for `type = "deploy"` (see below) |
+| `wif` | `object \| null` | `null` | 外部 CI から keyless impersonate する場合の WIF principalSet binding。`{ pool_resource_name, principals[{ attribute, value }] }`（`ci_service_account.wif` と同形式）。deploy SA に強権限を集約せず read-only SA を切るユースケース向け |
 
 `args` fields for `type = "deploy"`:
 
@@ -498,10 +513,39 @@ roles は機能 on/off から自動決定される。詳細は [service-accounts
 | `tasks` | `roles/cloudtasks.queueAdmin` |
 | `blocking` | `roles/firebaseauth.admin` |
 
-All SAs get `roles/runtimeconfig.admin` in common.
+`type = "deploy"` の SA には共通で `roles/runtimeconfig.admin` が付与される（非 deploy の SA は `roles` に書いたものだけ）。
+
+**Read-only SA + WIF の例**（deploy SA に強権限を集約せず、project repo の GitHub Actions から Firebase Hosting / App Hosting の custom domain 設定を読んで Cloudflare DNS を同期する用途）:
+
+```yaml
+service_accounts:
+  - account_id: dns-reader
+    type: reader                       # deploy 以外 → args sugar 無し、roles だけ付与
+    roles:
+      - roles/firebasehosting.viewer      # Hosting site / custom domain (requiredDnsUpdates) 読取
+      - roles/firebaseapphosting.viewer   # App Hosting backend / domain 読取
+    wif:
+      # ⚠ Pool まで。末尾に /providers/... は付けない (provider フルパスは GitHub
+      #   Actions 側の workload_identity_provider に使う)。
+      pool_resource_name: "projects/${BOOTSTRAP_PROJECT_NUMBER}/locations/global/workloadIdentityPools/terraform-cloud"
+      principals:
+        - { attribute: repository, value: my-org/my-service }
+```
+
+作成された SA email は output `service_account_emails["dns-reader"]`、WIF binding は `service_account_wif_members` で確認できる。
+
+GitHub Actions 側ではこの SA を **provider フルパス**で impersonate する（pool パスとは別物）:
+
+```yaml
+# project repo の .github/workflows/*.yml
+- uses: google-github-actions/auth@v2
+  with:
+    workload_identity_provider: projects/${{ vars.BOOTSTRAP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/terraform-cloud/providers/github-actions
+    service_account: dns-reader@<project-id>.iam.gserviceaccount.com
+```
 
 <details><summary>Ja</summary>
 
-全 SA に共通で `roles/runtimeconfig.admin` が付与される。
+`type = "deploy"` の SA にのみ共通で `roles/runtimeconfig.admin` が付与される。read-only SA を切って WIF で project repo から impersonate させ、custom domain の DNS 要件を読み取って Cloudflare 等に同期する構成が可能（上記 example 参照）。
 
 </details>
