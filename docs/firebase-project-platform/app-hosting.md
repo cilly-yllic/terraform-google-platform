@@ -66,6 +66,12 @@ firebase_platform:
       location: asia-east1
       app: task-tree-web-app          # 紐付ける web app (複数 web app があるため明示)
       # service_account / serving_locality は任意 (default: 共有 compute SA / GLOBAL_ACCESS)
+      # 独自ドメイン (任意)。文字列 or { domain, authorized_domain } の混在可。
+      custom_domains:
+        - app.example.com
+      # authorized_domain: true で custom_domains を Firebase Auth の
+      # authorized_domains にも登録 (OAuth リダイレクト許可)。既定 false。
+      authorized_domain: true
 ```
 
 `app_hosting` を指定すると terraform が:
@@ -73,8 +79,16 @@ firebase_platform:
 - `firebase-app-hosting-compute` SA + `roles/firebaseapphosting.computeRunner`
 - API: `firebaseapphosting` / `run` / `cloudbuild` / `artifactregistry`
 - CI SA (`ci_service_account`) に `firebaseapphosting.admin` + `iam.serviceAccountUser` + `iam.serviceAccountCreator` + `resourcemanager.projectIamAdmin`
+- `custom_domains` 指定時は `google_firebase_app_hosting_domain`（ドメイン登録）
 
 を作成する。
+
+> **Custom domain の DNS**: terraform はドメインを登録し、必要な DNS レコード
+> (TXT 所有権確認 + serving 用) を
+> `output.app_hosting_backends[].custom_domains[].required_dns_updates` に出力するだけ。
+> 実際の DNS レコード登録は別レイヤ (Cloud DNS / 手動など) で行う前提。
+> `authorized_domain: true` にしたドメインは Firebase Auth の `authorized_domains` にも
+> 集約登録される (詳細は [variables-reference.md `authentication`](./variables-reference.md#authentication))。
 
 ## Runtime IAM（compute SA に追加権限を付与）
 

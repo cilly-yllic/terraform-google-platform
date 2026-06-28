@@ -37,3 +37,8 @@ output "service_account_roles" {
   description = "IAM roles assigned to each service account."
   value       = local.sa_computed_roles
 }
+
+output "service_account_wif_members" {
+  description = "WIF principalSet members bound to manual service accounts (keyed by binding id; empty when no SA configures wif)."
+  value       = { for k, v in google_service_account_iam_member.sa_wif : k => v.member }
+}
