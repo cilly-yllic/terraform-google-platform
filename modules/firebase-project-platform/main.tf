@@ -284,9 +284,15 @@ locals {
       "run.googleapis.com",
       "cloudbuild.googleapis.com",
       "artifactregistry.googleapis.com",
-      # App Hosting は GitHub ソース接続に Developer Connect を使う。未有効だと
-      # firebase deploy が enable しようとするが CI SA に serviceusage.services.enable
-      # が無く "Permissions denied enabling developerconnect.googleapis.com" で失敗する。
+      # App Hosting deploy は git 連携の有無に関わらず Developer Connect を要求する
+      # (bare backend + local source の `firebase deploy --only apphosting` でも必須)。
+      # 未有効だと firebase deploy が自前で enable しようとするが、CI SA には
+      # serviceusage.services.enable を渡さない方針なので
+      # "Permissions denied enabling developerconnect.googleapis.com" で失敗する。
+      # → terraform で事前有効化する。
+      # ⚠ #92 で「git 連携用だから不要」と誤って削除し、rc9 以降に新規作成した
+      #   プロジェクトの App Hosting deploy が上記エラーで落ちるリグレッションを起こした。
+      #   git 連携と無関係に必須なので絶対に外さないこと。
       "developerconnect.googleapis.com",
     ] : [],
     local.enable_data_connect ? [
