@@ -131,7 +131,9 @@ output "app_hosting_backends" {
       # 公開 output のキーは resource_name のまま維持する。
       resource_name = mod.name
       uri           = mod.uri
-      # 各 custom domain の required_dns_updates (別 DNS レイヤで登録する用)。
+      # 各 custom domain の custom_domain_status (nested に required_dns_updates を含む。
+      # 別 DNS レイヤで登録する用)。hosting (classic) と違い top-level の
+      # required_dns_updates は無いので custom_domain_status をそのまま公開する。
       custom_domains = mod.custom_domains
     }
   }
