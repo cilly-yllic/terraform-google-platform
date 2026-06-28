@@ -37,7 +37,7 @@ submodule は backend リソースのみを作る。共有 compute Service Accou
 |------|-------------|
 | `name` | App Hosting backend resource name |
 | `uri` | Backend URI |
-| `custom_domains` | Map keyed by domain; each holds `required_dns_updates` for the external DNS layer |
+| `custom_domains` | Map keyed by domain; each holds `custom_domain_status` (cert/host/ownership state + nested `required_dns_updates`) for the external DNS layer |
 
 ## Related APIs
 
@@ -55,13 +55,13 @@ Called when `var.app_hosting != null`.
 - Source repository integration (set via Console)
 - App Hosting rollout policy
 - Build configuration (`apphosting.yaml`)
-- DNS record registration for custom domains (only the domain is registered here; `required_dns_updates` is emitted for the external DNS layer)
+- DNS record registration for custom domains (only the domain is registered here; `custom_domain_status` — with nested `required_dns_updates` — is emitted for the external DNS layer)
 
 <details><summary>Ja</summary>
 
 - ソースリポジトリ連携 (Console 側で設定)
 - App Hosting rollout policy
 - ビルド設定 (`apphosting.yaml`)
-- カスタムドメインの DNS レコード登録 (ここではドメイン登録のみ。`required_dns_updates` を別 DNS レイヤ用に出力)
+- カスタムドメインの DNS レコード登録 (ここではドメイン登録のみ。`custom_domain_status` (nested に `required_dns_updates` を含む) を別 DNS レイヤ用に出力)
 
 </details>
