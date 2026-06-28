@@ -136,3 +136,35 @@ resource "google_project_iam_member" "service_account_role" {
   role     = each.value.role
   member   = "serviceAccount:${google_service_account.this[each.value.account_id].email}"
 }
+
+# ---------------------------------------------------------------------------
+# Manual SA – optional WIF principalSet bindings
+#
+# ci_service_account と同じく、外部 CI (GitHub Actions OIDC 等) から
+# roles/iam.workloadIdentityUser でこの SA を keyless impersonate させるための
+# binding。read-only SA (例: firebasehosting.viewer) を project repo の Actions に
+# 渡して DNS 同期させる等のユースケース向け (deploy SA に強権限を集約しない)。
+# for_each キーは "{account_id}/{attribute}/{value}" で安定化・自動 dedup。
+# ---------------------------------------------------------------------------
+locals {
+  sa_wif_bindings = {
+    for b in flatten([
+      for sa in var.service_accounts : [
+        for p in try(sa.wif.principals, []) : {
+          key                = "${sa.account_id}/${p.attribute}/${p.value}"
+          account_id         = sa.account_id
+          pool_resource_name = sa.wif.pool_resource_name
+          attribute          = p.attribute
+          value              = p.value
+        }
+      ] if try(sa.wif, null) != null
+    ]) : b.key => b
+  }
+}
+
+resource "google_service_account_iam_member" "sa_wif" {
+  for_each           = local.sa_wif_bindings
+  service_account_id = google_service_account.this[each.value.account_id].name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "principalSet://iam.googleapis.com/${each.value.pool_resource_name}/attribute.${each.value.attribute}/${each.value.value}"
+}

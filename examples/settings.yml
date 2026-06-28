@@ -75,6 +75,8 @@
 #   hosting:
 #     - site_id (URL の subdomain, globally unique)
 #     - app (どの apps[].name に link するか。type=web のみ参照可、単数なら省略可)
+#     - custom_domains (optional, 独自ドメイン。文字列 or {domain, authorized_domain})
+#     - authorized_domain (optional, true で custom_domains を Auth にも登録)
 #   app_hosting:
 #     - backend_id (Firebase Console title, project-unique)
 #     - location (省略時は var.region)
@@ -82,6 +84,14 @@
 #     - app_id (外部 Web App を pin する場合のみ、app と排他)
 #     - service_account (省略時は project 共有の default SA を 1 個 auto-create)
 #     - serving_locality ("GLOBAL_ACCESS" or "REGION_LOCKED", default 前者)
+#     - custom_domains / authorized_domain (hosting と同じ意味)
+#   ※ custom_domains の DNS 登録は別レイヤ前提 (必要レコードは output で確認)。
+#     authorized_domain=true にした custom_domain は Firebase Auth の OAuth 許可
+#     ドメイン (authorized_domains) にも自動登録される (ドメインの二重記述は不要)。
+#   authentication.authorized_domains (optional, default の取り扱いのみ):
+#     - include_defaults  (<project>.firebaseapp.com + .web.app を含めるか, default true)
+#     - include_localhost (localhost を含めるか, default true。stg/prd で false 推奨)
+#     ドメイン自体はここに書かず hosting / app_hosting から集約する。
 #   ※ apps 自体を省略しても hosting / app_hosting があれば "default" 名で
 #     type=web を 1 件 auto-create + 自動 link される。複数 web app + 参照省略
 #     は plan-time error (silent reference flip 防止)。hosting / app_hosting
@@ -171,7 +181,12 @@ environments:
     billing_account_id: "AAAAAA-AAAAAA-AAAAAA"
     firebase_platform:
       firebase: true
-      authentication: true
+      # 本番は localhost からの OAuth を塞ぐ。許可ドメインは hosting の
+      # custom_domains (authorized_domain=true) から自動集約されるのでここには
+      # ドメインを書かない。include_defaults 既定 true で .web.app/.firebaseapp.com は残る。
+      authentication:
+        authorized_domains:
+          include_localhost: false
 
       # Firestore database (1 project に複数 DB 可)。"(default)" は SDK の default
       # 動作で必要なら含める。analytics / logs は別 region で隔離。
@@ -226,8 +241,17 @@ environments:
       hosting:
         - site_id: my-service-prd-001-web      # https://my-service-prd-001-web.web.app
           app: main
+          # 独自ドメイン。文字列でも書けるが、object 形式で per-domain に
+          # authorized_domain を付けると、そのドメインだけ Auth 許可ドメインに入る。
+          custom_domains:
+            - domain: example.com
+              authorized_domain: true          # OAuth で使う → Auth にも登録
+            - www.example.com                  # 文字列形式 (Auth には登録しない)
         - site_id: my-service-prd-001-admin    # https://my-service-prd-001-admin.web.app
           app: admin
+          custom_domains:
+            - admin.example.com
+          authorized_domain: true              # entry の custom_domains を一括で Auth 登録
 
       # App Hosting backend (Cloud Run ベースの動的ホスティング)。
       # backend_id がそのまま Firebase Console のタイトル + terraform 上の ID。
@@ -297,6 +321,26 @@ environments:
       ci_service_account:
         account_id: ci-deploy
         display_name: CI/CD Deployment (prd-001)
+
+      # Read-only SA: project repo の GitHub Actions が custom domain の DNS 要件
+      # (requiredDnsUpdates) を読んで Cloudflare DNS を同期する用途。deploy SA は
+      # admin 権限なので、viewer role だけの SA を別に切り WIF で keyless impersonate
+      # させる (long-lived key 不要)。SA email は output service_account_emails で確認。
+      service_accounts:
+        - account_id: dns-reader
+          display_name: Custom Domain DNS Reader
+          type: reader            # deploy 以外 → args sugar 無し、roles だけ付与
+          roles:
+            - roles/firebasehosting.viewer
+            - roles/firebaseapphosting.viewer
+          wif:
+            # project-bootstrap が用意した WIF *Pool* の resource name。
+            # ${BOOTSTRAP_PROJECT_NUMBER} は dispatch Action が input から注入する。
+            # ⚠ Pool まで (末尾に /providers/... は付けない)。provider フルパスは
+            #   GitHub Actions 側の workload_identity_provider に使う別物。
+            pool_resource_name: "projects/${BOOTSTRAP_PROJECT_NUMBER}/locations/global/workloadIdentityPools/terraform-cloud"
+            principals:
+              - { attribute: repository, value: my-org/my-service }
 
   # ---------------------------------------------------------------------------
   # stg-001 — staging. project_id = my-service-stg-001

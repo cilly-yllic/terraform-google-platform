@@ -36,13 +36,20 @@ variable "ci_service_account" {
 }
 
 variable "service_accounts" {
-  description = "Service accounts to create."
+  description = "Service accounts to create. Optional per-SA WIF principalSet binding (same shape as ci_service_account.wif) for keyless impersonation from external CI."
   type = list(object({
     account_id   = string
     display_name = optional(string, "")
     type         = string
     roles        = optional(list(string), [])
     args         = optional(any, {})
+    wif = optional(object({
+      pool_resource_name = string
+      principals = list(object({
+        attribute = string
+        value     = string
+      }))
+    }), null)
   }))
   default = []
 }
