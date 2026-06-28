@@ -28,6 +28,12 @@ variable "service_account" {
   type        = string
 }
 
+variable "custom_domains" {
+  description = "Custom domains to register for this backend (複数可)。空 list なら作らない。DNS 登録は別レイヤ前提。"
+  type        = list(string)
+  default     = []
+}
+
 variable "serving_locality" {
   description = "Serving locality for the App Hosting backend."
   type        = string

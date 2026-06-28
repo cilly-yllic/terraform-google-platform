@@ -6,8 +6,14 @@ module "firebase_platform" {
   billing_account = "XXXXXX-XXXXXX-XXXXXX"
 
   # Firebase core
-  firebase       = true
-  authentication = true
+  firebase = true
+  # authentication: 許可ドメインは hosting / app_hosting の custom_domains から
+  # 集約されるのでここにドメインは書かない。include_localhost=false で localhost を塞ぐ。
+  authentication = {
+    authorized_domains = {
+      include_localhost = false
+    }
+  }
   # Firestore は array で複数 database を 1 project に持てる。
   # "(default)" を含めるかは利用者判断 (SDK の default 動作を期待するなら含める)。
   firestore = [
@@ -57,17 +63,33 @@ module "firebase_platform" {
 
   # 複数 hosting site の例。app field は type=web の apps[].name を指す。
   # type=web の apps が 1 件のみなら省略可。
+  # custom_domains: 文字列 or { domain, authorized_domain } の混在可。
+  # authorized_domain=true のドメインは Firebase Auth の authorized_domains にも登録される。
   hosting = [
-    { site_id = "my-full-project-web", app = "main" },
-    { site_id = "my-full-project-admin", app = "admin" },
+    {
+      site_id = "my-full-project-web"
+      app     = "main"
+      custom_domains = [
+        { domain = "example.com", authorized_domain = true }, # OAuth で使う → Auth にも登録
+        "www.example.com",                                    # 文字列形式 (Auth には登録しない)
+      ]
+    },
+    {
+      site_id           = "my-full-project-admin"
+      app               = "admin"
+      custom_domains    = ["admin.example.com"]
+      authorized_domain = true # entry の custom_domains を一括で Auth 登録
+    },
   ]
 
   # 複数 App Hosting backend の例。app field の挙動は hosting と同じ。
   app_hosting = [
     {
-      backend_id = "api"
-      location   = "asia-northeast1"
-      app        = "main"
+      backend_id        = "api"
+      location          = "asia-northeast1"
+      app               = "main"
+      custom_domains    = ["api.example.com"]
+      authorized_domain = true
     },
     {
       backend_id = "jobs"
@@ -170,6 +192,27 @@ module "firebase_platform" {
         scheduler = false
         tasks     = false
         blocking  = false
+      }
+    },
+    # Read-only SA: project repo の GitHub Actions が custom domain の DNS 要件を
+    # 読んで Cloudflare に同期する用途。deploy SA (admin) に強権限を集約しないよう
+    # viewer role だけ付与し、WIF で keyless impersonate させる。
+    {
+      account_id   = "dns-reader"
+      display_name = "Custom Domain DNS Reader"
+      type         = "reader" # deploy 以外 → args sugar 無し、roles だけ付与
+      roles = [
+        "roles/firebasehosting.viewer",    # Hosting custom domain の requiredDnsUpdates 読取
+        "roles/firebaseapphosting.viewer", # App Hosting domain 読取
+      ]
+      wif = {
+        # WIF *Pool* の resource name (末尾に /providers/... は付けない)。
+        # settings.yml 経由なら ${BOOTSTRAP_PROJECT_NUMBER} placeholder を使えるが、
+        # 素の terraform example では実 project number を入れる。
+        pool_resource_name = "projects/123456789/locations/global/workloadIdentityPools/terraform-cloud"
+        principals = [
+          { attribute = "repository", value = "my-org/my-service" },
+        ]
       }
     },
   ]

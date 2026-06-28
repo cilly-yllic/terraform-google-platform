@@ -129,7 +129,9 @@ environments:
       firebase: true
       firestore:
         location: asia-northeast1
-      hosting: true
+      # hosting は array (複数 site)。custom_domains / authorized_domain は任意。
+      hosting:
+        - site_id: my-service-dev-001-web
       storage: true
       authentication: true
   stg-001:
@@ -149,8 +151,15 @@ environments:
     firebase_platform:
       firebase: true
       firestore: true
-      hosting: true
+      hosting:
+        - site_id: my-service-prd-001-web
+          custom_domains:
+            - domain: example.com
+              authorized_domain: true   # OAuth で使う → Auth の authorized_domains にも登録
       storage: true
+      authentication:
+        authorized_domains:
+          include_localhost: false      # prd は localhost からの OAuth を塞ぐ
 ```
 
 各 feature flag は `null` (省略) / `true` / `{ ... }` (custom config) のいずれかを受け取る。設定可能な feature キーの完全リストは `lib/dispatch/index.ts` の `FEATURE_KEYS` / `PASSTHROUGH_KEYS` を参照。完全なサンプルは [`examples/settings.yml`](../../examples/settings.yml)。

@@ -179,6 +179,17 @@ locals {
       auto_prefix      = try(h.auto_prefix, false)
       resolved_site_id = try(h.auto_prefix, false) ? "${var.project_id}-${h.site_id}" : h.site_id
       app              = try(h.app, "")
+      # custom_domains は文字列 ("example.com") か object ({domain, authorized_domain})
+      # の混在を許容し、{domain, authorized} に正規化する。
+      # authorized = entry-level authorized_domain (entry 内全 domain 一括 opt-in) か
+      #              per-domain authorized_domain の OR。いずれも default false。
+      # authorized=true の domain は Auth の authorized_domains にも登録される。
+      custom_domains = [
+        for cd in try(h.custom_domains, []) : {
+          domain     = try(cd.domain, cd)
+          authorized = try(h.authorized_domain, false) || try(cd.authorized_domain, false)
+        }
+      ]
     }
   ]
 
@@ -190,6 +201,13 @@ locals {
       app_id           = try(a.app_id, "")
       service_account  = try(a.service_account, "")
       serving_locality = try(a.serving_locality, "GLOBAL_ACCESS")
+      # custom_domains は hosting と同じく文字列 / object 混在を許容し正規化する。
+      custom_domains = [
+        for cd in try(a.custom_domains, []) : {
+          domain     = try(cd.domain, cd)
+          authorized = try(a.authorized_domain, false) || try(cd.authorized_domain, false)
+        }
+      ]
     }
   ]
 
@@ -427,7 +445,61 @@ module "firebase" {
 
 # ---------------------------------------------------------------------------
 # Authentication / Identity Platform
+#
+# authorized_domains (OAuth リダイレクト許可ドメイン) の最終 list を組み立てる。
+# ドメインの二重記述を避けるため、ドメイン自体は hosting / app_hosting の
+# custom_domains から authorized=true のものを集約する (authentication 側に
+# domains list は置かない)。authentication.authorized_domains では default の
+# 取り扱い (include_defaults / include_localhost) だけを制御する。
 # ---------------------------------------------------------------------------
+
+locals {
+  # authentication.authorized_domains ブロック (無ければ null)。
+  auth_ad_cfg     = try(local.authentication_cfg.authorized_domains, null)
+  auth_ad_present = local.auth_ad_cfg != null
+
+  # default ドメインの取り扱い (未設定はいずれも true)。
+  #   include_defaults  : <project>.firebaseapp.com + <project>.web.app
+  #   include_localhost : localhost (stg/prd で false にして塞ぐ用途)
+  auth_include_defaults  = try(local.auth_ad_cfg.include_defaults, true)
+  auth_include_localhost = try(local.auth_ad_cfg.include_localhost, true)
+
+  # hosting / app_hosting の custom_domains から authorized=true の domain を集約。
+  auth_hosting_domains = flatten([
+    for h in local.hosting_list : [
+      for cd in h.custom_domains : cd.domain if cd.authorized
+    ]
+  ])
+  auth_app_hosting_domains = flatten([
+    for a in local.app_hosting_list : [
+      for cd in a.custom_domains : cd.domain if cd.authorized
+    ]
+  ])
+  auth_requested_domains = distinct(concat(
+    local.auth_hosting_domains,
+    local.auth_app_hosting_domains,
+  ))
+
+  auth_default_domains = local.auth_include_defaults ? [
+    "${var.project_id}.firebaseapp.com",
+    "${var.project_id}.web.app",
+  ] : []
+  auth_localhost_domains = local.auth_include_localhost ? ["localhost"] : []
+
+  # authorized_domains を terraform で管理する (= authoritative に上書きする) のは、
+  #   - authorized=true の custom_domain が 1 つ以上ある、または
+  #   - authentication.authorized_domains ブロックが明示されている (localhost だけ
+  #     塞ぎたいケース等)
+  # いずれかのとき。どちらも無ければ attribute を触らず Firebase デフォルトを温存。
+  auth_manage_domains = local.enable_authentication && (
+    length(local.auth_requested_domains) > 0 || local.auth_ad_present
+  )
+  authorized_domains_final = local.auth_manage_domains ? distinct(concat(
+    local.auth_requested_domains,
+    local.auth_default_domains,
+    local.auth_localhost_domains,
+  )) : []
+}
 
 module "auth" {
   count   = local.enable_authentication ? 1 : 0
@@ -437,6 +509,7 @@ module "auth" {
     before_create  = try(local.authentication_cfg.blocking_functions.before_create, "")
     before_sign_in = try(local.authentication_cfg.blocking_functions.before_sign_in, "")
   }
+  authorized_domains = local.authorized_domains_final
 
   depends_on = [google_project_service.this, module.firebase]
 }
@@ -587,6 +660,8 @@ module "hosting" {
   app_id = module.apps_web[
     each.value.app != "" ? each.value.app : local.apps_web_default_key
   ].app_id
+  # submodule は list(string) を受ける。正規化済み object から domain だけ抽出。
+  custom_domains = [for cd in each.value.custom_domains : cd.domain]
 
   depends_on = [
     google_project_service.this,
@@ -677,6 +752,7 @@ module "app_hosting" {
   ].app_id
   service_account  = each.value.service_account != "" ? each.value.service_account : google_service_account.app_hosting_default[0].email
   serving_locality = each.value.serving_locality
+  custom_domains   = [for cd in each.value.custom_domains : cd.domain]
 
   depends_on = [
     google_project_service.this,
