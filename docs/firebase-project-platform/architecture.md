@@ -161,15 +161,15 @@ cloud-run-router は TFC notification が設定されていない限り呼ばれ
 | Category | Submodule | Resources created |
 |----------|-----------|-------------------|
 | Resource-creating | `firebase` | `google_firebase_project` |
-| Resource-creating | `auth` | `google_identity_platform_config` |
+| Resource-creating | `auth` | `google_identity_platform_config` (incl. OAuth `authorized_domains`, aggregated from hosting/app_hosting custom domains by the root) |
 | Resource-creating | `firestore` | `google_firestore_database`, `google_firebaserules_ruleset/release` |
 | Resource-creating | `rtdb` | `google_firebase_database_instance` |
 | Resource-creating | `storage` | `google_firebase_storage_bucket`, `google_storage_bucket`, `google_storage_bucket_iam_member`, `google_firebaserules_ruleset/release` |
 | Resource-creating | `web-app` | `google_firebase_web_app` (one per `apps[]` of `type: "web"`) |
 | Resource-creating | `ios-app` | `google_firebase_apple_app` (one per `apps[]` of `type: "ios"`) |
 | Resource-creating | `android-app` | `google_firebase_android_app` (one per `apps[]` of `type: "android"`) |
-| Resource-creating | `hosting` | `google_firebase_hosting_site` (one per `hosting[]`; the linked Web App comes from `web-app`) |
-| Resource-creating | `app-hosting` | `google_firebase_app_hosting_backend` (one per `app_hosting[]`). The shared compute SA (`google_service_account` + `google_project_iam_member`) is created in the root `main.tf`, not the submodule. |
+| Resource-creating | `hosting` | `google_firebase_hosting_site` (one per `hosting[]`; the linked Web App comes from `web-app`), `google_firebase_hosting_custom_domain` (one per `custom_domains[]`) |
+| Resource-creating | `app-hosting` | `google_firebase_app_hosting_backend` (one per `app_hosting[]`), `google_firebase_app_hosting_domain` (one per `custom_domains[]`). The shared compute SA (`google_service_account` + `google_project_iam_member`) is created in the root `main.tf`, not the submodule. |
 | Resource-creating | `data-connect` | `google_firebase_data_connect_service`, `google_sql_database_instance`, `google_sql_database` |
 | API placeholder | `fcm`, `remote-config`, `app-check`, `crashlytics`, `performance`, `analytics`, `extensions` | None (API enablement only) |
 | API placeholder | `secret-manager`, `cloud-tasks`, `cloud-scheduler`, `pubsub`, `eventarc` | None (API enablement only) |
@@ -182,15 +182,15 @@ cloud-run-router は TFC notification が設定されていない限り呼ばれ
 | 分類 | サブモジュール | 作成されるリソース |
 |------|---------------|-------------------|
 | リソース作成型 | `firebase` | `google_firebase_project` |
-| リソース作成型 | `auth` | `google_identity_platform_config` |
+| リソース作成型 | `auth` | `google_identity_platform_config` (OAuth `authorized_domains` 含む。ドメインは hosting/app_hosting の custom domain からルートが集約) |
 | リソース作成型 | `firestore` | `google_firestore_database`, `google_firebaserules_ruleset/release` |
 | リソース作成型 | `rtdb` | `google_firebase_database_instance` |
 | リソース作成型 | `storage` | `google_firebase_storage_bucket`, `google_storage_bucket`, `google_storage_bucket_iam_member`, `google_firebaserules_ruleset/release` |
 | リソース作成型 | `web-app` | `google_firebase_web_app` (`type: "web"` の `apps[]` ごとに 1 つ) |
 | リソース作成型 | `ios-app` | `google_firebase_apple_app` (`type: "ios"` の `apps[]` ごとに 1 つ) |
 | リソース作成型 | `android-app` | `google_firebase_android_app` (`type: "android"` の `apps[]` ごとに 1 つ) |
-| リソース作成型 | `hosting` | `google_firebase_hosting_site` (`hosting[]` ごとに 1 つ。link 先の Web App は `web-app` 側が作る) |
-| リソース作成型 | `app-hosting` | `google_firebase_app_hosting_backend` (`app_hosting[]` ごとに 1 つ)。共有 compute SA (`google_service_account` + `google_project_iam_member`) は submodule ではなくルートの `main.tf` で作成される。 |
+| リソース作成型 | `hosting` | `google_firebase_hosting_site` (`hosting[]` ごとに 1 つ。link 先の Web App は `web-app` 側が作る)、`google_firebase_hosting_custom_domain` (`custom_domains[]` ごとに 1 つ) |
+| リソース作成型 | `app-hosting` | `google_firebase_app_hosting_backend` (`app_hosting[]` ごとに 1 つ)、`google_firebase_app_hosting_domain` (`custom_domains[]` ごとに 1 つ)。共有 compute SA (`google_service_account` + `google_project_iam_member`) は submodule ではなくルートの `main.tf` で作成される。 |
 | リソース作成型 | `data-connect` | `google_firebase_data_connect_service`, `google_sql_database_instance`, `google_sql_database` |
 | API有効化のみ | `fcm`, `remote-config`, `app-check`, `crashlytics`, `performance`, `analytics`, `extensions` | なし (API 有効化のみ) |
 | API有効化のみ | `secret-manager`, `cloud-tasks`, `cloud-scheduler`, `pubsub`, `eventarc` | なし (API 有効化のみ) |

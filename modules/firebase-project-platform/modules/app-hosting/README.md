@@ -17,6 +17,7 @@ submodule は backend リソースのみを作る。共有 compute Service Accou
 | Resource | Provider | Role |
 |----------|----------|------|
 | `google_firebase_app_hosting_backend.this` | `google-beta` | App Hosting backend (named by `backend_id`) |
+| `google_firebase_app_hosting_domain.this` | `google-beta` | Custom domain(s) for the backend (one per `custom_domains` entry) |
 
 ## Inputs
 
@@ -28,6 +29,7 @@ submodule は backend リソースのみを作る。共有 compute Service Accou
 | `app_id` | `string` | (required) | Firebase Web App ID to link this backend to (passed from `web-app` / external pin via the root module) |
 | `service_account` | `string` | (required) | Compute SA email (already resolved by the root module — empty-string auto-create logic lives in the root, not here) |
 | `serving_locality` | `string` | `"GLOBAL_ACCESS"` | `GLOBAL_ACCESS` / `REGION_LOCKED` |
+| `custom_domains` | `list(string)` | `[]` | Custom domains to register. Empty → none created. DNS registration is expected on a separate layer. |
 
 ## Outputs
 
@@ -35,6 +37,7 @@ submodule は backend リソースのみを作る。共有 compute Service Accou
 |------|-------------|
 | `name` | App Hosting backend resource name |
 | `uri` | Backend URI |
+| `custom_domains` | Map keyed by domain; each holds `required_dns_updates` for the external DNS layer |
 
 ## Related APIs
 
@@ -52,11 +55,13 @@ Called when `var.app_hosting != null`.
 - Source repository integration (set via Console)
 - App Hosting rollout policy
 - Build configuration (`apphosting.yaml`)
+- DNS record registration for custom domains (only the domain is registered here; `required_dns_updates` is emitted for the external DNS layer)
 
 <details><summary>Ja</summary>
 
 - ソースリポジトリ連携 (Console 側で設定)
 - App Hosting rollout policy
 - ビルド設定 (`apphosting.yaml`)
+- カスタムドメインの DNS レコード登録 (ここではドメイン登録のみ。`required_dns_updates` を別 DNS レイヤ用に出力)
 
 </details>

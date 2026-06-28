@@ -63,6 +63,17 @@ variable "authentication" {
     null to disable, true for defaults, or object:
       blocking_functions.before_create  = Cloud Function URI (default: "")
       blocking_functions.before_sign_in = Cloud Function URI (default: "")
+
+      authorized_domains = OAuth リダイレクト許可ドメインの default 制御 (optional)。
+        ・ドメイン自体はここに列挙しない。hosting / app_hosting の custom_domains で
+          authorized_domain=true にしたものが自動集約される (二重記述を回避)。
+        ・include_defaults  = <project>.firebaseapp.com + <project>.web.app を含めるか
+                             (default true)
+        ・include_localhost = localhost を含めるか (default true)。stg/prd で false に
+                             すると localhost からの OAuth を塞げる。
+        ※ このブロックを明示する or authorized=true の domain が 1 つでもあると、
+           authorized_domains は terraform が authoritative に管理する (全置換)。
+           どちらも無ければ attribute を触らず Firebase デフォルトを温存する。
   EOT
   type        = any
   default     = null
@@ -165,6 +176,15 @@ variable "hosting" {
       app         = 紐付ける apps[].name (optional, type=web のみ参照可)
                     ・type=web の apps が 1 件しか無い時は省略可 (auto-default)
                     ・複数 / 0 件で省略 / 不在の名前 / 非 web type を参照 = plan-time error
+      custom_domains = この site に登録する custom domain の list (optional)。
+                       ・各要素は文字列 ("example.com") か object も可:
+                           { domain = "example.com", authorized_domain = true }
+                       ・省略 or 空 list なら作らない
+                       ・DNS 登録は別レイヤ前提 (wait_dns_verification=false)。
+                         必要な DNS レコードは output.hosting_sites[].custom_domains で参照
+      authorized_domain = true でこの entry の custom_domains を **全て** Firebase Auth の
+                       authorized_domains にも登録 (default false)。個別に絞りたいときは
+                       custom_domains の object 形式で per-domain に authorized_domain 指定。
   EOT
   type        = any
   default     = null
@@ -184,6 +204,14 @@ variable "app_hosting" {
                          (両方書くと plan-time error)
       service_account  = Service account email (default: 自動で project 共有の SA を作成)
       serving_locality = GLOBAL_ACCESS | REGION_LOCKED (default: "GLOBAL_ACCESS")
+      custom_domains   = この backend に登録する custom domain の list (optional)。
+                         ・各要素は文字列 ("api.example.com") か object 形式
+                           { domain = "...", authorized_domain = true } も可
+                         ・省略 or 空 list なら作らない
+                         ・DNS 登録は別レイヤ前提。必要な DNS レコードは
+                           output.app_hosting_backends[].custom_domains で参照
+      authorized_domain = true でこの entry の custom_domains を全て Firebase Auth の
+                         authorized_domains にも登録 (default false)。
 
     terraform は bare backend (箱 + compute SA) のみを作る。実際のコードのデプロイは
     firebase CLI (`firebase deploy --only apphosting`, local source) が行う
@@ -438,7 +466,8 @@ variable "service_accounts" {
     Additional service accounts to create with explicit role assignment.
       account_id   = SA ID (required)
       display_name = display name (optional)
-      type         = "deploy" (required)
+      type         = "deploy" (args の sugar を効かせたい場合) / それ以外 (例 "reader")
+                     なら roles だけを付与
       roles        = additional custom IAM roles (optional)
       args         = feature flags for deploy type:
         hosting   = true/false (roles/firebasehosting.admin)
@@ -448,6 +477,14 @@ variable "service_accounts" {
         scheduler = true/false (roles/cloudscheduler.admin)
         tasks     = true/false (roles/cloudtasks.queueAdmin)
         blocking  = true/false (roles/firebaseauth.admin)
+      wif          = optional。外部 CI (GitHub Actions 等) から OIDC + Workload Identity
+                     Federation でこの SA を keyless に impersonate させる場合に指定。
+                     ci_service_account.wif と同形式。
+                       pool_resource_name = 参照する WIF Pool (project-bootstrap が用意)
+                       principals = [{ attribute, value }] (例 github: repository / org/repo)
+                     ※ deploy SA に強い権限を持たせず、read-only SA (例 type="reader" +
+                       roles=[firebasehosting.viewer, firebaseapphosting.viewer]) を別途
+                       切って DNS 同期等に使うユースケース向け。
   EOT
   type = list(object({
     account_id   = string
@@ -455,6 +492,13 @@ variable "service_accounts" {
     type         = string
     roles        = optional(list(string), [])
     args         = optional(any, {})
+    wif = optional(object({
+      pool_resource_name = string
+      principals = list(object({
+        attribute = string
+        value     = string
+      }))
+    }), null)
   }))
   default = []
 }

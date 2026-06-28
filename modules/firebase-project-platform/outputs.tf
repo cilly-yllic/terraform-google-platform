@@ -113,6 +113,8 @@ output "hosting_sites" {
     for site_id, mod in module.hosting : site_id => {
       app_id      = mod.app_id
       default_url = mod.default_url
+      # 各 custom domain の required_dns_updates (別 DNS レイヤで登録する用)。
+      custom_domains = mod.custom_domains
     }
   }
 }
@@ -129,6 +131,8 @@ output "app_hosting_backends" {
       # 公開 output のキーは resource_name のまま維持する。
       resource_name = mod.name
       uri           = mod.uri
+      # 各 custom domain の required_dns_updates (別 DNS レイヤで登録する用)。
+      custom_domains = mod.custom_domains
     }
   }
 }
@@ -189,4 +193,9 @@ output "service_account_emails" {
 output "service_account_roles" {
   description = "IAM roles assigned to each service account."
   value       = module.iam.service_account_roles
+}
+
+output "service_account_wif_members" {
+  description = "WIF principalSet members bound to manual service accounts (empty when none configure wif)."
+  value       = module.iam.service_account_wif_members
 }

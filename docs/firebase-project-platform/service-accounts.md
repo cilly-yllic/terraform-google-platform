@@ -149,7 +149,7 @@ Pool / Provider の attribute mapping 設計は `docs/project-bootstrap/design/w
 
 ## Additional Service Accounts (`service_accounts`)
 
-SAs for purposes other than CI (app runtime, batch jobs, external integrations). Currently only `type = "deploy"` is implemented.
+SAs for purposes other than CI (app runtime, batch jobs, external integrations). `type = "deploy"` enables the `args` sugar roles; any other `type` (e.g. `"reader"`) grants only the explicit `roles` list. An optional `wif` block (same shape as `ci_service_account.wif`) lets external CI impersonate the SA keylessly.
 
 ### Usage
 
@@ -204,10 +204,40 @@ Additional ad-hoc roles can be appended via `roles = ["roles/..."]`.
 
 </details>
 
+### Read-only SA + WIF (例: custom domain DNS reader)
+
+deploy SA は admin 権限を持つため、custom domain の DNS 要件 (`requiredDnsUpdates`) を
+**読むだけ**の用途には強すぎる。read-only SA を別に切り、WIF で project repo の
+GitHub Actions から keyless impersonate させると最小権限で済む。
+
+```hcl
+service_accounts = [
+  {
+    account_id   = "dns-reader"
+    display_name = "Custom Domain DNS Reader"
+    type         = "reader" # deploy 以外 → args sugar 無し、roles だけ付与
+    roles = [
+      "roles/firebasehosting.viewer",    # Hosting site / custom domain 読取
+      "roles/firebaseapphosting.viewer", # App Hosting backend / domain 読取
+    ]
+    wif = {
+      # WIF *Pool* のパス (末尾に /providers/... は付けない)。
+      pool_resource_name = "projects/123456789/locations/global/workloadIdentityPools/terraform-cloud"
+      principals = [
+        { attribute = "repository", value = "my-org/my-service" },
+      ]
+    }
+  },
+]
+```
+
+`wif` の形式・attribute 名は [CI SA の WIF セクション](#workload-identity-federation-optional) と同じ。
+
 ### Outputs
 
 - `service_account_emails` — `{ account_id => email }`
 - `service_account_roles` — `{ account_id => [roles...] }`
+- `service_account_wif_members` — `{ binding_id => member }` (manual SA の WIF binding。`wif` 未設定なら `{}`)
 
 ---
 
