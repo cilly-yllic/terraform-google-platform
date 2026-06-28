@@ -84,8 +84,10 @@ firebase_platform:
 を作成する。
 
 > **Custom domain の DNS**: terraform はドメインを登録し、必要な DNS レコード
-> (TXT 所有権確認 + serving 用) を
-> `output.app_hosting_backends[].custom_domains[].required_dns_updates` に出力するだけ。
+> (TXT 所有権確認 + serving 用) を含む状態を
+> `output.app_hosting_backends[].custom_domains[].custom_domain_status` に出力するだけ
+> (DNS レコードは `custom_domain_status[].required_dns_updates` に nested で入る。
+> hosting (classic) と違い App Hosting domain は top-level の required_dns_updates を持たない)。
 > 実際の DNS レコード登録は別レイヤ (Cloud DNS / 手動など) で行う前提。
 > `authorized_domain: true` にしたドメインは Firebase Auth の `authorized_domains` にも
 > 集約登録される (詳細は [variables-reference.md `authentication`](./variables-reference.md#authentication))。
