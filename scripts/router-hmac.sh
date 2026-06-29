@@ -122,11 +122,12 @@ sync_via_org_secret() {
   repos_csv=$(echo "${TFC_NOTIFICATION_SECRET_REPOS}" | tr -s ' ' ',' | sed 's/^,//;s/,$//')
   info "Setting org-level ${GH_SECRET_NAME} on GitHub org '${GH_ORG}' (visibility=selected)"
   info "  Selected repos: ${repos_csv}"
+  # --body を付けない → gh は値を stdin から読む (argv に値を載せず安全)。
+  # 注: `--body -` は値をリテラル "-" にしてしまう (gh の --body は「未指定なら stdin」)。
   printf '%s' "${value}" | gh secret set "${GH_SECRET_NAME}" \
     --org "${GH_ORG}" \
     --visibility selected \
-    --repos "${repos_csv}" \
-    --body -
+    --repos "${repos_csv}"
 }
 
 sync_via_repo_secrets() {
@@ -134,8 +135,9 @@ sync_via_repo_secrets() {
   local repo
   for repo in ${TFC_NOTIFICATION_SECRET_REPOS}; do
     info "Setting repo-level ${GH_SECRET_NAME} on GitHub repo: ${repo}"
-    # --body - で stdin から値を取る (argv に値が入らないので少し安全)。
-    printf '%s' "${value}" | gh secret set "${GH_SECRET_NAME}" --repo "${repo}" --body -
+    # --body を付けない → gh は値を stdin から読む (argv に値を載せず安全)。
+    # 注: `--body -` は値をリテラル "-" にしてしまう (gh の --body は「未指定なら stdin」)。
+    printf '%s' "${value}" | gh secret set "${GH_SECRET_NAME}" --repo "${repo}"
   done
 }
 
