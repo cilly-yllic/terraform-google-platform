@@ -219,13 +219,17 @@ export const parseRunMessage = (runMessage: string): TfcRunMeta | null => {
     // 文字列の空チェックや配列要素の型チェックまで含めて厳格に弾く
     // (downstream に空文字や undefined が漏れて意味不明な GitHub API 失敗に
     //  なるのを防ぐため)。
+    // environments は **空配列を許容**する: settings.yml から env を全削除した
+    // teardown Run (Action A が project を destroy) では run_message が
+    // environments:[] になる。これは壊れた metadata ではなく正常な teardown 通知
+    // なので null を返して 500 にしてはいけない (dispatch 側 #106 の teardown 許容と整合)。
+    // 空配列時に dispatch をスキップする判断は呼び出し元 (router) で行う。
     if (
       typeof service !== 'string' ||
       !service ||
       typeof sourceRepo !== 'string' ||
       !sourceRepo ||
       !Array.isArray(environments) ||
-      environments.length === 0 ||
       !environments.every(v => typeof v === 'string' && v.length > 0)
     ) {
       return null

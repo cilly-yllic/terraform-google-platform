@@ -45,8 +45,14 @@ describe('parseRunMessage', () => {
     expect(parseRunMessage('{"service":"svc","source_repo":"o/r"}')).toBeNull()
   })
 
-  it('returns null when environments is an empty array', () => {
-    expect(parseRunMessage('{"service":"svc","environments":[],"source_repo":"o/r"}')).toBeNull()
+  it('accepts an empty environments array (teardown: env を全削除した Run)', () => {
+    const result = parseRunMessage('{"service":"svc","environments":[],"source_repo":"o/r"}')
+    expect(result).toEqual({
+      service: 'svc',
+      environments: [],
+      labels: [],
+      source_repo: 'o/r',
+    })
   })
 
   it('returns null when environments contains non-string entries', () => {

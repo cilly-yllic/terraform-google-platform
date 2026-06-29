@@ -129,6 +129,20 @@ describe('handleNotification', () => {
     )
   })
 
+  it('skips dispatch on teardown (empty environments) and returns ignored', async () => {
+    const config = makeConfig()
+    const notification = makeNotification({
+      run_message:
+        '{"service":"my-svc","environments":[],"labels":["^tier:dev$"],"source_repo":"owner/repo","sha":"abc"}',
+    })
+
+    const result = await handleNotification(notification, config)
+
+    expect(result.action).toBe('ignored')
+    expect(result.details).toMatchObject({ reason: 'no_environments_teardown', service: 'my-svc' })
+    expect(repositoryDispatch).not.toHaveBeenCalled()
+  })
+
   it('dispatches with empty labels when A was invoked with a single environment input', async () => {
     const config = makeConfig()
     const notification = makeNotification({

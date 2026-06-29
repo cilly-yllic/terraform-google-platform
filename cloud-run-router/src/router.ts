@@ -226,6 +226,25 @@ export const handleNotification = async (notification: TfcNotification, config: 
     // リトライする可能性がある (= TFC 側の再送に任せる)。
     const meta = await resolveMetadata(notification, route.service, config)
 
+    // env を全削除した teardown Run (Action A が project を destroy) は
+    // environments:[] になる。配下に configure すべき env が無いので Action B を
+    // dispatch せず no-op で 200 を返す (削除済み project に Action B を投げると
+    // 連鎖失敗する)。dispatch 側 #106 の teardown 許容と対になる router 側の対応。
+    if (meta.environments.length === 0) {
+      console.log(
+        JSON.stringify({
+          severity: 'INFO',
+          message: 'project_factory teardown (no environments); skipping dispatch',
+          service: meta.service,
+          ...logBase,
+        })
+      )
+      return {
+        action: 'ignored',
+        details: { reason: 'no_environments_teardown', service: meta.service, ...logBase },
+      }
+    }
+
     console.log(
       JSON.stringify({
         severity: 'INFO',
