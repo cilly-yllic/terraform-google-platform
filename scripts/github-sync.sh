@@ -290,7 +290,10 @@ cmd_apply() {
       gh variable set "${name}" --repo "${GITHUB_REPOSITORY}" --body "${desired}"
       info "var set: ${name}"
     else
-      printf '%s' "${desired}" | gh secret set "${name}" --repo "${GITHUB_REPOSITORY}" --body -
+      # --body を付けない → gh は値を stdin から読む。
+      # 注: `--body -` は値をリテラル "-" にしてしまう (gh の --body は「未指定なら stdin」)。
+      # 旧コードはこれで全 secret を "-" に化けさせ、WIF audience / SA 不正の原因になっていた。
+      printf '%s' "${desired}" | gh secret set "${name}" --repo "${GITHUB_REPOSITORY}"
       info "secret set: ${name}"
     fi
   done
