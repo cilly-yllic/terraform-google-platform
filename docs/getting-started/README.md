@@ -2,6 +2,8 @@
 
 本リポジトリが提供するコンポーネントを使って、GCP Project の作成から Firebase Platform の構築までを一通り実行するためのエンドツーエンド導入ガイドです。
 
+> 🚀 **最短で全体を回したい人は → [QUICKSTART.md (最低限手順)](./QUICKSTART.md)**。番号付きの最小ステップ + 各ステップの詳細リンク付き。本 README 以下は詳細版です。
+
 ---
 
 ## 全体フロー
@@ -21,6 +23,8 @@ sequenceDiagram
     Billing-->>User: BOOTSTRAP_BILLING_ACCOUNT_ID
     User->>Bootstrap: make bootstrap
     Bootstrap-->>User: TFC 環境変数 (WIF)
+    User->>User: make github-sync-apply (消費側 repo へ secret/var 同期)
+    User->>User: make grant-billing (Factory SA に billing.user)
     User->>GHA1: workflow_dispatch (project params)
     GHA1->>TFC1: create workspace + run
     TFC1-->>Router: notification (run completed)
@@ -78,10 +82,13 @@ sequenceDiagram
 | Step | ガイド | 概要 |
 |------|--------|------|
 | 0 | [00-billing-account.md](./00-billing-account.md) | Billing Account 作成 (master billing account 保有者のみ) |
-| 1 | [01-bootstrap.md](./01-bootstrap.md) | `infra-bootstrap` Project / SA / WIF の構築 |
+| 1 | [01-bootstrap.md](./01-bootstrap.md) | `infra-bootstrap` Project / SA / WIF の構築 → **`make github-sync-apply`（消費側 repo へ secret/var 同期）** → **`make grant-billing`（Factory SA へ billing.user 付与）** |
 | 2 | [02-tfc-setup.md](./02-tfc-setup.md) | Terraform Cloud Organization / Project / Workspace の初期準備 |
 | 3 | [03-github-actions.md](./03-github-actions.md) | GitHub Actions (`dispatch-project-bootstrap`, `dispatch-firebase-platform`) の設定 |
-| 4 | [04-cloud-run-router.md](./04-cloud-run-router.md) | Cloud Run Router のデプロイと TFC Notification 設定 |
+| 4 | [04-cloud-run-router.md](./04-cloud-run-router.md) | (Phase 2) Cloud Run Router のデプロイと TFC Notification 設定 |
 | 5 | [05-end-to-end.md](./05-end-to-end.md) | エンドツーエンドの通し検証 |
 
-> **Note**: Step 0 は master billing account (Reseller / Channel Partner) を持つ場合のみ必要です。既に Billing Account がある場合は Step 1 から始めてください。
+> **Note**:
+> - Step 0 は master billing account (Reseller / Channel Partner) を持つ場合のみ必要です。既存の Billing Account があれば Step 1 から。
+> - **Step 1 の `make github-sync-apply` / `make grant-billing` は忘れがちな必須ステップ**です（前者を抜かすと Router deploy が WIF audience 不正、後者を抜かすと Action A が billing 権限不足で落ちます）。
+> - **Step 4 (Cloud Run Router) はオプション**。省略すると Phase 1 (手動: Action A 完了後に Action B を手動実行) 運用になります。まず Phase 1 で通し、後から Phase 2 (webhook 自動連鎖) を足すのが安全です。
