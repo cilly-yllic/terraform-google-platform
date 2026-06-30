@@ -4,9 +4,7 @@
 
 ---
 
-## terraform-google-firebase-project-platform
-
-> **Note**: 旧リポジトリ `cilly-yllic/terraform-google-firebase-project-platform` は本リポジトリに統合済みです。
+## firebase-project-platform
 
 **パス:** [`modules/firebase-project-platform/`](../../modules/firebase-project-platform/)
 

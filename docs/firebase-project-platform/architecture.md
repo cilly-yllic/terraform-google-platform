@@ -1,10 +1,10 @@
 # Architecture
 
-Describes where this repository (`terraform-google-firebase-project-platform`) sits, and how it splits responsibility with the bundled reference implementations.
+Describes where this repository (`terraform-google-platform`) sits, and how it splits responsibility with the bundled reference implementations.
 
 <details><summary>Ja</summary>
 
-本リポジトリ (`terraform-google-firebase-project-platform`) の位置づけと、同梱する reference 実装との責務分離を説明する。
+本リポジトリ (`terraform-google-platform`) の位置づけと、同梱する reference 実装との責務分離を説明する。
 
 </details>
 
@@ -25,7 +25,7 @@ The **Terraform execution platform** that provisions a GCP / Firebase Project an
                           ↓ module source = registry
 +--- This repository (public Terraform Module) --------------------+
 |                                                                  |
-|   terraform-google-firebase-project-platform                     |
+|   terraform-google-platform                                      |
 |     - Manages only resources / APIs / IAM inside the Project     |
 |     - Feature variables (null / true / object) for on/off        |
 |                                                                  |

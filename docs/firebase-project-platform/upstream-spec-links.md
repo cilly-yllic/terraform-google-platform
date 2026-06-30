@@ -1,12 +1,10 @@
 # Upstream documentation links
 
-An index of the upstream documentation that underpins this repository. These documents now live in [`docs/project-bootstrap/`](../project-bootstrap/) within this monorepo.
+An index of the [`docs/project-bootstrap/`](../project-bootstrap/) design documents that underpin this repository.
 
 <details><summary>Ja</summary>
 
-本リポジトリの設計・実装の根拠となる上流ドキュメントへのリンク集。
-
-これらのドキュメントは現在本モノリポの [`docs/project-bootstrap/`](../project-bootstrap/) に統合されている。
+本リポジトリの設計・実装の根拠となる [`docs/project-bootstrap/`](../project-bootstrap/) 設計ドキュメントへの索引。
 
 </details>
 
@@ -38,7 +36,7 @@ An overarching architecture document describing the full Terraform execution pla
 
 [`docs/project-bootstrap/related-components.md`](../project-bootstrap/related-components.md)
 
-Describes related components including this repository (terraform-google-firebase-project-platform), infra-orchestrator, Cloud Run router, and the public GitHub Actions.
+Describes related components including this repository (terraform-google-platform), infra-orchestrator, Cloud Run router, and the public GitHub Actions.
 
 | Mapping in this repo |
 |---|
@@ -46,7 +44,7 @@ Describes related components including this repository (terraform-google-firebas
 
 <details><summary>Ja</summary>
 
-本リポジトリ (terraform-google-firebase-project-platform) を含む関連コンポーネント、infra-orchestrator、Cloud Run router、public GitHub Actions の概要と責務分離を記述している。
+本リポジトリ (terraform-google-platform) を含む関連コンポーネント、infra-orchestrator、Cloud Run router、public GitHub Actions の概要と責務分離を記述している。
 
 対応するコード: `cloud-run-router/`, `actions/dispatch-firebase-platform/`
 
