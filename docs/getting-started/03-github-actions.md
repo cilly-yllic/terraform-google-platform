@@ -11,8 +11,10 @@ Project Repository の Workflow で `dispatch-project-bootstrap` (Action A) と 
 
 | Secret | 説明 |
 |--------|------|
-| `TFC_TOKEN` | Terraform Cloud API Token |
-| `TFC_NOTIFICATION_SECRET` | (Phase 2 のみ) Cloud Run Router と共有する HMAC secret |
+| `TFC_TOKEN` | Terraform Cloud API Token。TFC UI の **Account Settings → Tokens**（または Team API Token）で生成し、service repo の Secret に登録 |
+| `TFC_NOTIFICATION_SECRET` | (Phase 2 のみ) Cloud Run Router と共有する HMAC secret。`Initialize / Rotate TFC_NOTIFICATION_SECRET` workflow が生成・登録する（[04](./04-cloud-run-router.md) 参照） |
+
+> `BOOTSTRAP_PROJECT_NUMBER` (Variable) は `make github-sync-apply` で自動登録されます（[01-bootstrap](./01-bootstrap.md#6-消費側-repo-へ-secrets--variables-を同期-github-sync) の SERVICE_GITHUB_REPOS）。`TFC_TOKEN` / `GH_APP_PRIVATE_KEY` 等の外部トークンは導出不可のため手動登録です。
 
 > Phase 2 で Cloud Run Router から `repository_dispatch` を発火する場合、Router 側に GitHub App credentials を持たせる構成です。Project Repo 側の workflow には Router 用 secret は不要です。
 

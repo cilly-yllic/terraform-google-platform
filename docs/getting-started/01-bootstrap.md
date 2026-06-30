@@ -120,6 +120,46 @@ GOOGLE_PROJECT=infra-bootstrap
 
 これらの値を Terraform Cloud Workspace の Environment Variables に設定してください。
 
+### 6. 消費側 repo へ Secrets / Variables を同期 (github-sync)
+
+bootstrap で作った infra の識別子（project id/number, WIF provider, deploy/runtime SA email,
+folder id 等）を、消費側 repo（orchestrator / 各 service）の GitHub Actions Secrets / Variables
+に同期します。`.env` から決定的に導出できる値は自動で set されます。
+
+```bash
+make github-sync          # dry-run (差分表示のみ、書き込まない)
+make github-sync-apply    # derived を set。確認を飛ばすなら `make github-sync-apply YES=1`
+```
+
+- 前提: `.env` に `GITHUB_REPOSITORY`（orchestrator repo, 例 `MoooDoNE/infrastructure`）。
+  各 service repo にも `BOOTSTRAP_PROJECT_NUMBER` を配るなら `SERVICE_GITHUB_REPOS`
+  （空白区切り, 例 `MoooDoNE/cmonoth`）を設定。
+- 同期される主な値: `BOOTSTRAP_PROJECT_ID` / `BOOTSTRAP_PROJECT_NUMBER` / `BOOTSTRAP_FOLDER_ID`
+  (Variable), `GCP_WORKLOAD_IDENTITY_PROVIDER` / `GCP_DEPLOY_SERVICE_ACCOUNT` /
+  `GCP_RUNTIME_SERVICE_ACCOUNT` (Secret, `ENABLE_CLOUD_RUN_DEPLOY_SETUP=true` 時)。
+- `GH_APP_PRIVATE_KEY` / `TFC_TOKEN` 等の外部トークンは導出不可のため**手動登録**（check で案内表示）。
+
+> ⚠ **再構築時は必須**: bootstrap project を作り直すと project number が変わるため、
+> これを再実行しないと Cloud Run Router deploy が WIF audience 不正で落ちます。
+
+### 7. billing account へ Factory SA を grant (grant-billing)
+
+**folder mode の bootstrap は org-level の `billing.user` をあえて付けません**（最小権限）。
+そのため、サービス project が使う billing account ごとに Factory SA へ `roles/billing.user`
+（= `billing.resourceAssociations.create` を含む）を付与する必要があります。
+
+```bash
+make grant-billing                                  # .env の SERVICE_BILLING_ACCOUNT_IDS 全件
+make grant-billing BILLING=01CAAA-CF1712-505329     # 単一 account のみ
+```
+
+- 前提: `.env` の `SERVICE_BILLING_ACCOUNT_IDS`（空白区切りで複数可）、または `BILLING=<id>` 引数。
+- 実行者がその billing account に対する billing admin 権限を持っていること。
+
+> ⚠ これを忘れると Action A（project 作成）が
+> `missing permission on "billingAccounts/...": billing.resourceAssociations.create`
+> で失敗します。**再構築で Factory SA を作り直したら再付与が必要**。
+
 ---
 
 ## 次のステップ
