@@ -40668,15 +40668,25 @@ function extractFirebasePlatform(settings, env) {
 
 ;// CONCATENATED MODULE: ./lib/dispatch/index.ts
 const BOOTSTRAP_PROJECT_NUMBER_TOKEN = "${BOOTSTRAP_PROJECT_NUMBER}";
+// UPPERCASE placeholder token (`${SOME_SECRET}`)。lowercase の yml-internal
+// (`${service}` / `${env}`) とは区別する命名規約に沿う。
+const EXTERNAL_SECRET_TOKEN_RE = /\$\{([A-Z][A-Z0-9_]*)\}/g;
 const expandStringPlaceholders = (val, ctx) => {
     // fail-fast: 参照あり & 未注入 → 後段に壊れた literal を流さない。
     if (val.includes(BOOTSTRAP_PROJECT_NUMBER_TOKEN) && !ctx.bootstrapProjectNumber) {
         throw new Error(`settings.yml references \${BOOTSTRAP_PROJECT_NUMBER} but the dispatch-firebase-platform Action did not receive a non-empty 'bootstrap_project_number' input. Pass it via 'with.bootstrap_project_number' (typically from the repo Variable BOOTSTRAP_PROJECT_NUMBER).`);
     }
-    return val
+    let out = val
         .replace(/\$\{service\}/g, ctx.service)
         .replace(/\$\{env\}/g, ctx.env)
         .replace(/\$\{BOOTSTRAP_PROJECT_NUMBER\}/g, ctx.bootstrapProjectNumber ?? "");
+    // 汎用外部 secret 注入。map に登録された UPPERCASE placeholder のみ置換し、
+    // 未登録の token はそのまま残す (BOOTSTRAP_PROJECT_NUMBER は上で処理済み)。
+    const secrets = ctx.externalSecrets;
+    if (secrets) {
+        out = out.replace(EXTERNAL_SECRET_TOKEN_RE, (match, name) => Object.prototype.hasOwnProperty.call(secrets, name) ? secrets[name] : match);
+    }
+    return out;
 };
 const deepExpandPlaceholders = (val, ctx) => {
     if (typeof val === "string")
@@ -40707,6 +40717,35 @@ const expandFirebasePlatformPlaceholders = (firebasePlatform, ctx) => deepExpand
 // ---------------------------------------------------------------------------
 // Workspace name expansion
 // ---------------------------------------------------------------------------
+/**
+ * Action の `cloud_sql_secrets` input (JSON object の文字列) を
+ * Record<string,string> にパースする。空 ("") は {}。
+ * key は settings.yml の UPPERCASE placeholder 名 (例 "CLOUD_SQL_PW_ADMIN")、
+ * value は注入する実 secret。
+ */
+function parseCloudSqlSecrets(raw) {
+    const trimmed = raw.trim();
+    if (trimmed === "")
+        return {};
+    let parsed;
+    try {
+        parsed = JSON.parse(trimmed);
+    }
+    catch (e) {
+        throw new Error(`Invalid cloud_sql_secrets input: expected a JSON object of {PLACEHOLDER: value} (e.g. '{"CLOUD_SQL_PW_ADMIN":"..."}'), got ${JSON.stringify(raw)} — ${e instanceof Error ? e.message : String(e)}`);
+    }
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error(`Invalid cloud_sql_secrets input: expected a JSON object, got ${Array.isArray(parsed) ? "array" : typeof parsed}`);
+    }
+    const out = {};
+    for (const [k, v] of Object.entries(parsed)) {
+        if (typeof v !== "string") {
+            throw new Error(`Invalid cloud_sql_secrets input: value for "${k}" must be a string, got ${typeof v}`);
+        }
+        out[k] = v;
+    }
+    return out;
+}
 function expandWorkspaceName(pattern, vars) {
     let result = pattern;
     for (const [key, value] of Object.entries(vars)) {
@@ -40894,6 +40933,31 @@ function validateDataConnectEntry(index, entry) {
     if (typeof cs.database !== "string" || cs.database === "") {
         throw new Error(`data_connect[${index}] (service_id="${serviceId}"): 'cloud_sql.database' is required and must be a non-empty string`);
     }
+    // BUILT_IN Cloud SQL users (password ログイン用)。IAM 非連動なので name+password
+    // だけを持つ。placeholder 展開は既に済んでいる前提で、未解決 (`${...}` 残り) を
+    // fail-fast する (= cloud_sql_secrets の渡し忘れ / typo を平文 password 化しない)。
+    const users = cs.users;
+    if (users !== undefined && users !== null) {
+        if (!Array.isArray(users)) {
+            throw new Error(`data_connect[${index}] (service_id="${serviceId}"): 'cloud_sql.users' must be an array of { name, password }`);
+        }
+        for (let ui = 0; ui < users.length; ui++) {
+            const bu = users[ui];
+            if (bu === null || typeof bu !== "object" || Array.isArray(bu)) {
+                throw new Error(`data_connect[${index}].cloud_sql.users[${ui}] (service_id="${serviceId}"): expected an object { name, password }`);
+            }
+            const b = bu;
+            if (typeof b.name !== "string" || b.name === "") {
+                throw new Error(`data_connect[${index}].cloud_sql.users[${ui}] (service_id="${serviceId}"): 'name' is required (BUILT_IN Postgres user name)`);
+            }
+            if (typeof b.password !== "string" || b.password === "") {
+                throw new Error(`data_connect[${index}].cloud_sql.users[${ui}] (name="${b.name}"): 'password' is required for a BUILT_IN Cloud SQL user`);
+            }
+            if (b.password.includes("${")) {
+                throw new Error(`data_connect[${index}].cloud_sql.users[${ui}] (name="${b.name}"): password still contains an unresolved placeholder ("${b.password}"). Provide its value via the Action's 'cloud_sql_secrets' input.`);
+            }
+        }
+    }
 }
 function validateAppEntry(index, entry) {
     const name = entry.name;
@@ -40916,9 +40980,111 @@ function validateAppEntry(index, entry) {
     }
 }
 // ---------------------------------------------------------------------------
+// Cloud SQL user policy: どの project role なら users[].cloud_sql (CLOUD_IAM_USER)
+// を許すか。決め打ちを避け、env ごとに firebase_platform.cloud_sql_user_policy
+// .allowed_roles で上書きできる (未指定なら最小権限側の ["owner"])。
+// prd は ["owner"]、stg/dev は ["owner","editor"] のような env 差分を想定。
+// ---------------------------------------------------------------------------
+const DEFAULT_CLOUD_SQL_USER_ROLES = ["owner"];
+function getAllowedCloudSqlRoles(firebasePlatform) {
+    const policy = firebasePlatform["cloud_sql_user_policy"];
+    if (policy && typeof policy === "object" && !Array.isArray(policy)) {
+        const roles = policy["allowed_roles"];
+        if (Array.isArray(roles) &&
+            roles.length > 0 &&
+            roles.every((r) => typeof r === "string")) {
+            return roles;
+        }
+    }
+    return DEFAULT_CLOUD_SQL_USER_ROLES;
+}
+/**
+ * users[].cloud_sql (= CLOUD_IAM_USER 付与) の事前 validation。
+ *   - role が allowed_roles に含まれること (viewer 等に DB access を渡さない)
+ *   - password を持たないこと (BUILT_IN は data_connect 側に書く)
+ *   - instance_id が data_connect の instance と一致 (省略時は単一 instance 自動採用、
+ *     複数あって未指定なら曖昧としてエラー)
+ * fail-fast で TFC run 前に落とす。
+ */
+function validateUsersCloudSql(firebasePlatform) {
+    const users = firebasePlatform["users"];
+    if (!Array.isArray(users))
+        return;
+    const allowedRoles = getAllowedCloudSqlRoles(firebasePlatform);
+    const dc = firebasePlatform["data_connect"];
+    const instanceIds = new Set();
+    if (Array.isArray(dc)) {
+        for (const s of dc) {
+            const cs = s && typeof s === "object" && !Array.isArray(s)
+                ? s.cloud_sql
+                : null;
+            if (cs && typeof cs === "object" && !Array.isArray(cs)) {
+                const iid = cs.instance_id;
+                if (typeof iid === "string" && iid !== "")
+                    instanceIds.add(iid);
+            }
+        }
+    }
+    const soleInstance = instanceIds.size === 1 ? [...instanceIds][0] : "";
+    for (let i = 0; i < users.length; i++) {
+        const u = users[i];
+        if (!u || typeof u !== "object" || Array.isArray(u))
+            continue;
+        const uo = u;
+        const cloudSql = uo.cloud_sql;
+        if (cloudSql === undefined || cloudSql === null)
+            continue;
+        const email = typeof uo.email === "string" ? uo.email : "(no email)";
+        if (typeof cloudSql !== "object" || Array.isArray(cloudSql)) {
+            throw new Error(`users[${i}] (email="${email}"): 'cloud_sql' must be an object (use {} to grant IAM DB access on the sole instance, or { instance_id: ... }).`);
+        }
+        const cs = cloudSql;
+        if ("password" in cs) {
+            throw new Error(`users[${i}] (email="${email}"): 'cloud_sql.password' is not allowed here — users[].cloud_sql creates an IAM DB user (no password). Declare password (BUILT_IN) users under data_connect[].cloud_sql.users instead.`);
+        }
+        const role = typeof uo.role === "string" ? uo.role : "viewer";
+        if (!allowedRoles.includes(role)) {
+            throw new Error(`users[${i}] (email="${email}"): role "${role}" is not permitted to receive Cloud SQL access. Allowed roles: [${allowedRoles.join(", ")}]. Adjust the user's role or firebase_platform.cloud_sql_user_policy.allowed_roles.`);
+        }
+        const explicit = typeof cs.instance_id === "string" ? cs.instance_id : "";
+        const resolved = explicit !== "" ? explicit : soleInstance;
+        if (resolved === "") {
+            throw new Error(instanceIds.size === 0
+                ? `users[${i}] (email="${email}"): cloud_sql access requires a data_connect Cloud SQL instance, but none is defined.`
+                : `users[${i}] (email="${email}"): multiple Cloud SQL instances exist ([${[...instanceIds].join(", ")}]); set cloud_sql.instance_id explicitly.`);
+        }
+        if (!instanceIds.has(resolved)) {
+            throw new Error(`users[${i}] (email="${email}"): cloud_sql.instance_id "${resolved}" does not match any data_connect Cloud SQL instance ([${[...instanceIds].join(", ")}]).`);
+        }
+    }
+}
+/**
+ * normalize 済み data_connect が BUILT_IN password を含むか。含むなら TFC 変数
+ * `data_connect` を sensitive にして平文 password を TFC UI/API から隠す。
+ */
+function dataConnectHasBuiltinPassword(normalized) {
+    if (!Array.isArray(normalized))
+        return false;
+    return normalized.some((s) => {
+        const cs = s && typeof s === "object" && !Array.isArray(s)
+            ? s.cloud_sql
+            : null;
+        const users = cs && typeof cs === "object" && !Array.isArray(cs)
+            ? cs.users
+            : null;
+        return (Array.isArray(users) &&
+            users.some((bu) => bu &&
+                typeof bu === "object" &&
+                typeof bu.password === "string" &&
+                bu.password !== ""));
+    });
+}
+// ---------------------------------------------------------------------------
 // Build Terraform variable specs from firebase_platform config
 // ---------------------------------------------------------------------------
 function buildTerraformVariables(projectId, firebasePlatform) {
+    // Cloud SQL の CLOUD_IAM_USER 付与 (users[].cloud_sql) を事前 validation。
+    validateUsersCloudSql(firebasePlatform);
     const vars = [];
     vars.push({
         key: "project_id",
@@ -40941,12 +41107,16 @@ function buildTerraformVariables(projectId, firebasePlatform) {
     for (const key of LIST_FEATURE_KEYS) {
         const raw = firebasePlatform[key];
         const normalized = normalizeListFeatureFlag(key, raw);
+        // data_connect が BUILT_IN password を含む場合は変数全体を sensitive にして
+        // TFC 上で平文 password を隠す (data_connect は 1 変数に HCL 直列化されるため、
+        // password だけを分離せず変数単位で sensitive 化する)。
+        const sensitive = key === "data_connect" && dataConnectHasBuiltinPassword(normalized);
         vars.push({
             key,
             value: toHclValue(normalized),
             category: "terraform",
             hcl: true,
-            sensitive: false,
+            sensitive,
         });
     }
     for (const key of PASSTHROUGH_KEYS) {
@@ -41648,9 +41818,17 @@ async function run() {
         const moduleVersion = core.getInput("module_version");
         const labelsInput = core.getInput("labels");
         const projectPropagationWaitSeconds = Number(core.getInput("project_propagation_wait_seconds") || "60");
+        // Cloud SQL の BUILT_IN password 等を settings.yml の UPPERCASE placeholder に
+        // 注入するための secret map (JSON object)。空なら注入なし。
+        const cloudSqlSecrets = parseCloudSqlSecrets(core.getInput("cloud_sql_secrets"));
         core.setSecret(tfcToken);
         if (webhookSecret)
             core.setSecret(webhookSecret);
+        // 注入する secret 値はログに出さないよう mask する。
+        for (const v of Object.values(cloudSqlSecrets)) {
+            if (v)
+                core.setSecret(v);
+        }
         // Default outputs so downstream `if:` checks are always safe.
         core.setOutput("skipped", "false");
         core.setOutput("skip_reason", "");
@@ -41763,6 +41941,7 @@ async function run() {
                     service: settings.service,
                     env,
                     bootstrapProjectNumber,
+                    externalSecrets: cloudSqlSecrets,
                 });
                 core.info(`[${env}] firebase_platform keys: ${Object.keys(firebasePlatform).join(", ")}`);
                 // Derive project_id / SA email
