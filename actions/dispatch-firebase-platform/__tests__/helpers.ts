@@ -32,7 +32,10 @@ export const loadAndBuild = async (
   fixture: string,
   env: string,
   projectId: string,
-  opts: { bootstrapProjectNumber?: string } = {},
+  opts: {
+    bootstrapProjectNumber?: string;
+    externalSecrets?: Record<string, string>;
+  } = {},
 ) => {
   const settings = await loadSettings(`${FIXTURES_DIR}/${fixture}`);
   const raw = extractFirebasePlatform(settings, env);
@@ -40,6 +43,7 @@ export const loadAndBuild = async (
     service: settings.service,
     env,
     bootstrapProjectNumber: opts.bootstrapProjectNumber,
+    externalSecrets: opts.externalSecrets,
   });
   return {
     settings,
