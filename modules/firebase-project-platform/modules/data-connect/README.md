@@ -15,6 +15,7 @@ Submodule that creates Firebase Data Connect **services (one per `services[]` en
 | `google_firebase_data_connect_service.this` | `google-beta` | Data Connect services (`for_each` over `services[]`, keyed by `service_id`) |
 | `google_sql_database_instance.this` | `google` | Cloud SQL instances (`for_each`, keyed by `instance_id`, deduplicated) |
 | `google_sql_database.this` | `google` | Cloud SQL databases (`for_each`, keyed by `{instance_id}/{database}`) |
+| `google_sql_user.this` | `google` | Cloud SQL users (`for_each` over `sql_users[]`, keyed by `{instance_id}/{name}`) — BUILT_IN (password) or CLOUD_IAM_USER |
 | `terraform_data.validate_cloud_sql_instance_consistency` | — | Plan-time precondition: services sharing an `instance_id` must agree on `tier` / `database_version` / `deletion_protection` / `location` |
 
 ## Inputs
@@ -24,6 +25,7 @@ Submodule that creates Firebase Data Connect **services (one per `services[]` en
 | `project` | `string` | (required) | GCP project ID |
 | `default_location` | `string` | (required) | Fallback location used when a `services[]` entry omits `location` |
 | `services` | `list(object)` | `[]` | Data Connect services (see fields below) |
+| `sql_users` | `list(object)` | `[]` | Cloud SQL users to create (derived by the parent module from `users[].cloud_sql` and `data_connect[].cloud_sql.users`). Empty → no `google_sql_user`. Fields: `instance_id`, `name`, `type` (`CLOUD_IAM_USER` default / `BUILT_IN`), `password` (BUILT_IN only) |
 
 Fields of each `services[]` entry:
 
@@ -45,6 +47,7 @@ Fields of each `services[]` entry:
 | `services` | Map keyed by `service_id`. Each value contains `resource_name`, `location`. |
 | `cloud_sql_instances` | Map keyed by `instance_id` (deduplicated). Each value contains `name`, `connection_name`, `region`, `database_version`. |
 | `cloud_sql_databases` | Map keyed by `{instance_id}/{database}`. Each value contains `instance`, `name`. |
+| `cloud_sql_users` | Map keyed by `{instance_id}/{name}`. Each value contains `instance`, `name`, `type`. Passwords are never exported. |
 
 ## Related APIs
 

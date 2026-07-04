@@ -1,0 +1,19 @@
+# Error fixture: users[].cloud_sql.instance_id が data_connect の instance と
+# 一致しない → fail-fast
+service: err-svc
+environments:
+  prd-001:
+    billing_account_id: "AAAA-AAAA-AAAA"
+    firebase_platform:
+      firebase: true
+      users:
+        - email: owner@corp.com
+          role: owner
+          cloud_sql:
+            instance_id: does-not-exist
+      data_connect:
+        - service_id: main
+          location: asia-northeast1
+          cloud_sql:
+            instance_id: err-fdc
+            database: main

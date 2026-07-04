@@ -1,0 +1,17 @@
+# Error fixture: viewer が cloud_sql access を要求 (許可 role 外) → fail-fast
+service: err-svc
+environments:
+  prd-001:
+    billing_account_id: "AAAA-AAAA-AAAA"
+    firebase_platform:
+      firebase: true
+      users:
+        - email: viewer@corp.com
+          role: viewer
+          cloud_sql: {} # viewer は DB access 不可
+      data_connect:
+        - service_id: main
+          location: asia-northeast1
+          cloud_sql:
+            instance_id: err-fdc
+            database: main
