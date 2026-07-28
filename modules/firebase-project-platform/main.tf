@@ -250,6 +250,11 @@ locals {
       app_id           = try(a.app_id, "")
       service_account  = try(a.service_account, "")
       serving_locality = try(a.serving_locality, "GLOBAL_ACCESS")
+      # 環境別 config (apphosting.<environment>.yaml) 選択用の環境名。
+      # 他の任意 string と違い "" sentinel ではなく null 既定。理由: 空文字を
+      # そのまま resource に渡すと "environment=''" の意図しない設定になるため、
+      # 未指定は null で「引数省略」に落とす。
+      environment = try(a.environment, null)
       # custom_domains は hosting と同じく文字列 / object 混在を許容し正規化する。
       custom_domains = [
         for cd in try(a.custom_domains, []) : {
@@ -811,6 +816,7 @@ module "app_hosting" {
   ].app_id
   service_account  = each.value.service_account != "" ? each.value.service_account : google_service_account.app_hosting_default[0].email
   serving_locality = each.value.serving_locality
+  environment      = each.value.environment
   custom_domains   = [for cd in each.value.custom_domains : cd.domain]
 
   depends_on = [

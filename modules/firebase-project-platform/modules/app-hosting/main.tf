@@ -10,6 +10,9 @@ resource "google_firebase_app_hosting_backend" "this" {
   app_id           = var.app_id
   service_account  = var.service_account
   serving_locality = var.serving_locality
+  # 環境別 config (apphosting.<environment>.yaml) を選択するための環境名。
+  # null なら引数自体が省略され、backend は environment 未設定になる。
+  environment = var.environment
 }
 
 # Custom domain (複数可、空なら作らない)。
