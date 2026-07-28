@@ -307,6 +307,7 @@ List of Firebase App Hosting backends.
 | `app_id` | `string` | (省略可) | 外部 Web App を pin したい場合のみ指定。`app` と排他 (両方書くと plan-time error) |
 | `service_account` | `string` | (auto-created) | Compute SA email。Empty なら project 共有の `firebase-app-hosting-compute` SA を 1 つだけ自動作成して全 backend で共有 |
 | `serving_locality` | `string` | `"GLOBAL_ACCESS"` | `GLOBAL_ACCESS` / `REGION_LOCKED` |
+| `environment` | `string` | (省略可 / null) | 環境名。firebase CLI が rollout 時に `apphosting.<environment>.yaml` を選ぶラベル。Console の backend 設定の "environment" と同じ。省略すると `apphosting.yaml` のみ使用。mutable (変更で backend 再作成なし)。key を書かなければ従来どおり未設定で plan は clean |
 | `custom_domains` | `list(string \| object)` | `[]` | 独自ドメイン。hosting と同じく文字列か `{ domain, authorized_domain }`。空なら作らない。DNS 登録は別レイヤ前提 |
 | `authorized_domain` | `bool` | `false` | `true` でこの entry の `custom_domains` を全て Firebase Auth の `authorized_domains` にも登録 |
 

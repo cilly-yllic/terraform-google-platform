@@ -34,6 +34,16 @@ variable "custom_domains" {
   default     = []
 }
 
+variable "environment" {
+  # backend の「環境名」。firebase CLI が rollout 時に apphosting.<environment>.yaml
+  # (環境別の runConfig / env vars) を選択するためのラベル。Console の backend 設定に
+  # ある "environment" と同じもの。null (既定) なら apphosting.yaml のみが使われる。
+  # provider 上は mutable (変更しても backend 再作成にはならない)。
+  description = "Environment name of the backend (selects apphosting.<environment>.yaml at deploy time). null なら未設定。"
+  type        = string
+  default     = null
+}
+
 variable "serving_locality" {
   description = "Serving locality for the App Hosting backend."
   type        = string
