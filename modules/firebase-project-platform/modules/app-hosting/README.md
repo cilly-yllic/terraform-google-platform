@@ -29,6 +29,7 @@ submodule は backend リソースのみを作る。共有 compute Service Accou
 | `app_id` | `string` | (required) | Firebase Web App ID to link this backend to (passed from `web-app` / external pin via the root module) |
 | `service_account` | `string` | (required) | Compute SA email (already resolved by the root module — empty-string auto-create logic lives in the root, not here) |
 | `serving_locality` | `string` | `"GLOBAL_ACCESS"` | `GLOBAL_ACCESS` / `REGION_LOCKED` |
+| `environment` | `string` | `null` | Environment name; selects `apphosting.<environment>.yaml` at deploy time (matches the Console backend "environment" field). `null` → argument omitted (uses `apphosting.yaml` only). Mutable (no recreate). |
 | `custom_domains` | `list(string)` | `[]` | Custom domains to register. Empty → none created. DNS registration is expected on a separate layer. |
 
 ## Outputs

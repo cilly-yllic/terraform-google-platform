@@ -65,6 +65,10 @@ firebase_platform:
     - backend_id: task-tree-web-app
       location: asia-east1
       app: task-tree-web-app          # 紐付ける web app (複数 web app があるため明示)
+      # 環境名 (任意)。firebase CLI が rollout 時に apphosting.<environment>.yaml を
+      # 選ぶためのラベル。Console の backend 設定にある "environment" と同じ。
+      # 省略すると apphosting.yaml のみが使われる。mutable (変更で backend 再作成は無し)。
+      environment: production
       # service_account / serving_locality は任意 (default: 共有 compute SA / GLOBAL_ACCESS)
       # 独自ドメイン (任意)。文字列 or { domain, authorized_domain } の混在可。
       custom_domains:
