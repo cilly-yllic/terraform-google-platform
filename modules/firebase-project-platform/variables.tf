@@ -204,6 +204,10 @@ variable "app_hosting" {
                          (両方書くと plan-time error)
       service_account  = Service account email (default: 自動で project 共有の SA を作成)
       serving_locality = GLOBAL_ACCESS | REGION_LOCKED (default: "GLOBAL_ACCESS")
+      environment      = 環境名 (optional)。firebase CLI が rollout 時に
+                         apphosting.<environment>.yaml を選ぶためのラベル。
+                         Console の backend 設定にある "environment" と同じ。
+                         省略で apphosting.yaml のみ使用。
       custom_domains   = この backend に登録する custom domain の list (optional)。
                          ・各要素は文字列 ("api.example.com") か object 形式
                            { domain = "...", authorized_domain = true } も可

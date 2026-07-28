@@ -95,6 +95,9 @@ module "firebase_platform" {
       backend_id = "jobs"
       location   = "us-central1"
       app        = "main"
+      # 環境名 (任意)。firebase CLI が rollout 時に apphosting.<environment>.yaml を
+      # 選ぶラベル。省略すると apphosting.yaml のみ使用。
+      environment = "production"
       # 外部 Web App を pin したい時は app の代わりに app_id を指定:
       # app_id = "1:XXXXX:web:abc123"
     },
