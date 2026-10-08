@@ -58,6 +58,13 @@ locals {
       database    = s.cs_database
     }
   }
+
+  # Cloud SQL User を (instance_id + name) でユニーク化。
+  # 同 instance を共有する複数 service が同じ user を宣言しても 1 件に dedup する
+  # (親モジュールで既に email/name ベースで dedup 済みだが二重に安全側)。
+  cloud_sql_users_map = {
+    for u in var.sql_users : "${u.instance_id}/${u.name}" => u
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -136,6 +143,49 @@ resource "google_sql_database" "this" {
   project  = var.project
   instance = google_sql_database_instance.this[each.value.instance_id].name
   name     = each.value.database
+}
+
+# ---------------------------------------------------------------------------
+# Cloud SQL Users
+#
+# project の users[].cloud_sql から親モジュールが導出して渡す。設定が無ければ
+# (sql_users = []) 1 件も作られない。
+#
+#   - type=CLOUD_IAM_USER: password 無し。instance の cloudsql.iam_authentication
+#     (=on) を使い、IAM principal (人 = email そのもの) を DB user に map する。
+#     Cloud SQL Studio へは本人が IAM 認証でログインする。
+#   - type=BUILT_IN: password 付きの新規 Postgres ロールを作成 (postgres /
+#     firebasesuperuser とは別の独立ユーザー)。Cloud SQL Studio に name+password で
+#     直接ログインできる。Cloud SQL は新規ユーザーに cloudsqlsuperuser を付与する
+#     ため広めの権限を持つが、Data Connect が firebasesuperuser で所有する schema
+#     の object 権限は自動では付かない (必要なら別途 GRANT が要る)。
+# ---------------------------------------------------------------------------
+
+resource "google_sql_user" "this" {
+  for_each = local.cloud_sql_users_map
+  project  = var.project
+  instance = google_sql_database_instance.this[each.value.instance_id].name
+  name     = each.value.name
+  type     = each.value.type
+  # BUILT_IN のみ password を渡す。IAM 系は password 指定不可 (provider が拒否)。
+  password = each.value.type == "BUILT_IN" ? each.value.password : null
+
+  lifecycle {
+    precondition {
+      condition     = contains(keys(local.cloud_sql_instances_canonical), each.value.instance_id)
+      error_message = "sql_users: user '${each.value.name}' references Cloud SQL instance_id '${each.value.instance_id}' which is not declared in any data_connect entry."
+    }
+    precondition {
+      condition     = each.value.type != "BUILT_IN" || (each.value.password != null && each.value.password != "")
+      error_message = "sql_users: BUILT_IN user '${each.value.name}' requires a non-empty password."
+    }
+    precondition {
+      condition     = contains(["BUILT_IN", "CLOUD_IAM_USER"], each.value.type)
+      error_message = "sql_users: user '${each.value.name}' has invalid type '${each.value.type}' (must be BUILT_IN or CLOUD_IAM_USER)."
+    }
+  }
+
+  depends_on = [google_sql_database.this]
 }
 
 # ---------------------------------------------------------------------------

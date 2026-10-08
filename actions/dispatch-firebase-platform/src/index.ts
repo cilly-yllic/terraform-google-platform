@@ -35,6 +35,7 @@ import {
   parseNotifications,
   NOTIFICATION_NAME_PREFIX,
   resolveProjectPropagationWaitMs,
+  parseCloudSqlSecrets,
 } from "../lib/dispatch/index.js";
 import { buildTemplateFiles } from "../lib/templates/index.js";
 import { resolveModuleVersion } from "../lib/registry/index.js";
@@ -70,9 +71,18 @@ async function run(): Promise<void> {
     const projectPropagationWaitSeconds = Number(
       core.getInput("project_propagation_wait_seconds") || "60",
     );
+    // Cloud SQL の BUILT_IN password 等を settings.yml の UPPERCASE placeholder に
+    // 注入するための secret map (JSON object)。空なら注入なし。
+    const cloudSqlSecrets = parseCloudSqlSecrets(
+      core.getInput("cloud_sql_secrets"),
+    );
 
     core.setSecret(tfcToken);
     if (webhookSecret) core.setSecret(webhookSecret);
+    // 注入する secret 値はログに出さないよう mask する。
+    for (const v of Object.values(cloudSqlSecrets)) {
+      if (v) core.setSecret(v);
+    }
 
     // Default outputs so downstream `if:` checks are always safe.
     core.setOutput("skipped", "false");
@@ -203,6 +213,7 @@ async function run(): Promise<void> {
             service: settings.service,
             env,
             bootstrapProjectNumber,
+            externalSecrets: cloudSqlSecrets,
           },
         );
         core.info(

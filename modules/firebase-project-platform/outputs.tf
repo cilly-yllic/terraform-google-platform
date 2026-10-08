@@ -158,6 +158,11 @@ output "data_connect_cloud_sql_databases" {
   value       = local.enable_data_connect ? module.data_connect[0].cloud_sql_databases : {}
 }
 
+output "data_connect_cloud_sql_users" {
+  description = "Map of Cloud SQL users (from users[].cloud_sql), keyed by '{instance_id}/{name}'. Passwords are never exported."
+  value       = local.enable_data_connect ? module.data_connect[0].cloud_sql_users : {}
+}
+
 # ---------------------------------------------------------------------------
 # IAM
 # ---------------------------------------------------------------------------

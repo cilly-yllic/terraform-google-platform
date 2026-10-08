@@ -87,6 +87,17 @@ inputs:
       input is required).
     required: false
     default: ""
+  cloud_sql_secrets:
+    description: >
+      JSON object mapping settings.yml UPPERCASE placeholders to secret values,
+      injected into firebase_platform strings at parse time (e.g.
+      '{"CLOUD_SQL_PW_ADMIN":"s3cret"}'). Main use: Cloud SQL BUILT_IN user
+      passwords declared as `data_connect[].cloud_sql.users[].password:
+      ${CLOUD_SQL_PW_ADMIN}` so plaintext never lives in the service repo.
+      Values are masked in logs and the resulting `data_connect` TFC variable is
+      marked sensitive. Empty ("") means no injection.
+    required: false
+    default: ""
   project_propagation_wait_seconds:
     description: >
       Seconds to sleep before creating any TFC Run, but ONLY when this Action was
