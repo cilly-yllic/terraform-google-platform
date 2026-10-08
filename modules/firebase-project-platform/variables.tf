@@ -113,7 +113,9 @@ variable "rtdb" {
 variable "storage" {
   description = <<-EOT
     Cloud Storage for Firebase.
-    null to disable, true for defaults (default bucket only), or object:
+    null to disable, true for defaults (API enablement only), or object:
+      default_bucket = true で事前作成済みの default bucket ({project_id}.firebasestorage.app)
+                       を link し deny-all ruleset を適用 (default: false。Terraform では作成不可)
       buckets = list of additional buckets. Each bucket:
         name          = bucket name (verbatim; globally unique なので衝突注意)
         auto_prefix   = true で `{project_id}-{name}` に組み立てる (default: false)
@@ -122,11 +124,16 @@ variable "storage" {
         iams          = list of IAM bindings (optional). Each:
           role    = IAM role
           members = list of members
+        cors          = list of CORS rules (optional、省略時は CORS なし)。
+                        google_storage_bucket の cors ブロックと同名・同義。Each:
+          origin          = list of origins (例: ["https://$${service}-$${env}-lp.web.app"])
+          method          = list of HTTP methods (例: ["GET", "HEAD"])
+          response_header = list of response headers (例: ["Content-Type"])
+          max_age_seconds = preflight response の cache 秒数
       firestore_backup = Firestore backup bucket config (optional):
         bucket_name     = bucket 名 (verbatim、auto_prefix=true で `{project_id}-` 付与)
         auto_prefix     = true で `{project_id}-{bucket_name}` に組み立てる (default: false)
         export_platform = "cloud_functions" | "cloud_run" (default: "cloud_functions")
-    Default bucket is always created when storage is enabled.
   EOT
   type        = any
   default     = null

@@ -63,6 +63,7 @@ locals {
       location      = b.location != "" ? b.location : var.location
       storage_class = b.storage_class != "" ? b.storage_class : "REGIONAL"
       iams          = b.iams
+      cors          = b.cors
     }
   }
 
@@ -85,6 +86,17 @@ resource "google_storage_bucket" "additional" {
   location                    = each.value.location
   storage_class               = each.value.storage_class
   uniform_bucket_level_access = true
+
+  # cors 未指定 (= []) ならブロックを生成しない → 既存バケットに差分は出ない。
+  dynamic "cors" {
+    for_each = each.value.cors
+    content {
+      origin          = cors.value.origin
+      method          = cors.value.method
+      response_header = cors.value.response_header
+      max_age_seconds = cors.value.max_age_seconds
+    }
+  }
 }
 
 resource "google_firebase_storage_bucket" "additional" {

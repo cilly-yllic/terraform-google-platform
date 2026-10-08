@@ -25,7 +25,7 @@ variable "default_bucket" {
 variable "buckets" {
   # GCS bucket は globally unique。`auto_prefix = true` で `{project_id}-{name}`
   # に組み立てる。default は false (= `name` をそのまま使う)。
-  description = "Additional buckets to create. name is used verbatim; set auto_prefix = true to wrap with {project_id}- for global uniqueness."
+  description = "Additional buckets to create. name is used verbatim; set auto_prefix = true to wrap with {project_id}- for global uniqueness. cors mirrors the google_storage_bucket cors block (origin / method / response_header / max_age_seconds)."
   type = list(object({
     name          = string
     auto_prefix   = optional(bool, false)
@@ -34,6 +34,13 @@ variable "buckets" {
     iams = optional(list(object({
       role    = string
       members = list(string)
+    })), [])
+    # google_storage_bucket の cors ブロックと同名・同義。省略時は CORS なし。
+    cors = optional(list(object({
+      origin          = optional(list(string))
+      method          = optional(list(string))
+      response_header = optional(list(string))
+      max_age_seconds = optional(number)
     })), [])
   }))
   default = []
