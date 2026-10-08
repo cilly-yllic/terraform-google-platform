@@ -3,18 +3,18 @@ import * as github from "@actions/github";
 import * as fs from "fs";
 import * as path from "path";
 
-import { TfcClient } from "../lib/tfc";
-import { parseSettings } from "../lib/settings";
+import { TfcClient } from "../lib/tfc/index.js";
+import { parseSettings } from "../lib/settings/index.js";
 import {
   expandWorkspaceName,
   buildRunMessage,
   parseLabelsInput,
   selectTargetEnvs,
   buildEnvEntry,
-} from "../lib/dispatch";
-import { buildTemplateFiles } from "../lib/templates";
-import { resolveModuleVersion } from "../lib/registry";
-import { buildTarball } from "../lib/config-version";
+} from "../lib/dispatch/index.js";
+import { buildTemplateFiles } from "../lib/templates/index.js";
+import { resolveModuleVersion } from "../lib/registry/index.js";
+import { buildTarball } from "../lib/config-version/index.js";
 
 async function run(): Promise<void> {
   try {

@@ -16,7 +16,7 @@ const environmentSchema = z.object({
   // PREVENT" で失敗する)。詳細は modules/project-bootstrap/variables.tf。
   // 公開モジュールの安全 floor として既定は PREVENT を維持し、削除は明示 opt-in。
   deletion_policy: z.enum(["PREVENT", "ABANDON", "DELETE"]).optional(),
-  firebase_platform: z.record(z.unknown()).optional(),
+  firebase_platform: z.record(z.string(), z.unknown()).optional(),
 });
 
 const settingsSchema = z.object({
