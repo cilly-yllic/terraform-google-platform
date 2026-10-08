@@ -12,12 +12,12 @@ Cloud Storage for Firebase の **デフォルト bucket + 追加 bucket + 任意
 
 | Resource | Role |
 |----------|------|
-| `google_firebase_storage_bucket.default` | Registers the default bucket (`{project}.firebasestorage.app`) with Firebase Storage |
-| `google_firebaserules_ruleset.storage` | A **deny-all** ruleset for the default bucket |
+| `google_firebase_storage_bucket.default` | (`default_bucket = true` only) Links the pre-created default bucket (`{project}.firebasestorage.app`) with Firebase Storage |
+| `google_firebaserules_ruleset.storage` | (`default_bucket = true` only) A **deny-all** ruleset for the default bucket |
 | `google_firebaserules_release.storage` | Releases the ruleset to `firebase.storage/{bucket}` |
-| `google_storage_bucket.additional` | GCS buckets specified via `buckets[]` |
+| `google_storage_bucket.additional` | GCS buckets specified via `buckets[]` (with optional `cors` rules) |
 | `google_firebase_storage_bucket.additional` | Registers each additional bucket with Firebase Storage |
-| `google_storage_bucket_iam_member.additional` | IAM bindings on additional buckets |
+| `google_storage_bucket_iam_binding.additional` | IAM bindings on additional buckets |
 | `google_storage_bucket.firestore_backup` | (optional) Firestore-export bucket |
 | `google_project_iam_member.firestore_backup_*` | (optional) Bucket-write IAM for the Firestore export SA |
 
@@ -64,8 +64,18 @@ GCS bucket は globally unique なので、衝突しない命名を呼び出し�
 |------|------|---------|-------------|
 | `project` | `string` | (required) | GCP project ID |
 | `location` | `string` | (required) | Default bucket location |
-| `buckets` | `list(object)` | `[]` | Additional buckets. Fields: `name`, `auto_prefix`, `location`, `storage_class`, `iams[]` |
+| `default_bucket` | `bool` | `false` | Link the pre-created default bucket (Terraform cannot provision it since 2024-09) |
+| `buckets` | `list(object)` | `[]` | Additional buckets. Fields: `name`, `auto_prefix`, `location`, `storage_class`, `iams[]`, `cors[]` |
 | `firestore_backup` | `object \| null` | `null` | Firestore-backup bucket config |
+
+Fields of `buckets[].cors[]` (same names/semantics as the `google_storage_bucket` `cors` block; omit `cors` for no CORS — existing buckets get no diff):
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `origin` | `null` | Allowed origins |
+| `method` | `null` | Allowed HTTP methods |
+| `response_header` | `null` | Response headers exposed to the browser |
+| `max_age_seconds` | `null` | Preflight response cache seconds |
 
 Fields of `firestore_backup`:
 
