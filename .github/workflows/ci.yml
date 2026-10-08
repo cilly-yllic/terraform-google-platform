@@ -93,6 +93,37 @@ jobs:
         working-directory: examples/project-bootstrap/complete
         run: terraform validate
 
+  # required_version の下限で init / validate が通るか (新しい構文の混入検知)
+  terraform-min-version:
+    name: "Terraform Validate (min version) – ${{ matrix.module }} @ ${{ matrix.terraform }}"
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - module: firebase-project-platform
+            terraform: "1.10.x"
+          - module: project-bootstrap
+            terraform: "1.3.x"
+
+    defaults:
+      run:
+        working-directory: modules/${{ matrix.module }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ matrix.terraform }}
+
+      - name: terraform init
+        run: terraform init -backend=false
+
+      - name: terraform validate
+        run: terraform validate
+
   action-dispatch-firebase-platform:
     name: "Action – dispatch-firebase-platform (Lint, Test & Build)"
     runs-on: ubuntu-latest
@@ -184,7 +215,7 @@ jobs:
         run: npm run lint
 
       - name: oxfmt --check
-        run: npx oxfmt --check src __tests__
+        run: npm run fmt:check
 
       - name: vitest (unit tests)
         run: npm test
