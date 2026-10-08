@@ -33,6 +33,7 @@ dispatch-firebase-platform Action は settings.yml を読んだ後、`firebase_p
 | `hosting[].site_id` | `${service}-${env}-web` (Firebase Hosting site は globally unique) |
 | `storage.buckets[].name` | `${service}-${env}-cdn-assets` (GCS bucket は globally unique) |
 | `storage.firestore_backup.bucket_name` | `${service}-${env}-firestore-backup` |
+| `storage.buckets[].cors[].origin` | `https://${service}-${env}-lp.web.app` (Hosting site 名と揃える。globally unique ではないが env ごとに値が変わる) |
 
 `auto_prefix = true` を指定すると、自動で `{project_id}-` が付与される (= 短い base name で衝突しない命名を作る用途)。逆に `${service}` / `${env}` 展開で衝突回避済みの場合は `auto_prefix` 指定不要 (default `false`)。
 
@@ -225,16 +226,22 @@ instance ID は `{project_id}-default-rtdb` 固定。
 
 ### `storage`
 
-The default bucket (`{project_id}.firebasestorage.app`) is **always created** with a **deny-all** initial ruleset.
+The default bucket (`{project_id}.firebasestorage.app`) is **opt-in** (`default_bucket = true`). It must be pre-created via the Firebase Console (Terraform cannot provision it since 2024-09); once linked, a **deny-all** initial ruleset is applied.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
+| `default_bucket` | `bool` | `false` | Link the pre-created default bucket and apply the deny-all ruleset |
 | `buckets` | `list(object)` | `[]` | Additional buckets |
 | `buckets[].name` | `string` | (required) | bucket name (verbatim、globally unique なので呼び出し側で衝突回避を保証) |
 | `buckets[].auto_prefix` | `bool` | `false` | `true` で `{project_id}-{name}` に組み立てる |
 | `buckets[].location` | `string` | `var.region` | bucket location |
 | `buckets[].storage_class` | `string` | `"REGIONAL"` | storage class |
 | `buckets[].iams` | `list(object)` | `[]` | IAM bindings (`role`, `members`) |
+| `buckets[].cors` | `list(object)` | `[]` | CORS rules. Same names/semantics as the `google_storage_bucket` `cors` block. Omit for no CORS |
+| `buckets[].cors[].origin` | `list(string)` | `null` | Allowed origins (`${service}` / `${env}` are expanded when passed via the dispatch Action's settings.yml) |
+| `buckets[].cors[].method` | `list(string)` | `null` | Allowed HTTP methods (e.g. `["GET", "HEAD"]`) |
+| `buckets[].cors[].response_header` | `list(string)` | `null` | Response headers exposed to the browser |
+| `buckets[].cors[].max_age_seconds` | `number` | `null` | Preflight response cache seconds |
 | `firestore_backup` | `object \| null` | `null` | Firestore backup bucket config |
 | `firestore_backup.bucket_name` | `string` | `"firestore-backups"` | bucket 名 (verbatim、`auto_prefix=true` で `{project_id}-` 付与) |
 | `firestore_backup.auto_prefix` | `bool` | `false` | `true` で `{project_id}-{bucket_name}` に組み立てる |
@@ -243,7 +250,23 @@ The default bucket (`{project_id}.firebasestorage.app`) is **always created** wi
 
 <details><summary>Ja</summary>
 
-デフォルト bucket (`{project_id}.firebasestorage.app`) は **常に作成** され、初期 ruleset として **deny-all** が書き込まれる。
+デフォルト bucket (`{project_id}.firebasestorage.app`) は **opt-in** (`default_bucket = true`)。2024-09 以降 Terraform では作成できないため Firebase Console で事前作成が必要で、link 時に初期 ruleset として **deny-all** が書き込まれる。
+
+`buckets[].cors` は `google_storage_bucket` の `cors` ブロックと同じ名前・同じ意味。省略時は CORS なし (既存バケットに差分は出ない)。別オリジン (例: Firebase Hosting の LP) からブラウザで直接 `fetch` する公開バケットに使う:
+
+```yaml
+storage:
+  buckets:
+    - name: ${service}-${env}-releases
+      iams:
+        - role: roles/storage.objectViewer
+          members: [allUsers]
+      cors:
+        - origin: ["https://${service}-${env}-lp.web.app"]
+          method: ["GET", "HEAD"]
+          response_header: ["Content-Type"]
+          max_age_seconds: 300
+```
 
 </details>
 
