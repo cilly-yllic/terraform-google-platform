@@ -4,17 +4,25 @@ on:
   pull_request:
     branches: [main, develop]
 
+permissions:
+  contents: read
+
+# 同一 PR への連続 push では古い run を止める
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   terraform-firebase-platform:
     name: "Terraform Validate – firebase-project-platform"
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
-          terraform_version: "1.12.x"
+          terraform_version: "1.16.x"
 
       - name: terraform fmt -check
         run: terraform fmt -check -recursive modules/firebase-project-platform
@@ -52,11 +60,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
-          terraform_version: "1.12.x"
+          terraform_version: "1.16.x"
 
       - name: terraform fmt -check
         run: terraform fmt -check -recursive modules/project-bootstrap
@@ -94,11 +102,13 @@ jobs:
         working-directory: actions/dispatch-firebase-platform
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
+          cache: npm
+          cache-dependency-path: actions/dispatch-firebase-platform/package-lock.json
 
       - name: npm ci
         run: npm ci
@@ -116,7 +126,7 @@ jobs:
         run: git diff --exit-code dist/
 
   action-dispatch-project-bootstrap:
-    name: "Action – dispatch-project-bootstrap (Lint & Build)"
+    name: "Action – dispatch-project-bootstrap (Typecheck, Test & Build)"
     runs-on: ubuntu-latest
 
     defaults:
@@ -124,11 +134,13 @@ jobs:
         working-directory: actions/dispatch-project-bootstrap
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
+          cache: npm
+          cache-dependency-path: actions/dispatch-project-bootstrap/package-lock.json
 
       - name: npm ci
         run: npm ci
@@ -136,8 +148,43 @@ jobs:
       - name: typecheck
         run: npm run typecheck
 
+      - name: vitest (unit tests)
+        run: npm test
+
       - name: ncc build
         run: npm run build
 
       - name: dist/ up to date
         run: git diff --exit-code dist/
+
+  cloud-run-router:
+    name: "cloud-run-router (Typecheck, Lint, Format & Test)"
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: cloud-run-router
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: cloud-run-router/package-lock.json
+
+      - name: npm ci
+        run: npm ci
+
+      - name: typecheck
+        run: npm run typecheck
+
+      - name: oxlint
+        run: npm run lint
+
+      - name: oxfmt --check
+        run: npx oxfmt --check src __tests__
+
+      - name: vitest (unit tests)
+        run: npm test
