@@ -426,11 +426,27 @@ variable "users" {
       email  = user email address (required)
       role   = viewer | editor | owner (default: "viewer")
       deploy = grant Cloud Functions / Artifact Registry deploy roles (default: false)
+      cloud_sql = optional。指定するとこの IAM member に Cloud SQL の
+                  CLOUD_IAM_USER (IAM DB 認証、password 無し) を作り、DB ログイン用
+                  の roles/cloudsql.instanceUser も project に付与する。
+                  DB user 名は email そのもの。data_connect の instance が前提。
+                  role による許可 validation は Action 側で事前に済ませてある
+                  (viewer 等に DB access を渡さない)。指定は `cloud_sql: {}` でよい。
+        instance_id = optional。data_connect の instance が 1 つだけならそれを
+                      自動採用。複数ある時だけどの instance か明示する。
+                      (data_connect[].cloud_sql.instance_id と一致必須)
+
+    ※ password ログインの BUILT_IN ユーザーは IAM 非連動の別物なので、ここでは
+      なく data_connect[].cloud_sql.users で宣言する (name + password)。BUILT_IN は
+      instance にネストするので instance_id 不要。
   EOT
   type = list(object({
     email  = string
     role   = optional(string, "viewer")
     deploy = optional(bool, false)
+    cloud_sql = optional(object({
+      instance_id = optional(string, "")
+    }))
   }))
   default = []
 

@@ -154,6 +154,55 @@ locals {
     }
   ]
 
+  # data_connect が定義する Cloud SQL instance_id の集合。instance が 1 つだけなら
+  # users[].cloud_sql の instance_id 省略時にそれを自動採用する。
+  dc_instance_ids  = distinct([for s in local.data_connect_list : s.cloud_sql.instance_id])
+  sole_instance_id = length(local.dc_instance_ids) == 1 ? local.dc_instance_ids[0] : ""
+
+  # (1) CLOUD_IAM_USER: project users[].cloud_sql から導出。DB user 名は email。
+  #     instance_id 省略時は sole_instance_id を採用。password は持たない。
+  cloud_sql_iam_users = [
+    for u in var.users : {
+      instance_id = try(u.cloud_sql.instance_id, "") != "" ? u.cloud_sql.instance_id : local.sole_instance_id
+      name        = u.email
+      type        = "CLOUD_IAM_USER"
+      password    = null
+    }
+    if try(u.cloud_sql, null) != null
+  ]
+
+  # (2) BUILT_IN: data_connect[].cloud_sql.users から導出。instance は enclosing
+  #     entry の instance_id。name + password を持つ (IAM 非連動)。
+  cloud_sql_builtin_users = var.data_connect == null ? [] : flatten([
+    for s in var.data_connect : [
+      for bu in try(s.cloud_sql.users, []) : {
+        instance_id = s.cloud_sql.instance_id
+        name        = bu.name
+        type        = "BUILT_IN"
+        password    = try(bu.password, null)
+      }
+    ]
+  ])
+
+  # data-connect module に渡す統合 list (両種別)。空なら google_sql_user は作られない。
+  cloud_sql_users = concat(local.cloud_sql_iam_users, local.cloud_sql_builtin_users)
+
+  # CLOUD_IAM_USER が IAM 認証で実際にログインするための project レベル role
+  # (roles/cloudsql.instanceUser) を付与する対象 email。
+  cloud_sql_iam_login_emails = distinct([
+    for u in var.users : u.email if try(u.cloud_sql, null) != null
+  ])
+
+  # iam module へは cloud_sql を剥がして渡す (iam module は project IAM member の
+  # 付与だけを担い、Cloud SQL user とは関心を分離する)。
+  iam_users = [
+    for u in var.users : {
+      email  = u.email
+      role   = u.role
+      deploy = u.deploy
+    }
+  ]
+
   # 入力 apps を list に正規化 (null → 空 list)。type 別 field を全部読み出して
   # 1 つの shape にする (使わない field は空文字 / 空 list として保持)。
   apps_list_explicit = var.apps == null ? [] : [
@@ -789,8 +838,22 @@ module "data_connect" {
   project          = var.project_id
   default_location = var.region
   services         = local.data_connect_list
+  sql_users        = local.cloud_sql_users
 
   depends_on = [google_project_service.this, module.firebase]
+}
+
+# CLOUD_IAM_USER (users[].cloud_sql) が IAM DB 認証でログインするための project
+# レベル role。DB user (google_sql_user) の作成だけでは接続できず、この
+# roles/cloudsql.instanceUser が別途必要。non-authoritative な iam_member なので
+# 既存 binding を壊さない。
+resource "google_project_iam_member" "cloud_sql_iam_login" {
+  for_each = local.enable_data_connect ? toset(local.cloud_sql_iam_login_emails) : toset([])
+  project  = var.project_id
+  role     = "roles/cloudsql.instanceUser"
+  member   = "user:${each.value}"
+
+  depends_on = [module.data_connect]
 }
 
 # ---------------------------------------------------------------------------
@@ -1007,7 +1070,7 @@ locals {
 module "iam" {
   source           = "./modules/iam"
   project          = var.project_id
-  users            = var.users
+  users            = local.iam_users
   service_accounts = var.service_accounts
 
   ci_service_account = local.enable_ci_sa ? {

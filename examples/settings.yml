@@ -288,6 +288,13 @@ environments:
             database: main
             tier: db-custom-2-4096            # instance 単位 → 全 entries 同値
             database_version: POSTGRES_15
+            # BUILT_IN ユーザー (password ログイン用、IAM 非連動)。
+            # password は平文で書かず ${UPPERCASE} placeholder にし、実値は Action の
+            # cloud_sql_secrets input (JSON) から注入する。placeholder 未解決なら
+            # apply 前に fail-fast。password を含む data_connect 変数は sensitive 化。
+            users:
+              - name: studio_admin
+                password: ${CLOUD_SQL_PW_STUDIO_ADMIN}
         - service_id: analytics
           location: asia-northeast1
           cloud_sql:
@@ -299,6 +306,24 @@ environments:
             instance_id: jobs-fdc
             database: jobs
             tier: db-f1-micro
+
+      # Cloud SQL user 許可ポリシー (任意)。users[].cloud_sql (CLOUD_IAM_USER) を
+      # 付与できる project role を絞る。未指定なら default [owner]。env ごとに
+      # 緩められる (prd=[owner]、dev/stg=[owner, editor] 等)。viewer は常に不可。
+      cloud_sql_user_policy:
+        allowed_roles: [owner, editor]
+
+      # Project IAM members。cloud_sql: を付けると Cloud SQL の CLOUD_IAM_USER
+      # (IAM 認証、password 無し) を作り、roles/cloudsql.instanceUser も付与する。
+      # DB user 名は email。instance が 1 つなら instance_id 省略で自動採用。
+      users:
+        - email: alice@example.com
+          role: editor
+          cloud_sql: {}                      # sole instance を自動採用
+        - email: dba@example.com
+          role: owner
+          cloud_sql:
+            instance_id: shared-fdc          # 複数 instance がある時は明示
 
       fcm: true
       remote_config: true
