@@ -29,3 +29,14 @@ output "cloud_sql_databases" {
     }
   }
 }
+
+output "cloud_sql_users" {
+  description = "Map of Cloud SQL users, keyed by '{instance_id}/{name}'. Passwords are never exported."
+  value = {
+    for key, u in google_sql_user.this : key => {
+      instance = u.instance
+      name     = u.name
+      type     = u.type
+    }
+  }
+}
