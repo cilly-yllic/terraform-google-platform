@@ -259,6 +259,7 @@ B が settings.yml を読み直して enumerate + filter する。`environments`
 ## Local development
 
 ```bash
+# Node.js >= 24 (package.json engines / Dockerfile と同じ)
 # install deps
 npm install
 
@@ -271,8 +272,10 @@ npm run dev
 # tests
 npm test
 
-# typecheck
+# typecheck / lint / format check
+npm run typecheck
 npm run lint
+npm run fmt:check
 
 # build
 npm run build
@@ -331,9 +334,11 @@ WORKDIR /app
 COPY --from=builder /app/dist dist/
 COPY --from=builder /app/package*.json ./
 # Install runtime deps only (hono / @hono/node-server)
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev && npm cache clean --force
 ENV NODE_ENV=production
 EXPOSE 8080
+# Run as the non-root user bundled with the official image
+USER node
 CMD ["node", "dist/index.js"]
 ```
 
