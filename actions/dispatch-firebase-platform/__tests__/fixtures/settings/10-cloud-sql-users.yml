@@ -1,0 +1,45 @@
+# Fixture: Cloud SQL users
+#   - CLOUD_IAM_USER  … users[].cloud_sql (IAM 連動、password 無し、role validation)
+#   - BUILT_IN        … data_connect[].cloud_sql.users (IAM 非連動、name+password)
+#   - cloud_sql_user_policy.allowed_roles で env ごとに許可 role を可変化
+service: graphql-svc
+environments:
+  dev-001:
+    billing_account_id: "AAAA-AAAA-AAAA"
+    firebase_platform:
+      firebase: true
+      # dev は editor も DB access を許可
+      cloud_sql_user_policy:
+        allowed_roles: [owner, editor]
+      users:
+        - email: alice@corp.com
+          role: editor
+          cloud_sql: {} # instance 省略 → 単一 instance を自動採用
+        - email: dbowner@corp.com
+          role: owner
+          cloud_sql:
+            instance_id: graphql-svc-dev-001-fdc
+      data_connect:
+        - service_id: main
+          location: asia-northeast1
+          cloud_sql:
+            instance_id: graphql-svc-dev-001-fdc
+            database: main
+            users:
+              - name: studio_admin
+                password: ${CLOUD_SQL_PW_ADMIN}
+  prd-001:
+    billing_account_id: "AAAA-AAAA-AAAA"
+    firebase_platform:
+      firebase: true
+      # policy 未指定 → default [owner]。editor は prd では弾かれる (別 error fixture)
+      users:
+        - email: dbowner@corp.com
+          role: owner
+          cloud_sql: {}
+      data_connect:
+        - service_id: main
+          location: asia-northeast1
+          cloud_sql:
+            instance_id: graphql-svc-prd-001-fdc
+            database: main

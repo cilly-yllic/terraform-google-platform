@@ -74,6 +74,7 @@ This corresponds to **Action B** (`dispatch-tfc-firebase-platform`). Action A (`
 | `module_version` | no | — | Registry module の version 制約 (`0.0.0-rc16` や `~> 1.0`)。空なら Action が Terraform Registry を query して **最新版 (pre-release 含む) を auto-resolve** し main.tf に書き込む。Terraform は version 制約なしだと pre-release を選択しない仕様なので、`0.0.0-rcN` しか publish されていない間は空でも壊れない fallback として動く |
 | `labels` | no | `""` | JS RegExp パターンの JSON 配列 (`'["^tier:dev$","^region:apne1$"]'`)。各 env の `labels` が全パターンに一致 (AND) しないと対象から外れる |
 | `project_propagation_wait_seconds` | no | `60` | **`repository_dispatch` で起動された時のみ** (= Cloud Run Router 経由で Action A の applied 直後) TFC Run 作成前に sleep する秒数。A が作ったばかりの project / SA / IAM / billing の GCP 伝播を待ち、run 冒頭の `google_project_service` / WIF impersonation が project-not-ready / permission で落ちる race を防ぐ。手動 `workflow_dispatch` では project 既存前提なので値に関係なくスキップ。`0` で無効化 |
+| `cloud_sql_secrets` | no | `""` | settings.yml の UPPERCASE placeholder → secret 実値の JSON object (`'{"CLOUD_SQL_PW_ADMIN":"..."}'`)。パース時に firebase_platform の string 値へ注入される。主用途は Cloud SQL の BUILT_IN user password (`data_connect[].cloud_sql.users[].password: ${CLOUD_SQL_PW_ADMIN}`) を service repo に平文で置かないこと。値はログ mask され、password を含む `data_connect` TFC 変数は sensitive 化。空なら注入なし |
 
 ## Outputs
 
@@ -163,6 +164,31 @@ environments:
 ```
 
 各 feature flag は `null` (省略) / `true` / `{ ... }` (custom config) のいずれかを受け取る。設定可能な feature キーの完全リストは `lib/dispatch/index.ts` の `FEATURE_KEYS` / `PASSTHROUGH_KEYS` を参照。完全なサンプルは [`examples/settings.yml`](../../examples/settings.yml)。
+
+### Cloud SQL ユーザー
+
+Cloud SQL Studio にログインできる DB ユーザーを宣言できる (宣言が無ければ作られない)。種別で書く場所が違う:
+
+- **CLOUD_IAM_USER** — `users[].cloud_sql`。IAM 連動 (password 無し)、DB user 名 = email。`roles/cloudsql.instanceUser` も付与。`instance_id` は単一 instance なら省略で自動採用。`cloud_sql_user_policy.allowed_roles` (env ごと、default `[owner]`) に含まれる role のみ許可 (viewer 等は apply 前に fail-fast)。
+- **BUILT_IN** — `data_connect[].cloud_sql.users[]` に `{ name, password }`。IAM 非連動の password ログイン。`password` は `${UPPERCASE}` placeholder にし、Action input `cloud_sql_secrets` (JSON) から注入する (平文を service repo に置かない)。未解決なら fail-fast、password を含む `data_connect` 変数は sensitive 化。
+
+```yaml
+firebase_platform:
+  cloud_sql_user_policy:
+    allowed_roles: [owner, editor]     # dev/stg 例。prd は [owner]
+  users:
+    - email: alice@example.com
+      role: editor
+      cloud_sql: {}                    # CLOUD_IAM_USER (sole instance 自動採用)
+  data_connect:
+    - service_id: main
+      cloud_sql:
+        instance_id: shared-fdc
+        database: main
+        users:
+          - name: studio_admin         # BUILT_IN (password ログイン)
+            password: ${CLOUD_SQL_PW_ADMIN}
+```
 
 | Common field | Type | Default | Purpose |
 |------|------|---------|---------|
