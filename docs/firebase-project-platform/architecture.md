@@ -269,8 +269,8 @@ If a feature is later disabled, Terraform destroys things normally (the API itse
 ## State and providers
 
 - `terraform >= 1.10.0`
-- `hashicorp/google` `>= 6.0, < 8.0`
-- `hashicorp/google-beta` `>= 6.0, < 8.0`
+- `hashicorp/google` `>= 6.0, < 9.0`
+- `hashicorp/google-beta` `>= 6.0, < 9.0`
 - `hashicorp/time` `>= 0.9`
 
 `google-beta` is used only for Firebase-related resources (`google_firebase_*`). `time` is used for `time_sleep.api_propagation`, which waits `var.firebase_api_propagation_wait` (default `120s`) after API enablement before creating Firebase resources to avoid `SERVICE_DISABLED` propagation races. The wait only runs once per API-set change (`time_sleep` with `triggers`), and is tunable via `firebase_api_propagation_wait`. (A real Firebase Management API readiness poll was considered but `data.google_client_config` cannot mint a bearer token under TFC dynamic-credentials SA impersonation — `iam.serviceAccounts.getAccessToken` 403 — so a fixed, auth-free wait is used.)

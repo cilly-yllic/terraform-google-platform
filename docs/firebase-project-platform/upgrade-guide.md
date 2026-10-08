@@ -68,6 +68,27 @@ Before introducing a new breaking change:
 
 ---
 
+## Unreleased (v1.1.0)
+
+### Provider support
+- `hashicorp/google` / `hashicorp/google-beta`: the upper bound is raised from `< 8.0` to `< 9.0` (lower bound `>= 6.0` unchanged). None of the resources used by this module are affected by the [v8 breaking changes](https://registry.terraform.io/providers/hashicorp/google/latest/docs/guides/version_8_upgrade).
+  - **Calling the module directly**: your own lock file / version constraint decides. Run `terraform init -upgrade` to move to 8.x.
+  - **Via the dispatch Action**: no lock file is uploaded, so the first run after updating picks the **latest 8.x automatically**. Provider 8.x rewrites the state schema, so going back to 7.x requires restoring state. To stay on 7.x, pin `module_version` to a release before this one. We recommend running a plan once and confirming it is a no-op.
+
+### Features
+- `storage.buckets[].cors`: CORS rules for additional buckets (same names/semantics as the `google_storage_bucket` `cors` block). Omitting it produces no diff.
+
+<details><summary>Ja</summary>
+
+- `hashicorp/google` / `google-beta` の上限を `< 8.0` → `< 9.0` に引き上げ (下限 `>= 6.0` は据え置き)。本モジュールが使うリソースに v8 の破壊的変更の該当はない。
+  - **module を直接呼ぶ場合**: 利用側の lock file / version 制約に従う。8.x に上げるなら `terraform init -upgrade`。
+  - **dispatch Action 経由の場合**: lock file を upload しないため、更新後の初回 run で **8.x の最新に自動で上がる**。8.x は state schema を書き換えるため 7.x へ戻すには state の復元が必要。7.x に留めたい場合は `module_version` を本リリースより前に pin する。一度 plan を流して no-op を確認することを推奨。
+- `storage.buckets[].cors`: 追加 bucket に CORS ルールを指定可能に (`google_storage_bucket` の `cors` ブロックと同名・同義)。省略時は差分なし。
+
+</details>
+
+---
+
 ## Future entries (template)
 
 ```
