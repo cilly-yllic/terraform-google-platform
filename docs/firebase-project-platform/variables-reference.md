@@ -33,6 +33,7 @@ dispatch-firebase-platform Action は settings.yml を読んだ後、`firebase_p
 | `hosting[].site_id` | `${service}-${env}-web` (Firebase Hosting site は globally unique) |
 | `storage.buckets[].name` | `${service}-${env}-cdn-assets` (GCS bucket は globally unique) |
 | `storage.firestore_backup.bucket_name` | `${service}-${env}-firestore-backup` |
+| `storage.buckets[].cors[].origin` | `https://${service}-${env}-lp.web.app` (Hosting site 名と揃える。globally unique ではないが env ごとに値が変わる) |
 
 `auto_prefix = true` を指定すると、自動で `{project_id}-` が付与される (= 短い base name で衝突しない命名を作る用途)。逆に `${service}` / `${env}` 展開で衝突回避済みの場合は `auto_prefix` 指定不要 (default `false`)。
 
@@ -237,7 +238,7 @@ The default bucket (`{project_id}.firebasestorage.app`) is **opt-in** (`default_
 | `buckets[].storage_class` | `string` | `"REGIONAL"` | storage class |
 | `buckets[].iams` | `list(object)` | `[]` | IAM bindings (`role`, `members`) |
 | `buckets[].cors` | `list(object)` | `[]` | CORS rules. Same names/semantics as the `google_storage_bucket` `cors` block. Omit for no CORS |
-| `buckets[].cors[].origin` | `list(string)` | `null` | Allowed origins (`${service}` / `${env}` are expanded) |
+| `buckets[].cors[].origin` | `list(string)` | `null` | Allowed origins (`${service}` / `${env}` are expanded when passed via the dispatch Action's settings.yml) |
 | `buckets[].cors[].method` | `list(string)` | `null` | Allowed HTTP methods (e.g. `["GET", "HEAD"]`) |
 | `buckets[].cors[].response_header` | `list(string)` | `null` | Response headers exposed to the browser |
 | `buckets[].cors[].max_age_seconds` | `number` | `null` | Preflight response cache seconds |
