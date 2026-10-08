@@ -152,6 +152,48 @@ describe("expandFirebasePlatformPlaceholders", () => {
     ).toBe("graphql-svc-dev-001-cdn-assets");
   });
 
+  it("expands in storage.buckets[].cors[].origin (配列内の文字列も展開、非文字列はそのまま)", () => {
+    const out = expandFirebasePlatformPlaceholders(
+      {
+        storage: {
+          buckets: [
+            {
+              name: "${service}-${env}-releases",
+              cors: [
+                {
+                  origin: [
+                    "https://${service}-${env}-lp.web.app",
+                    "https://${service}-${env}-lp.firebaseapp.com",
+                  ],
+                  method: ["GET", "HEAD"],
+                  max_age_seconds: 300,
+                },
+              ],
+            },
+          ],
+        },
+      },
+      ctx,
+    );
+    const cors = (
+      out.storage as {
+        buckets: Array<{
+          cors: Array<{
+            origin: string[];
+            method: string[];
+            max_age_seconds: number;
+          }>;
+        }>;
+      }
+    ).buckets[0].cors[0];
+    expect(cors.origin).toEqual([
+      "https://graphql-svc-dev-001-lp.web.app",
+      "https://graphql-svc-dev-001-lp.firebaseapp.com",
+    ]);
+    expect(cors.method).toEqual(["GET", "HEAD"]);
+    expect(cors.max_age_seconds).toBe(300);
+  });
+
   it("expands in storage.firestore_backup.bucket_name", () => {
     const out = expandFirebasePlatformPlaceholders(
       {

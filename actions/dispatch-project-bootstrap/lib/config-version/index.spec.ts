@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { buildTarball } from "./index";
+import { buildTarball } from "./index.js";
 
 function extract(tarball: Buffer): Record<string, string> {
   const dir = mkdtempSync(path.join(tmpdir(), "tarball-test-"));

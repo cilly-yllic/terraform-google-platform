@@ -8,7 +8,7 @@ import {
   selectTargetEnvs,
   computeEnvDiff,
   buildEnvEntry,
-} from "./index";
+} from "./index.js";
 
 describe("expandWorkspaceName", () => {
   it("replaces {service} placeholders", () => {

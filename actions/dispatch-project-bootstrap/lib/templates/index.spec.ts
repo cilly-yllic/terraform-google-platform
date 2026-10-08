@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildTemplateFiles } from "./index";
+import { buildTemplateFiles } from "./index.js";
 
 describe("buildTemplateFiles", () => {
   it("returns main.tf and versions.tf", () => {

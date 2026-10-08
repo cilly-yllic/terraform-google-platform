@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseSettings, extractEnvironment } from "./index";
+import { parseSettings, extractEnvironment } from "./index.js";
 
 describe("parseSettings", () => {
   it("parses a minimal valid settings.yml", () => {

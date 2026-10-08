@@ -1,4 +1,4 @@
-# Multi-stage build for cloud-run-router (Hono + @hono/node-server on Node 20).
+# Multi-stage build for cloud-run-router (Hono + @hono/node-server on Node 24).
 #
 # Stage 1 (builder): tsc コンパイルを走らせて dist/ を作る。
 # Stage 2 (runtime): dist/ と package.json だけを持ち込み、本番依存だけを
@@ -25,5 +25,8 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 ENV NODE_ENV=production
 EXPOSE 8080
+
+# 公式 image 同梱の非 root ユーザーで実行 (最小権限)
+USER node
 
 CMD ["node", "dist/index.js"]
