@@ -4,7 +4,7 @@
   "description": "TFC notification → GitHub repository_dispatch Cloud Run router (reference implementation)",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
     "build": "tsc",
@@ -14,19 +14,19 @@
     "test:watch": "vitest",
     "lint": "oxlint src __tests__",
     "typecheck": "tsc --noEmit",
-    "fmt": "oxfmt src __tests__",
-    "fmt:check": "oxfmt --check src __tests__"
+    "fmt": "oxfmt src __tests__ vitest.config.ts",
+    "fmt:check": "oxfmt --check src __tests__ vitest.config.ts"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "oxfmt": "^0.54.0",
-    "oxlint": "^1.69.0",
-    "tsx": "^4.19.0",
-    "typescript": "^5.7.0",
-    "vitest": "^3.1.0"
+    "@types/node": "^24.19.1",
+    "oxfmt": "^0.72.0",
+    "oxlint": "^1.87.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.3"
   },
   "dependencies": {
-    "@hono/node-server": "^2.0.4",
-    "hono": "^4.12.25"
+    "@hono/node-server": "^2.1.4",
+    "hono": "^4.13.13"
   }
 }
