@@ -4,6 +4,9 @@
   "private": true,
   "description": "GitHub Action: dispatch Terraform Cloud project-bootstrap Run from settings.yml",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "main": "dist/index.js",
   "scripts": {
     "build": "ncc build src/index.ts -o dist --source-map --license licenses.txt",
