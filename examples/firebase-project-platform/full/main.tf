@@ -35,6 +35,19 @@ module "firebase_platform" {
     buckets = [
       { name = "icons", auto_prefix = true },   # → "{project_id}-icons"
       { name = "uploads", auto_prefix = true }, # → "{project_id}-uploads"
+      # 別オリジン (Hosting の LP 等) からブラウザで直接 fetch する公開バケット。
+      # cors は google_storage_bucket の cors ブロックと同名・同義。
+      {
+        name        = "releases"
+        auto_prefix = true
+        iams        = [{ role = "roles/storage.objectViewer", members = ["allUsers"] }]
+        cors = [{
+          origin          = ["https://my-project-dev.web.app"]
+          method          = ["GET", "HEAD"]
+          response_header = ["Content-Type"]
+          max_age_seconds = 300
+        }]
+      },
     ]
     firestore_backup = {
       bucket_name     = "firestore-backups"

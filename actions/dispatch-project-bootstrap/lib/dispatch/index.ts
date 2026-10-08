@@ -1,4 +1,4 @@
-import type { EnvironmentConfig, Settings } from "../settings";
+import type { EnvironmentConfig, Settings } from "../settings/index.js";
 
 export function expandWorkspaceName(
   pattern: string,

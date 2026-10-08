@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { compareSemver, pickLatestSemver, resolveModuleVersion } from "./index";
+import { compareSemver, pickLatestSemver, resolveModuleVersion } from "./index.js";
 
 describe("compareSemver", () => {
   it("compares main version numerically per segment", () => {
