@@ -470,7 +470,7 @@ Compute Engine 既定 SA (`<project-number>-compute@developer`) に、**その S
 
 | Type | Default | Description |
 |------|---------|-------------|
-| `list(string)` | `[]` | `google_service_account_iam_member`（non-authoritative）で、resource・member ともに既定 compute SA として付与する。代表例: Firebase Admin SDK の `createCustomToken` を鍵ファイルなしで使うと、IAM Credentials API の `signBlob` で自分自身に署名するため `roles/iam.serviceAccountTokenCreator` が要る。SA email 解決に project number が要るため、本 list が非空なら `cloud_functions` 無効でも `google_project` data を取得し、`signBlob` / `generateAccessToken` が通るよう `iamcredentials.googleapis.com` も自動で有効化する。 |
+| `list(string)` | `[]` | `google_service_account_iam_member`（non-authoritative）で、resource・member ともに既定 compute SA として付与する。代表例: Firebase Admin SDK の `createCustomToken` を鍵ファイルなしで使うと、IAM Credentials API の `signBlob` で自分自身に署名するため `roles/iam.serviceAccountTokenCreator` が要る。SA email 解決に project number が要るため、本 list が非空なら `cloud_functions` 無効でも `google_project` data を取得し、`signBlob` が通るよう `iamcredentials.googleapis.com` も自動で有効化する。 |
 
 ```yaml
 firebase_platform:
@@ -480,6 +480,8 @@ firebase_platform:
 ```
 
 > 注意: `roles/iam.serviceAccountTokenCreator` を [`default_compute_sa_roles`](#default_compute_sa_roles)（project-level）に書くと、runtime SA がプロジェクト内の**全 SA**（terraform 用 SA や `ci-deploy` など）に署名・なりすましできてしまう。自分自身への権限だけが要る場合は本変数を使う。
+
+> 導入時の plan: 本変数を初めて指定する（または外す）と `iamcredentials.googleapis.com` の有効化対象が変わる。そのため `google_project` data の読み込みが apply まで遅延し、既存の既定 compute SA binding（`run.invoker` / `eventarc.eventReceiver` / `default_compute_sa_roles`）が置き換え（-/+）として計画される。apply 中にこれらの権限が一時的に外れるため、トラフィックの少ない時間帯に適用する。`additional_apis` に API を足した場合も同じ挙動になる。
 
 ---
 

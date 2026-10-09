@@ -432,7 +432,7 @@ locals {
       "iam.googleapis.com",
     ] : [],
     # 自分自身への role (例: serviceAccountTokenCreator) は IAM Credentials API の
-    # signBlob / generateAccessToken で使うため、API が無効だと実行時に 403 になる。
+    # signBlob で使うため、API が無効だと実行時に 403 になる。
     length(var.default_compute_sa_self_roles) > 0 ? [
       "iamcredentials.googleapis.com",
     ] : [],

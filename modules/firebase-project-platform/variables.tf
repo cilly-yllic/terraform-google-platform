@@ -294,7 +294,7 @@ variable "default_compute_sa_self_roles" {
     必要な場合はこちらを使う。SA email の解決に project number が要るため、本リストが
     非空なら cloud_functions 無効でも google_project data を取得する。
     また、本リストが非空なら iamcredentials.googleapis.com を自動で有効化する
-    (signBlob / generateAccessToken はこの API 経由のため)。
+    (signBlob はこの API 経由のため)。
   EOT
   type        = list(string)
   default     = []
