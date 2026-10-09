@@ -249,6 +249,8 @@ const PASSTHROUGH_KEYS = [
   // Gen2 functions / 既定 Cloud Run の既定 compute SA への追加 role リスト
   // (例: secretmanager.secretAccessor)。
   "default_compute_sa_roles",
+  // 既定 compute SA 自身を対象とする role リスト (例: iam.serviceAccountTokenCreator)。
+  "default_compute_sa_self_roles",
 ] as const;
 
 function toHclValue(val: unknown): string {

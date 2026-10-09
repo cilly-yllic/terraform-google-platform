@@ -38,6 +38,8 @@ ${VERSION_PLACEHOLDER}
 
   app_hosting_compute_sa_roles = var.app_hosting_compute_sa_roles
   default_compute_sa_roles     = var.default_compute_sa_roles
+
+  default_compute_sa_self_roles = var.default_compute_sa_self_roles
 }
 
 variable "project_id" {
@@ -95,6 +97,11 @@ variable "app_hosting_compute_sa_roles" {
 }
 
 variable "default_compute_sa_roles" {
+  type    = list(string)
+  default = []
+}
+
+variable "default_compute_sa_self_roles" {
   type    = list(string)
   default = []
 }

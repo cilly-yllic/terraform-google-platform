@@ -554,6 +554,22 @@ describe("buildTerraformVariables", () => {
     ).toBeUndefined();
   });
 
+  it("passes default_compute_sa_self_roles through as an HCL list", () => {
+    const vars = buildTerraformVariables("p", {
+      cloud_functions: true,
+      default_compute_sa_self_roles: ["roles/iam.serviceAccountTokenCreator"],
+    });
+    const r = vars.find((v) => v.key === "default_compute_sa_self_roles");
+    expect(r?.value).toBe('["roles/iam.serviceAccountTokenCreator"]');
+  });
+
+  it("omits default_compute_sa_self_roles entirely when not set (uses module default)", () => {
+    const vars = buildTerraformVariables("p", { cloud_functions: true });
+    expect(
+      vars.find((v) => v.key === "default_compute_sa_self_roles"),
+    ).toBeUndefined();
+  });
+
   it("throws when list-feature value is not an array", () => {
     expect(() =>
       buildTerraformVariables("p", {
