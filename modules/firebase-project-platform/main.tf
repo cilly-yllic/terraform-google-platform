@@ -1110,7 +1110,12 @@ data "google_project" "this" {
     length(var.default_compute_sa_self_roles) > 0
   ) ? 1 : 0
   project_id = var.project_id
-  depends_on = [google_project_service.this]
+  # depends_on は付けない。付けると google_project_service.this に保留中の変更がある plan
+  # (API の追加・削除) で読み込みが apply まで遅延し、compute_default_sa が unknown になる。
+  # 下の binding は member / service_account_id が ForceNew なので、既存 binding が -/+
+  # (apply 中に権限が一時的に外れる) になる。projects.get は対象 project の API 有効化を
+  # 要さない (cloudresourcemanager は bootstrap で有効化済み) ので、plan 時に読んでよい。
+  # API 有効化後に binding を作る順序づけは各 binding リソースの depends_on で担保する。
 }
 
 # Pub/Sub service agent (service-{number}@gcp-sa-pubsub...) を確実に存在させる。
@@ -1144,6 +1149,8 @@ resource "google_project_iam_member" "gen2_compute_run_invoker" {
   project = var.project_id
   role    = "roles/run.invoker"
   member  = "serviceAccount:${local.gen2_compute_sa}"
+
+  depends_on = [google_project_service.this]
 }
 
 resource "google_project_iam_member" "gen2_compute_eventarc_receiver" {
@@ -1151,6 +1158,8 @@ resource "google_project_iam_member" "gen2_compute_eventarc_receiver" {
   project = var.project_id
   role    = "roles/eventarc.eventReceiver"
   member  = "serviceAccount:${local.gen2_compute_sa}"
+
+  depends_on = [google_project_service.this]
 }
 
 # 既定 compute SA への追加 role 付与 (runtime が他 API を叩く用)。
@@ -1163,6 +1172,8 @@ resource "google_project_iam_member" "default_compute_extra" {
   project  = var.project_id
   role     = each.value
   member   = "serviceAccount:${local.compute_default_sa}"
+
+  depends_on = [google_project_service.this]
 }
 
 # 既定 compute SA 自身を対象とする role 付与 (resource も member も compute SA 自身)。
@@ -1175,4 +1186,6 @@ resource "google_service_account_iam_member" "default_compute_self" {
   service_account_id = "projects/${var.project_id}/serviceAccounts/${local.compute_default_sa}"
   role               = each.value
   member             = "serviceAccount:${local.compute_default_sa}"
+
+  depends_on = [google_project_service.this]
 }

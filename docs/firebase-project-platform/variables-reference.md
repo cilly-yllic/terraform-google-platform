@@ -481,8 +481,6 @@ firebase_platform:
 
 > 注意: `roles/iam.serviceAccountTokenCreator` を [`default_compute_sa_roles`](#default_compute_sa_roles)（project-level）に書くと、runtime SA がプロジェクト内の**全 SA**（terraform 用 SA や `ci-deploy` など）に署名・なりすましできてしまう。自分自身への権限だけが要る場合は本変数を使う。
 
-> 導入時の plan: 本変数を初めて指定する（または外す）と `iamcredentials.googleapis.com` の有効化対象が変わる。そのため `google_project` data の読み込みが apply まで遅延し、既存の既定 compute SA binding（`run.invoker` / `eventarc.eventReceiver` / `default_compute_sa_roles`）が置き換え（-/+）として計画される。apply 中にこれらの権限が一時的に外れるため、トラフィックの少ない時間帯に適用する。`additional_apis` に API を足した場合も同じ挙動になる。
-
 ---
 
 ## API management
