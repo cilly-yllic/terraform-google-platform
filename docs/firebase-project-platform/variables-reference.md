@@ -470,7 +470,7 @@ Compute Engine 既定 SA (`<project-number>-compute@developer`) に、**その S
 
 | Type | Default | Description |
 |------|---------|-------------|
-| `list(string)` | `[]` | `google_service_account_iam_member`（non-authoritative）で、resource・member ともに既定 compute SA として付与する。代表例: Firebase Admin SDK の `createCustomToken` を鍵ファイルなしで使うと、IAM Credentials API の `signBlob` で自分自身に署名するため `roles/iam.serviceAccountTokenCreator` が要る。SA email 解決に project number が要るため、本 list が非空なら `cloud_functions` 無効でも `google_project` data を取得する。 |
+| `list(string)` | `[]` | `google_service_account_iam_member`（non-authoritative）で、resource・member ともに既定 compute SA として付与する。代表例: Firebase Admin SDK の `createCustomToken` を鍵ファイルなしで使うと、IAM Credentials API の `signBlob` で自分自身に署名するため `roles/iam.serviceAccountTokenCreator` が要る。SA email 解決に project number が要るため、本 list が非空なら `cloud_functions` 無効でも `google_project` data を取得し、`signBlob` / `generateAccessToken` が通るよう `iamcredentials.googleapis.com` も自動で有効化する。 |
 
 ```yaml
 firebase_platform:
