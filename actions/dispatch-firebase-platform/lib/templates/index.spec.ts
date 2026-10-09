@@ -82,6 +82,7 @@ describe("buildTemplateFiles", () => {
       "service_accounts",
       "app_hosting_compute_sa_roles",
       "default_compute_sa_roles",
+      "default_compute_sa_self_roles",
     ];
     for (const k of passthrough) {
       expect(main, `should declare variable ${k}`).toContain(
