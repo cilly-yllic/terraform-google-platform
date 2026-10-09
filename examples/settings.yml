@@ -149,6 +149,13 @@ _anchors:
     default_compute_sa_roles:
       - roles/secretmanager.secretAccessor
 
+    # 既定 compute SA に「その SA 自身を対象として」付与する role。
+    # 例: Firebase Admin SDK の createCustomToken を鍵ファイルなしで使う場合
+    #   (signBlob で自分自身に署名する)。project-level の default_compute_sa_roles に
+    #   書くと全 SA へのなりすましが可能になるため、こちらで SA 単位に絞る。
+    default_compute_sa_self_roles:
+      - roles/iam.serviceAccountTokenCreator
+
     # apply 結果通知 (任意)。各 env workspace に TFC notification を設定し、
     # run の終端状態 (success / error / needs_attention) を webhook に通知する。
     # 未設定・空でも no-op (エラーにならない)。詳細は Action B README を参照。

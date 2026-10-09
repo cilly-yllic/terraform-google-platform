@@ -1,0 +1,63 @@
+# default_compute_sa_self_roles の回帰テスト (mock provider のみ、認証不要)。
+#   cd modules/firebase-project-platform
+#   terraform init -backend=false && terraform test
+
+mock_provider "google" {}
+mock_provider "google-beta" {}
+
+# data.google_project は depends_on (google_project_service) のため plan では読まれず、
+# SA email が unknown になる。付与先を検証する run は mock 上で apply する。
+override_data {
+  target = data.google_project.this
+  values = {
+    number = "123456789012"
+  }
+}
+
+variables {
+  project_id = "test-project"
+}
+
+run "self_roles_omitted_creates_nothing" {
+  command = plan
+
+  assert {
+    condition     = length(google_service_account_iam_member.default_compute_self) == 0
+    error_message = "未指定なのに default_compute_self が作られている (既存 plan に差分が出る)"
+  }
+
+  assert {
+    condition     = length(data.google_project.this) == 0
+    error_message = "未指定なのに google_project data を取得している (既存 plan に差分が出る)"
+  }
+}
+
+run "self_roles_bind_to_compute_sa_itself" {
+  command = apply
+
+  variables {
+    default_compute_sa_self_roles = ["roles/iam.serviceAccountTokenCreator"]
+  }
+
+  assert {
+    condition = (
+      google_service_account_iam_member.default_compute_self["roles/iam.serviceAccountTokenCreator"].service_account_id
+      == "projects/test-project/serviceAccounts/123456789012-compute@developer.gserviceaccount.com"
+    )
+    error_message = "role の付与先が既定 compute SA 自身になっていない"
+  }
+
+  assert {
+    condition = (
+      google_service_account_iam_member.default_compute_self["roles/iam.serviceAccountTokenCreator"].member
+      == "serviceAccount:123456789012-compute@developer.gserviceaccount.com"
+    )
+    error_message = "member が既定 compute SA になっていない"
+  }
+
+  # project-level には付与しない (他 SA への署名権限を増やさない)
+  assert {
+    condition     = length(google_project_iam_member.default_compute_extra) == 0
+    error_message = "self roles が project-level binding として作られている"
+  }
+}

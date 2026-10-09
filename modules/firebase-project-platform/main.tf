@@ -1097,9 +1097,13 @@ module "iam" {
 # ---------------------------------------------------------------------------
 
 data "google_project" "this" {
-  # cloud_functions 有効時 (gen2 compute SA bindings 用) か、default_compute_sa_roles が
-  # 指定された時 (SA email の project number 解決用) に取得する。
-  count      = (local.enable_cloud_functions || length(var.default_compute_sa_roles) > 0) ? 1 : 0
+  # cloud_functions 有効時 (gen2 compute SA bindings 用) か、default_compute_sa_roles /
+  # default_compute_sa_self_roles が指定された時 (SA email の project number 解決用) に取得する。
+  count = (
+    local.enable_cloud_functions ||
+    length(var.default_compute_sa_roles) > 0 ||
+    length(var.default_compute_sa_self_roles) > 0
+  ) ? 1 : 0
   project_id = var.project_id
   depends_on = [google_project_service.this]
 }
@@ -1154,4 +1158,16 @@ resource "google_project_iam_member" "default_compute_extra" {
   project  = var.project_id
   role     = each.value
   member   = "serviceAccount:${local.compute_default_sa}"
+}
+
+# 既定 compute SA 自身を対象とする role 付与 (resource も member も compute SA 自身)。
+# 例: Firebase Admin SDK の createCustomToken を鍵ファイルなしで使うと IAM Credentials API の
+#     signBlob で自分自身に署名するため "roles/iam.serviceAccountTokenCreator" が要る。
+# default_compute_extra (project-level) で付けるとプロジェクト内の全 SA に署名・なりすまし
+# できてしまうので、こちらで SA 単位に絞る。
+resource "google_service_account_iam_member" "default_compute_self" {
+  for_each           = toset(var.default_compute_sa_self_roles)
+  service_account_id = "projects/${var.project_id}/serviceAccounts/${local.compute_default_sa}"
+  role               = each.value
+  member             = "serviceAccount:${local.compute_default_sa}"
 }

@@ -464,6 +464,23 @@ firebase_platform:
 
 > 注意: 専用 runtime SA を分離していない構成では、この付与は**全 Gen2 functions / 既定 Cloud Run に影響**する。secret 単位に絞るならモジュール外で個別 binding する。App Hosting backend の runtime は別 SA（`firebase-app-hosting-compute`）なので [`app_hosting_compute_sa_roles`](#app_hosting_compute_sa_roles) を使う。
 
+### `default_compute_sa_self_roles`
+
+Compute Engine 既定 SA (`<project-number>-compute@developer`) に、**その SA 自身を対象として**付与する role の list。[`default_compute_sa_roles`](#default_compute_sa_roles) と同階層。
+
+| Type | Default | Description |
+|------|---------|-------------|
+| `list(string)` | `[]` | `google_service_account_iam_member`（non-authoritative）で、resource・member ともに既定 compute SA として付与する。代表例: Firebase Admin SDK の `createCustomToken` を鍵ファイルなしで使うと、IAM Credentials API の `signBlob` で自分自身に署名するため `roles/iam.serviceAccountTokenCreator` が要る。SA email 解決に project number が要るため、本 list が非空なら `cloud_functions` 無効でも `google_project` data を取得する。 |
+
+```yaml
+firebase_platform:
+  cloud_functions: true
+  default_compute_sa_self_roles:
+    - roles/iam.serviceAccountTokenCreator
+```
+
+> 注意: `roles/iam.serviceAccountTokenCreator` を [`default_compute_sa_roles`](#default_compute_sa_roles)（project-level）に書くと、runtime SA がプロジェクト内の**全 SA**（terraform 用 SA や `ci-deploy` など）に署名・なりすましできてしまう。自分自身への権限だけが要る場合は本変数を使う。
+
 ---
 
 ## API management

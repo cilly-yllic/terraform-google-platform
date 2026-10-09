@@ -278,6 +278,26 @@ variable "default_compute_sa_roles" {
   default     = []
 }
 
+variable "default_compute_sa_self_roles" {
+  description = <<-EOT
+    Compute Engine 既定 SA (<project-number>-compute@developer) に、**その SA 自身を
+    対象として** 付与する role のリスト (google_service_account_iam_member。resource も
+    member も既定 compute SA)。
+
+    代表例:
+      - Firebase Admin SDK の createCustomToken を鍵ファイルなしで使う
+        (IAM Credentials API の signBlob で自分自身に署名する)
+                                    → "roles/iam.serviceAccountTokenCreator"
+
+    default_compute_sa_roles (project-level) に serviceAccountTokenCreator を書くと
+    プロジェクト内の全 SA に署名・なりすましできてしまう。自分自身への権限だけが
+    必要な場合はこちらを使う。SA email の解決に project number が要るため、本リストが
+    非空なら cloud_functions 無効でも google_project data を取得する。
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 variable "data_connect" {
   description = <<-EOT
     Firebase Data Connect services (1 project に複数 service)。
