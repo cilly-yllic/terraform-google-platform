@@ -68,6 +68,29 @@ Before introducing a new breaking change:
 
 ---
 
+## v1.2.0 (2026-10-10)
+
+### Features
+- `default_compute_sa_self_roles`: grants roles to the Compute Engine default SA **on itself** (`google_service_account_iam_member`; both the resource and the member are the default compute SA). Typical use: `roles/iam.serviceAccountTokenCreator` for the Firebase Admin SDK's `createCustomToken` without a key file (it signs via `signBlob`). Unlike `default_compute_sa_roles` (project-level), it does not let the runtime SA sign as other SAs in the project. When non-empty, `iamcredentials.googleapis.com` is enabled automatically. Omitting it produces no diff. (#145, #144)
+
+### Bug fixes
+- Plans that change the API set (`additional_apis`, enabling a feature, etc.) no longer replace (`-/+`) the IAM bindings of the default compute SA (`run.invoker` / `eventarc.eventReceiver` / `default_compute_sa_roles` / `default_compute_sa_self_roles` / the Firestore backup export SA when `export_platform = "cloud_run"`). Previously `data.google_project` was deferred to apply, the SA email became unknown, and the bindings were briefly removed during apply. (#147, #146)
+
+### Upgrade notes
+- The always-on APIs (`cloudresourcemanager` / `serviceusage`) moved from `google_project_service.this` to `google_project_service.base`. `moved` blocks carry the state over: the first plan shows two "has moved to" entries and no changes.
+- **Only if you call the `modules/storage` submodule directly** with `firestore_backup.export_platform = "cloud_run"`: pass the new `compute_default_sa` input (`<project-number>-compute@developer.gserviceaccount.com`). Without it, the plan fails with a precondition error. Calling the root module (or the dispatch Action) needs no change.
+
+<details><summary>Ja</summary>
+
+- `default_compute_sa_self_roles`: 既定 compute SA に、**その SA 自身を対象として** role を付与する (`google_service_account_iam_member`。resource も member も既定 compute SA)。代表例は Firebase Admin SDK の `createCustomToken` を鍵ファイルなしで使うための `roles/iam.serviceAccountTokenCreator` (`signBlob` で署名する)。project-level の `default_compute_sa_roles` と違い、プロジェクト内の他 SA への署名権限は増えない。非空なら `iamcredentials.googleapis.com` を自動で有効化する。省略時は差分なし。(#145, #144)
+- API 構成が変わる plan (`additional_apis` の変更、機能の追加など) で、既定 compute SA の IAM binding (`run.invoker` / `eventarc.eventReceiver` / `default_compute_sa_roles` / `default_compute_sa_self_roles` / `export_platform = "cloud_run"` の Firestore backup export SA) が置き換え (`-/+`) にならなくなった。従来は `data.google_project` の読み込みが apply まで遅延して SA email が unknown になり、apply 中に binding が一時的に外れていた。(#147, #146)
+- 常時有効の API (`cloudresourcemanager` / `serviceusage`) を `google_project_service.this` から `google_project_service.base` に移した。`moved` で state を引き継ぐため、初回 plan は「has moved to」が 2 件出るだけで変更はない。
+- **`modules/storage` サブモジュールを直接呼び**、`firestore_backup.export_platform = "cloud_run"` を使っている場合のみ: 新しい入力 `compute_default_sa` (`<project-number>-compute@developer.gserviceaccount.com`) を渡すこと。渡さないと precondition エラーで plan が止まる。root module (または dispatch Action) 経由なら対応不要。
+
+</details>
+
+---
+
 ## v1.1.0 (2026-10-08)
 
 ### Provider support
