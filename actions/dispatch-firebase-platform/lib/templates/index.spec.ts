@@ -72,15 +72,31 @@ describe("buildTemplateFiles", () => {
 
   it("imports an existing Identity Platform config only when authentication.import_existing is true", () => {
     const { "main.tf": main } = buildTemplateFiles(undefined);
-    expect(main).toMatch(/^import \{$/m);
     expect(main).toContain(
-      'for_each = try(tobool(var.authentication.import_existing), false) ? toset(["existing"]) : toset([])',
+      "auth_import_existing   = try(tobool(var.authentication.import_existing), false)",
     );
-    expect(main).toContain(
-      "to = module.firebase_platform.module.auth[0].google_identity_platform_config.this",
-    );
+    expect(main.match(/^import \{$/gm)).toHaveLength(2);
     // JS template literal の \${...} エスケープ漏れで project_id が展開されないこと
     expect(main).toContain('id = "projects/${var.project_id}/config"');
+  });
+
+  it("switches the import target by authentication.blocking_functions.managed_by", () => {
+    const { "main.tf": main } = buildTemplateFiles(undefined);
+    expect(main).toContain(
+      'auth_bf_deploy_managed = try(var.authentication.blocking_functions.managed_by, null) == "deploy"',
+    );
+    expect(main).toContain(
+      "for_each = local.auth_import_existing && !local.auth_bf_deploy_managed ?",
+    );
+    expect(main).toContain(
+      "to = module.firebase_platform.module.auth[0].google_identity_platform_config.this\n",
+    );
+    expect(main).toContain(
+      "for_each = local.auth_import_existing && local.auth_bf_deploy_managed ?",
+    );
+    expect(main).toContain(
+      "to = module.firebase_platform.module.auth_deploy_managed[0].google_identity_platform_config.this",
+    );
   });
 
   it("declares AND forwards non-feature passthrough variables (incl. app_hosting_compute_sa_roles)", () => {
