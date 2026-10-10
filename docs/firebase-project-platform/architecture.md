@@ -162,6 +162,7 @@ cloud-run-router は TFC notification が設定されていない限り呼ばれ
 |----------|-----------|-------------------|
 | Resource-creating | `firebase` | `google_firebase_project` |
 | Resource-creating | `auth` | `google_identity_platform_config` (incl. OAuth `authorized_domains`, aggregated from hosting/app_hosting custom domains by the root) |
+| Resource-creating | `auth-deploy-managed` | Same config as `auth`, with blocking-function triggers left to `firebase deploy` (`ignore_changes`). Used instead of `auth` when `authentication.blocking_functions.managed_by = "deploy"` |
 | Resource-creating | `firestore` | `google_firestore_database`, `google_firebaserules_ruleset/release` |
 | Resource-creating | `rtdb` | `google_firebase_database_instance` |
 | Resource-creating | `storage` | `google_firebase_storage_bucket`, `google_storage_bucket`, `google_storage_bucket_iam_member`, `google_firebaserules_ruleset/release` |
@@ -183,6 +184,7 @@ cloud-run-router は TFC notification が設定されていない限り呼ばれ
 |------|---------------|-------------------|
 | リソース作成型 | `firebase` | `google_firebase_project` |
 | リソース作成型 | `auth` | `google_identity_platform_config` (OAuth `authorized_domains` 含む。ドメインは hosting/app_hosting の custom domain からルートが集約) |
+| リソース作成型 | `auth-deploy-managed` | `auth` と同じ config で、blocking function の trigger を `firebase deploy` に任せる (`ignore_changes`)。`authentication.blocking_functions.managed_by = "deploy"` のとき `auth` の代わりに使う |
 | リソース作成型 | `firestore` | `google_firestore_database`, `google_firebaserules_ruleset/release` |
 | リソース作成型 | `rtdb` | `google_firebase_database_instance` |
 | リソース作成型 | `storage` | `google_firebase_storage_bucket`, `google_storage_bucket`, `google_storage_bucket_iam_member`, `google_firebaserules_ruleset/release` |

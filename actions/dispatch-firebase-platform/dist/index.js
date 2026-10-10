@@ -50790,10 +50790,25 @@ ${VERSION_PLACEHOLDER}
 # authentication.import_existing = true のときは既存 config を state に取り込む。
 # import block は root module にしか書けないため、module 側ではなくここに置く。
 # state に取り込み済みなら import は no-op なので、flag は true のままでよい。
+# blocking_functions.managed_by で取り込み先の module が変わる (deploy 管理は
+# ignore_changes 付きの別 module)。import の to は条件で変えられないので 2 つ書く。
+# terraform 管理の取り込み先 (module.auth[0]...this) は v1.3.0 から変えていない。
+locals {
+  auth_import_existing   = try(tobool(var.authentication.import_existing), false)
+  auth_bf_deploy_managed = try(var.authentication.blocking_functions.managed_by, null) == "deploy"
+}
+
 import {
-  for_each = try(tobool(var.authentication.import_existing), false) ? toset(["existing"]) : toset([])
+  for_each = local.auth_import_existing && !local.auth_bf_deploy_managed ? toset(["existing"]) : toset([])
 
   to = module.firebase_platform.module.auth[0].google_identity_platform_config.this
+  id = "projects/\${var.project_id}/config"
+}
+
+import {
+  for_each = local.auth_import_existing && local.auth_bf_deploy_managed ? toset(["existing"]) : toset([])
+
+  to = module.firebase_platform.module.auth_deploy_managed[0].google_identity_platform_config.this
   id = "projects/\${var.project_id}/config"
 }
 

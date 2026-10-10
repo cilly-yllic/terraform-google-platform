@@ -167,6 +167,7 @@ Identity Platform configuration.
 |-------|------|---------|-------------|
 | `blocking_functions.before_create` | `string` | `""` | Cloud Function URI for the `beforeCreate` Identity Platform trigger |
 | `blocking_functions.before_sign_in` | `string` | `""` | Cloud Function URI for the `beforeSignIn` Identity Platform trigger |
+| `blocking_functions.managed_by` | `string` | `"terraform"` | Who owns the triggers. `"terraform"`: set from the URIs above (empty → no triggers; triggers registered by `firebase deploy` are removed). `"deploy"`: keep the triggers registered by `firebase deploy` (`beforeUserCreated` / `beforeUserSignedIn`); URIs cannot be set. Switching an existing config needs `import_existing = true` (see [`modules/auth-deploy-managed`](../../modules/firebase-project-platform/modules/auth-deploy-managed/README.md#switching-the-mode-of-an-existing-config)) |
 | `authorized_domains.include_defaults` | `bool` | `true` | OAuth 許可ドメインに `<project>.firebaseapp.com` + `<project>.web.app` を含めるか |
 | `authorized_domains.include_localhost` | `bool` | `true` | OAuth 許可ドメインに `localhost` を含めるか。stg/prd では `false` 推奨 |
 | `upgrade_to_identity_platform` | `bool` | `true` | Create the Identity Platform config, i.e. upgrade the project to Identity Platform. `false` only enables `identitytoolkit.googleapis.com` and IAM; cannot be combined with `import_existing` / `blocking_functions` / `authorized_domains`. The upgrade cannot be undone on the GCP side |
@@ -182,6 +183,7 @@ Identity Platform 設定。
 
 - `blocking_functions.before_create` (string, default `""`): Cloud Function URI (Identity Platform `beforeCreate` トリガー)
 - `blocking_functions.before_sign_in` (string, default `""`): Cloud Function URI (Identity Platform `beforeSignIn` トリガー)
+- `blocking_functions.managed_by` (string, default `"terraform"`): trigger の管理主体。`"terraform"` は上の URI で設定する (空なら trigger 無し。`firebase deploy` が登録した trigger は消える)。`"deploy"` は `firebase deploy` (`beforeUserCreated` / `beforeUserSignedIn`) が登録した trigger を温存する (URI は指定不可)。既存 config で切り替えるときは `import_existing = true` が要る（[`modules/auth-deploy-managed`](../../modules/firebase-project-platform/modules/auth-deploy-managed/README.md#switching-the-mode-of-an-existing-config) 参照）
 - `authorized_domains.include_defaults` (bool, default `true`): `<project>.firebaseapp.com` + `<project>.web.app` を含めるか
 - `authorized_domains.include_localhost` (bool, default `true`): `localhost` を含めるか（stg/prd で `false` にして塞ぐ）
 - `upgrade_to_identity_platform` (bool, default `true`): Identity Platform config を作成する (= project を Identity Platform にアップグレードする) か。`false` なら `identitytoolkit.googleapis.com` の有効化と IAM のみ行う。`import_existing` / `blocking_functions` / `authorized_domains` とは併用不可。アップグレードは GCP 側で取り消せない
