@@ -48,7 +48,7 @@ The `blocking_functions { triggers { ... } }` block is only added if `blocking_f
 
 ## Invocation condition
 
-Called when `var.authentication != null` and `authentication.upgrade_to_identity_platform` is not `false`.
+Called when `var.authentication != null`, `authentication.upgrade_to_identity_platform` is not `false`, and `authentication.blocking_functions.managed_by` is not `"deploy"`.
 
 ## Side effects
 
@@ -57,6 +57,16 @@ Identity Platform config is a **singleton per GCP Project** — once created, it
 <details><summary>Ja</summary>
 
 Identity Platform config は **GCP Project に 1 つだけ存在する singleton resource**。一度作成すると Console から削除できない点に注意。
+
+</details>
+
+## Blocking functions owned by `firebase deploy`
+
+This module manages the triggers from `blocking_functions` (empty → no triggers, so triggers registered by `firebase deploy` are removed on the next apply). To leave them to `firebase deploy`, set `authentication.blocking_functions.managed_by = "deploy"` in the root module; it then calls [`modules/auth-deploy-managed`](../auth-deploy-managed/README.md) instead.
+
+<details><summary>Ja</summary>
+
+この module は `blocking_functions` で trigger を管理する (空なら trigger 無しにするため、`firebase deploy` が登録した trigger は次の apply で消える)。`firebase deploy` に任せる場合は root module で `authentication.blocking_functions.managed_by = "deploy"` にすると、代わりに [`modules/auth-deploy-managed`](../auth-deploy-managed/README.md) が呼ばれる。
 
 </details>
 
@@ -76,6 +86,8 @@ Creating `google_identity_platform_config` calls `initializeAuth`, which **upgra
 import {
   for_each = try(tobool(var.authentication.import_existing), false) ? toset(["existing"]) : toset([])
 
+  # blocking_functions.managed_by = "deploy" のときは
+  # module.firebase_platform.module.auth_deploy_managed[0].google_identity_platform_config.this
   to = module.firebase_platform.module.auth[0].google_identity_platform_config.this
   id = "projects/${var.project_id}/config"
 }
