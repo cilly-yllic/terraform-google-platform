@@ -431,6 +431,11 @@ locals {
     length(var.service_accounts) > 0 || local.enable_ci_sa || local.enable_app_hosting ? [
       "iam.googleapis.com",
     ] : [],
+    # 自分自身への role (例: serviceAccountTokenCreator) は IAM Credentials API の
+    # signBlob で使うため、API が無効だと実行時に 403 になる。
+    length(var.default_compute_sa_self_roles) > 0 ? [
+      "iamcredentials.googleapis.com",
+    ] : [],
   )
 
   all_apis = distinct(concat(local.base_apis, local.conditional_apis, var.additional_apis))
@@ -440,12 +445,36 @@ locals {
 # API Enablement
 # ---------------------------------------------------------------------------
 
-resource "google_project_service" "this" {
-  for_each                   = toset(local.all_apis)
+# 常時有効の base API は別リソースに分ける。data.google_project.this は base だけに依存し、
+# feature API の増減で読み込みが遅延しないようにする (#146)。
+resource "google_project_service" "base" {
+  for_each                   = toset(local.base_apis)
   project                    = var.project_id
   service                    = each.value
   disable_on_destroy         = false
   disable_dependent_services = true
+}
+
+resource "google_project_service" "this" {
+  for_each                   = setsubtract(toset(local.all_apis), toset(local.base_apis))
+  project                    = var.project_id
+  service                    = each.value
+  disable_on_destroy         = false
+  disable_dependent_services = true
+
+  depends_on = [google_project_service.base]
+}
+
+# base API を google_project_service.this から base へ移した (#146)。state を引き継ぎ、
+# 既存 project で API の無効化 → 再有効化が計画されないようにする。
+moved {
+  from = google_project_service.this["cloudresourcemanager.googleapis.com"]
+  to   = google_project_service.base["cloudresourcemanager.googleapis.com"]
+}
+
+moved {
+  from = google_project_service.this["serviceusage.googleapis.com"]
+  to   = google_project_service.base["serviceusage.googleapis.com"]
 }
 
 # ---------------------------------------------------------------------------
@@ -618,6 +647,9 @@ module "storage" {
   default_bucket   = try(local.storage_cfg.default_bucket, false)
   buckets          = try(local.storage_cfg.buckets, [])
   firestore_backup = try(local.storage_cfg.firestore_backup, null)
+  # firestore_backup.export_platform = "cloud_run" の export SA。module 内で data を
+  # 読まずに root で解決した値を渡す (module の depends_on で読み込みが遅延しないように)。
+  compute_default_sa = local.compute_default_sa
 
   depends_on = [google_project_service.this, module.firebase]
 }
@@ -1097,11 +1129,26 @@ module "iam" {
 # ---------------------------------------------------------------------------
 
 data "google_project" "this" {
-  # cloud_functions 有効時 (gen2 compute SA bindings 用) か、default_compute_sa_roles が
-  # 指定された時 (SA email の project number 解決用) に取得する。
-  count      = (local.enable_cloud_functions || length(var.default_compute_sa_roles) > 0) ? 1 : 0
+  # cloud_functions 有効時 (gen2 compute SA bindings 用) か、default_compute_sa_roles /
+  # default_compute_sa_self_roles が指定された時 (SA email の project number 解決用) に取得する。
+  # storage.firestore_backup.export_platform = "cloud_run" の export SA 解決にも使う。
+  count = (
+    local.enable_cloud_functions ||
+    length(var.default_compute_sa_roles) > 0 ||
+    length(var.default_compute_sa_self_roles) > 0 ||
+    try(local.storage_cfg.firestore_backup.export_platform, "cloud_functions") == "cloud_run"
+  ) ? 1 : 0
   project_id = var.project_id
-  depends_on = [google_project_service.this]
+  # depends_on は不変な base API (google_project_service.base) だけに付ける。
+  # google_project_service.this (feature API) に付けると、API の追加・削除がある plan で
+  # 読み込みが apply まで遅延し、compute_default_sa が unknown になる。compute SA の
+  # binding は member / service_account_id が ForceNew なので、既存 binding が -/+
+  # (apply 中に権限が一時的に外れる) になる (#146)。
+  # base に依存させることで、同じ root で project を新規作成する構成では project / CRM API
+  # の作成を待ってから読む (base が作成予定になるので従来どおり遅延される)。
+  # 前提: base は通常不変 (base に変更が計画される plan では、従来どおり読み込みが遅延する)。
+  # API 有効化後に binding を作る順序づけは、各 binding リソースの depends_on で担保する。
+  depends_on = [google_project_service.base]
 }
 
 # Pub/Sub service agent (service-{number}@gcp-sa-pubsub...) を確実に存在させる。
@@ -1135,6 +1182,8 @@ resource "google_project_iam_member" "gen2_compute_run_invoker" {
   project = var.project_id
   role    = "roles/run.invoker"
   member  = "serviceAccount:${local.gen2_compute_sa}"
+
+  depends_on = [google_project_service.this]
 }
 
 resource "google_project_iam_member" "gen2_compute_eventarc_receiver" {
@@ -1142,6 +1191,8 @@ resource "google_project_iam_member" "gen2_compute_eventarc_receiver" {
   project = var.project_id
   role    = "roles/eventarc.eventReceiver"
   member  = "serviceAccount:${local.gen2_compute_sa}"
+
+  depends_on = [google_project_service.this]
 }
 
 # 既定 compute SA への追加 role 付与 (runtime が他 API を叩く用)。
@@ -1154,4 +1205,20 @@ resource "google_project_iam_member" "default_compute_extra" {
   project  = var.project_id
   role     = each.value
   member   = "serviceAccount:${local.compute_default_sa}"
+
+  depends_on = [google_project_service.this]
+}
+
+# 既定 compute SA 自身を対象とする role 付与 (resource も member も compute SA 自身)。
+# 例: Firebase Admin SDK の createCustomToken を鍵ファイルなしで使うと IAM Credentials API の
+#     signBlob で自分自身に署名するため "roles/iam.serviceAccountTokenCreator" が要る。
+# default_compute_extra (project-level) で付けるとプロジェクト内の全 SA に署名・なりすまし
+# できてしまうので、こちらで SA 単位に絞る。
+resource "google_service_account_iam_member" "default_compute_self" {
+  for_each           = toset(var.default_compute_sa_self_roles)
+  service_account_id = "projects/${var.project_id}/serviceAccounts/${local.compute_default_sa}"
+  role               = each.value
+  member             = "serviceAccount:${local.compute_default_sa}"
+
+  depends_on = [google_project_service.this]
 }

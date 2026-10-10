@@ -35,6 +35,10 @@ jobs:
         working-directory: modules/firebase-project-platform
         run: terraform validate
 
+      - name: terraform test (module root)
+        working-directory: modules/firebase-project-platform
+        run: terraform test
+
       - name: terraform test (modules/storage)
         working-directory: modules/firebase-project-platform/modules/storage
         run: terraform init -backend=false && terraform test
