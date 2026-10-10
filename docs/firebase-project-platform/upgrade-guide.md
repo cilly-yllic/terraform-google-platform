@@ -68,6 +68,29 @@ Before introducing a new breaking change:
 
 ---
 
+## v1.4.0 (2026-10-10)
+
+### Features
+- `authentication.blocking_functions.managed_by` (default `"terraform"`): who owns the blocking-function triggers. With `"deploy"`, the triggers that `firebase deploy` registers for `beforeUserCreated` / `beforeUserSignedIn` are kept (`ignore_changes`). Previously, a config without URIs **removed them on the next apply**: the provider's `blocking_functions` is not Computed. `"deploy"` cannot be combined with `before_create` / `before_sign_in`. (#154, #153)
+- New submodule `modules/auth-deploy-managed`: the root module calls it instead of `modules/auth` when `managed_by = "deploy"`.
+
+### Upgrade notes
+- `modules/auth` and its config address (`module.auth[0].google_identity_platform_config.this`) are unchanged, so existing state and `import` blocks keep working. Omitting `managed_by` produces no diff.
+- **Switching an existing config to `"deploy"`** (or back) moves it to another state address. Set `authentication.import_existing = true` in that apply. If you forget, the old address leaves state and the create fails. The config and triggers stay on GCP, and re-running with `import_existing = true` recovers. See [`modules/auth-deploy-managed`](../../modules/firebase-project-platform/modules/auth-deploy-managed/README.md#switching-the-mode-of-an-existing-config).
+- When using `managed_by: deploy` with `import_existing` via the dispatch Action, update **both** the Action ref and `module_version` to this release. Older modules have no `auth_deploy_managed` import target.
+
+<details><summary>Ja</summary>
+
+- `authentication.blocking_functions.managed_by` (既定 `"terraform"`): blocking function の trigger の管理主体。`"deploy"` にすると、`firebase deploy` が `beforeUserCreated` / `beforeUserSignedIn` で登録した trigger を温存する (`ignore_changes`)。従来は URI を書かない config だと**次の apply で消えていた**。provider の `blocking_functions` が Computed でないため。`"deploy"` と `before_create` / `before_sign_in` は併用できない。(#154, #153)
+- 新しい submodule `modules/auth-deploy-managed`: `managed_by = "deploy"` のとき、root module は `modules/auth` の代わりにこれを呼ぶ。
+- `modules/auth` とその config のアドレス (`module.auth[0].google_identity_platform_config.this`) は変えていない。既存の state と `import` block はそのまま使える。`managed_by` を書かなければ差分は出ない。
+- **既存 config を `"deploy"` に (または戻すように) 切り替える**と、state のアドレスが変わる。その apply で `authentication.import_existing = true` にする。忘れると旧アドレスが state から外れ、作成に失敗する。GCP 上の config と trigger は残るので、`import_existing = true` で再実行すれば復旧できる。[`modules/auth-deploy-managed`](../../modules/firebase-project-platform/modules/auth-deploy-managed/README.md#switching-the-mode-of-an-existing-config) 参照。
+- dispatch Action で `managed_by: deploy` と `import_existing` を併用するときは、Action の ref と `module_version` の**両方**をこのリリースにそろえる。旧 module には import 先 `auth_deploy_managed` が無い。
+
+</details>
+
+---
+
 ## v1.3.0 (2026-10-10)
 
 ### Features
