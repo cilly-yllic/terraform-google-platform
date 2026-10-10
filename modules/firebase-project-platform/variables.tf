@@ -74,9 +74,44 @@ variable "authentication" {
         ※ このブロックを明示する or authorized=true の domain が 1 つでもあると、
            authorized_domains は terraform が authoritative に管理する (全置換)。
            どちらも無ければ attribute を触らず Firebase デフォルトを温存する。
+
+      upgrade_to_identity_platform = Identity Platform config を作成して project を
+        Identity Platform にアップグレードするか (default true)。false なら
+        identitytoolkit API の有効化と IAM のみ行い、config は作らない
+        (blocking_functions / authorized_domains は config が前提なので併用不可。
+        hosting / app_hosting 由来の authorized domain も反映されない)。
+        アップグレードは GCP 側で取り消せない。
+
+      import_existing = Console で既にアップグレード済みの config を state に取り込むか
+        (default false)。import block は root module にしか書けないため、この module
+        自体は値を読まない。dispatch-firebase-platform Action の root テンプレートが
+        この値で import block を有効化する。module を直接使う場合は root module に
+        import block を書く (modules/auth/README.md 参照)。
   EOT
   type        = any
   default     = null
+
+  validation {
+    condition = (
+      try(var.authentication.upgrade_to_identity_platform, null) == null ||
+      can(tobool(var.authentication.upgrade_to_identity_platform))
+      ) && (
+      try(var.authentication.import_existing, null) == null ||
+      can(tobool(var.authentication.import_existing))
+    )
+    error_message = "authentication.upgrade_to_identity_platform / authentication.import_existing must be bool."
+  }
+
+  validation {
+    condition = !(
+      try(tobool(var.authentication.upgrade_to_identity_platform), true) == false && (
+        try(tobool(var.authentication.import_existing), false) ||
+        try(var.authentication.blocking_functions, null) != null ||
+        try(var.authentication.authorized_domains, null) != null
+      )
+    )
+    error_message = "authentication.upgrade_to_identity_platform = false cannot be combined with import_existing = true, blocking_functions, or authorized_domains (they all require the Identity Platform config)."
+  }
 }
 
 variable "firestore" {

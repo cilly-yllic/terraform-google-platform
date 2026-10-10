@@ -76,6 +76,13 @@ locals {
     var.authentication == true ? null : var.authentication
   ) : null
 
+  # Identity Platform config を作る (= project を Identity Platform にアップグレード
+  # する) か。authentication を有効にしつつ false にすると、API 有効化と IAM だけ
+  # 行い config (initializeAuth) は作らない。
+  enable_identity_platform = local.enable_authentication && try(
+    tobool(local.authentication_cfg.upgrade_to_identity_platform), true
+  )
+
   # firestore / data_connect は list 化される (詳細は別 locals block)
 
   rtdb_cfg = local.enable_rtdb ? (
@@ -595,7 +602,7 @@ locals {
 }
 
 module "auth" {
-  count   = local.enable_authentication ? 1 : 0
+  count   = local.enable_identity_platform ? 1 : 0
   source  = "./modules/auth"
   project = var.project_id
   blocking_functions = {

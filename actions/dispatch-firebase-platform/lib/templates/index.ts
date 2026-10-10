@@ -42,6 +42,18 @@ ${VERSION_PLACEHOLDER}
   default_compute_sa_self_roles = var.default_compute_sa_self_roles
 }
 
+# Console で Authentication を開始済み (= Identity Platform にアップグレード済み) の
+# project では config が既に存在し、create (initializeAuth) が失敗する。
+# authentication.import_existing = true のときは既存 config を state に取り込む。
+# import block は root module にしか書けないため、module 側ではなくここに置く。
+# state に取り込み済みなら import は no-op なので、flag は true のままでよい。
+import {
+  for_each = try(tobool(var.authentication.import_existing), false) ? toset(["existing"]) : toset([])
+
+  to = module.firebase_platform.module.auth[0].google_identity_platform_config.this
+  id = "projects/\${var.project_id}/config"
+}
+
 variable "project_id" {
   type = string
 }
