@@ -68,6 +68,25 @@ Before introducing a new breaking change:
 
 ---
 
+## v1.3.0 (2026-10-10)
+
+### Features
+- `authentication.upgrade_to_identity_platform` (default `true`): controls whether the Identity Platform config is created, i.e. whether the project is **upgraded to Identity Platform** (`initializeAuth`, which cannot be undone). `false` only enables `identitytoolkit.googleapis.com` and IAM. It cannot be combined with `import_existing` / `blocking_functions` / `authorized_domains`; the plan fails validation if it is. (#150)
+- `authentication.import_existing` (default `false`): imports a config that was already upgraded from the Console instead of creating it (creating it again would fail). `import` blocks are only allowed in the root module, so the dispatch Action's root template contains the block. **When calling the module directly**, add the block to your root module (see [`modules/auth`](../../modules/firebase-project-platform/modules/auth/README.md#upgrading-to-identity-platform)). Once imported, the block is a no-op, so the flag can stay `true`. (#150)
+
+### Upgrade notes
+- Both flags are opt-in. Omitting them produces no diff.
+
+<details><summary>Ja</summary>
+
+- `authentication.upgrade_to_identity_platform` (既定 `true`): Identity Platform config を作成するか、つまり project を **Identity Platform にアップグレードする**か (`initializeAuth`。取り消せない) を制御する。`false` なら `identitytoolkit.googleapis.com` の有効化と IAM のみ行う。`import_existing` / `blocking_functions` / `authorized_domains` とは併用できず、併用すると plan が validation エラーになる。(#150)
+- `authentication.import_existing` (既定 `false`): Console でアップグレード済みの config を作成せず import する (作成しようとすると失敗する)。`import` block は root module にしか書けないため、dispatch Action の root テンプレートに block を入れた。**module を直接呼ぶ場合**は自分の root module に block を書く ([`modules/auth`](../../modules/firebase-project-platform/modules/auth/README.md#upgrading-to-identity-platform) 参照)。取り込み後は no-op なので flag は `true` のままでよい。(#150)
+- いずれも opt-in。書かなければ差分は出ない。
+
+</details>
+
+---
+
 ## v1.2.0 (2026-10-10)
 
 ### Features

@@ -31,7 +31,7 @@ output "firebase_project_id" {
 
 output "auth_config_name" {
   description = "Identity Platform config resource name."
-  value       = local.enable_authentication ? module.auth[0].name : null
+  value       = local.enable_identity_platform ? module.auth[0].name : null
 }
 
 # ---------------------------------------------------------------------------

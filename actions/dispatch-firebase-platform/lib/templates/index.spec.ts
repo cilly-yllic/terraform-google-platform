@@ -70,6 +70,19 @@ describe("buildTemplateFiles", () => {
     }
   });
 
+  it("imports an existing Identity Platform config only when authentication.import_existing is true", () => {
+    const { "main.tf": main } = buildTemplateFiles(undefined);
+    expect(main).toMatch(/^import \{$/m);
+    expect(main).toContain(
+      'for_each = try(tobool(var.authentication.import_existing), false) ? toset(["existing"]) : toset([])',
+    );
+    expect(main).toContain(
+      "to = module.firebase_platform.module.auth[0].google_identity_platform_config.this",
+    );
+    // JS template literal の \${...} エスケープ漏れで project_id が展開されないこと
+    expect(main).toContain('id = "projects/${var.project_id}/config"');
+  });
+
   it("declares AND forwards non-feature passthrough variables (incl. app_hosting_compute_sa_roles)", () => {
     const { "main.tf": main } = buildTemplateFiles(undefined);
     // PASSTHROUGH_KEYS (dispatch/index.ts) に対応する root 変数。宣言だけでなく
