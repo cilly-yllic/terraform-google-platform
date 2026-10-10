@@ -40,3 +40,13 @@ run "cloud_functions_export_uses_appspot_sa" {
     error_message = "既定 (cloud_functions) の export SA が appspot SA になっていない"
   }
 }
+
+run "cloud_run_export_without_compute_sa_fails_with_clear_error" {
+  command = plan
+
+  variables {
+    firestore_backup = { export_platform = "cloud_run" }
+  }
+
+  expect_failures = [google_project_iam_member.firestore_export]
+}

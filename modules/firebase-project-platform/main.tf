@@ -1146,6 +1146,7 @@ data "google_project" "this" {
   # (apply 中に権限が一時的に外れる) になる (#146)。
   # base に依存させることで、同じ root で project を新規作成する構成では project / CRM API
   # の作成を待ってから読む (base が作成予定になるので従来どおり遅延される)。
+  # 前提: base は通常不変 (base に変更が計画される plan では、従来どおり読み込みが遅延する)。
   # API 有効化後に binding を作る順序づけは、各 binding リソースの depends_on で担保する。
   depends_on = [google_project_service.base]
 }

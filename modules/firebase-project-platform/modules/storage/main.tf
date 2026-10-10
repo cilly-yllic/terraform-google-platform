@@ -167,6 +167,13 @@ resource "google_project_iam_member" "firestore_export" {
   project = var.project
   role    = "roles/datastore.importExportAdmin"
   member  = "serviceAccount:${local.firestore_backup_iam_members[var.firestore_backup.export_platform]}"
+
+  lifecycle {
+    precondition {
+      condition     = var.firestore_backup.export_platform != "cloud_run" || var.compute_default_sa != ""
+      error_message = "firestore_backup.export_platform = \"cloud_run\" の場合は compute_default_sa (<project-number>-compute@developer.gserviceaccount.com) を渡すこと。"
+    }
+  }
 }
 
 resource "google_storage_bucket_iam_member" "firestore_backup_admin" {
