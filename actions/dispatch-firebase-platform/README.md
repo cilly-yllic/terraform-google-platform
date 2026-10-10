@@ -163,6 +163,25 @@ environments:
           include_localhost: false      # prd は localhost からの OAuth を塞ぐ
 ```
 
+### Identity Platform へのアップグレード
+
+`authentication` を有効にすると、既定では Identity Platform config を作成して project を Identity Platform にアップグレードする (GCP 側で取り消せない)。`authentication` 配下の flag で切り替えられる。
+
+```yaml
+      authentication:
+        # Console で既にアップグレード済みの project: 作成せず既存 config を import する
+        import_existing: true
+```
+
+```yaml
+      authentication:
+        # アップグレードしない (identitytoolkit API と IAM のみ)
+        upgrade_to_identity_platform: false
+```
+
+- `import_existing: true` は Action が生成する root `main.tf` の `import` block を有効化する。取り込み後も `true` のままでよい (no-op)。
+- `upgrade_to_identity_platform: false` は `import_existing` / `blocking_functions` / `authorized_domains` と併用できない (plan 時に validation エラー)。
+
 各 feature flag は `null` (省略) / `true` / `{ ... }` (custom config) のいずれかを受け取る。設定可能な feature キーの完全リストは `lib/dispatch/index.ts` の `FEATURE_KEYS` / `PASSTHROUGH_KEYS` を参照。完全なサンプルは [`examples/settings.yml`](../../examples/settings.yml)。
 
 ### Cloud SQL ユーザー

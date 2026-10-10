@@ -92,6 +92,10 @@
 #     - include_defaults  (<project>.firebaseapp.com + .web.app を含めるか, default true)
 #     - include_localhost (localhost を含めるか, default true。stg/prd で false 推奨)
 #     ドメイン自体はここに書かず hosting / app_hosting から集約する。
+#   authentication.upgrade_to_identity_platform (optional, default true):
+#     false で Identity Platform にアップグレードしない (API と IAM のみ)。
+#   authentication.import_existing (optional, default false):
+#     Console でアップグレード済みの config を作成せず import する。
 #   ※ apps 自体を省略しても hosting / app_hosting があれば "default" 名で
 #     type=web を 1 件 auto-create + 自動 link される。複数 web app + 参照省略
 #     は plan-time error (silent reference flip 防止)。hosting / app_hosting

@@ -169,6 +169,8 @@ Identity Platform configuration.
 | `blocking_functions.before_sign_in` | `string` | `""` | Cloud Function URI for the `beforeSignIn` Identity Platform trigger |
 | `authorized_domains.include_defaults` | `bool` | `true` | OAuth 許可ドメインに `<project>.firebaseapp.com` + `<project>.web.app` を含めるか |
 | `authorized_domains.include_localhost` | `bool` | `true` | OAuth 許可ドメインに `localhost` を含めるか。stg/prd では `false` 推奨 |
+| `upgrade_to_identity_platform` | `bool` | `true` | Create the Identity Platform config, i.e. upgrade the project to Identity Platform. `false` only enables `identitytoolkit.googleapis.com` and IAM; cannot be combined with `import_existing` / `blocking_functions` / `authorized_domains`. The upgrade cannot be undone on the GCP side |
+| `import_existing` | `bool` | `false` | Import a config that already exists (upgraded from the Console) instead of creating it. Handled by the dispatch Action's root template; when calling the module directly, write the `import` block in your root module (see [`modules/auth`](../../modules/firebase-project-platform/modules/auth/README.md#upgrading-to-identity-platform)) |
 
 Providing just `{}` (= equivalent to defaults) is enough to create the Identity Platform config.
 
@@ -182,6 +184,8 @@ Identity Platform 設定。
 - `blocking_functions.before_sign_in` (string, default `""`): Cloud Function URI (Identity Platform `beforeSignIn` トリガー)
 - `authorized_domains.include_defaults` (bool, default `true`): `<project>.firebaseapp.com` + `<project>.web.app` を含めるか
 - `authorized_domains.include_localhost` (bool, default `true`): `localhost` を含めるか（stg/prd で `false` にして塞ぐ）
+- `upgrade_to_identity_platform` (bool, default `true`): Identity Platform config を作成する (= project を Identity Platform にアップグレードする) か。`false` なら `identitytoolkit.googleapis.com` の有効化と IAM のみ行う。`import_existing` / `blocking_functions` / `authorized_domains` とは併用不可。アップグレードは GCP 側で取り消せない
+- `import_existing` (bool, default `false`): Console でアップグレード済みの config を作成せず import する。dispatch Action の root テンプレートが処理する。module を直接使う場合は root module に `import` block を書く（[`modules/auth`](../../modules/firebase-project-platform/modules/auth/README.md#upgrading-to-identity-platform) 参照）
 
 `{}` のみ指定 (=デフォルト相当) で Identity Platform config が作成される。
 

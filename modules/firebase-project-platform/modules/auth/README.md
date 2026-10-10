@@ -48,7 +48,7 @@ The `blocking_functions { triggers { ... } }` block is only added if `blocking_f
 
 ## Invocation condition
 
-Called when `var.authentication != null`.
+Called when `var.authentication != null` and `authentication.upgrade_to_identity_platform` is not `false`.
 
 ## Side effects
 
@@ -57,6 +57,41 @@ Identity Platform config is a **singleton per GCP Project** — once created, it
 <details><summary>Ja</summary>
 
 Identity Platform config は **GCP Project に 1 つだけ存在する singleton resource**。一度作成すると Console から削除できない点に注意。
+
+</details>
+
+## Upgrading to Identity Platform
+
+Creating `google_identity_platform_config` calls `initializeAuth`, which **upgrades the project to Identity Platform**. The root module controls this with two flags under `authentication`:
+
+| Situation | Setting |
+|-----------|---------|
+| Let Terraform upgrade the project (default) | `upgrade_to_identity_platform` omitted / `true` |
+| Keep Firebase Authentication without upgrading | `upgrade_to_identity_platform = false` (only the API and IAM are managed; this submodule is not called) |
+| Already upgraded from the Console | `import_existing = true` (creating it again would fail because the config already exists) |
+
+`import` blocks are only allowed in the root module, so this module cannot import by itself. The dispatch-firebase-platform Action's root template contains the block below and enables it from `authentication.import_existing`. When you call the module directly, add the same block to your root module (replace `firebase_platform` with your module name). Once the config is in state the import is a no-op, so the flag can stay `true`.
+
+```hcl
+import {
+  for_each = try(tobool(var.authentication.import_existing), false) ? toset(["existing"]) : toset([])
+
+  to = module.firebase_platform.module.auth[0].google_identity_platform_config.this
+  id = "projects/${var.project_id}/config"
+}
+```
+
+<details><summary>Ja</summary>
+
+`google_identity_platform_config` の作成は `initializeAuth` を呼び、**project を Identity Platform にアップグレードする**。root module の `authentication` 配下の 2 つの flag で制御する。
+
+| 状況 | 設定 |
+|------|------|
+| Terraform でアップグレードする (既定) | `upgrade_to_identity_platform` 省略 / `true` |
+| アップグレードせず Firebase Authentication のまま使う | `upgrade_to_identity_platform = false` (API と IAM のみ管理し、この submodule は呼ばれない) |
+| Console で既にアップグレード済み | `import_existing = true` (config が既に存在するため、作成しようとすると失敗する) |
+
+`import` block は root module にしか書けないため、この module 単体では import できない。dispatch-firebase-platform Action の root テンプレートには上の block が入っており、`authentication.import_existing` で有効化される。module を直接呼ぶ場合は同じ block を自分の root module に書く (`firebase_platform` は自分の module 名に置き換える)。state に取り込み済みなら import は no-op なので、flag は `true` のままでよい。
 
 </details>
 
