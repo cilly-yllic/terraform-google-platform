@@ -5,8 +5,9 @@
 mock_provider "google" {}
 mock_provider "google-beta" {}
 
-# data.google_project は depends_on (google_project_service) のため plan では読まれず、
-# SA email が unknown になる。付与先を検証する run は mock 上で apply する。
+# data.google_project は google_project_service.base に依存するため、空の state からの plan では
+# 読まれず SA email が unknown になる (新規 project の作成を待つための挙動)。付与先を検証する
+# run は mock 上で apply する。
 override_data {
   target = data.google_project.this
   values = {

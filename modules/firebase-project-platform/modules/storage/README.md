@@ -67,6 +67,7 @@ GCS bucket は globally unique なので、衝突しない命名を呼び出し�
 | `default_bucket` | `bool` | `false` | Link the pre-created default bucket (Terraform cannot provision it since 2024-09) |
 | `buckets` | `list(object)` | `[]` | Additional buckets. Fields: `name`, `auto_prefix`, `location`, `storage_class`, `iams[]`, `cors[]` |
 | `firestore_backup` | `object \| null` | `null` | Firestore-backup bucket config |
+| `compute_default_sa` | `string` | `""` | Compute Engine default SA email (`<project-number>-compute@developer.gserviceaccount.com`). Required when `firestore_backup.export_platform = "cloud_run"` (the parent module passes it automatically) |
 
 Fields of `buckets[].cors[]` (same names/semantics as the `google_storage_bucket` `cors` block; omit `cors` for no CORS — existing buckets get no diff):
 

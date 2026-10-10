@@ -46,6 +46,12 @@ variable "buckets" {
   default = []
 }
 
+variable "compute_default_sa" {
+  description = "Compute Engine default SA email (<project-number>-compute@developer.gserviceaccount.com). Required when firestore_backup.export_platform = \"cloud_run\"."
+  type        = string
+  default     = ""
+}
+
 variable "firestore_backup" {
   # bucket_name も globally unique。`auto_prefix = true` で `{project_id}-` を付与。
   # default は false (= bucket_name をそのまま使う) — buckets[] と統一。
