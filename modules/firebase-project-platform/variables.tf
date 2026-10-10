@@ -63,6 +63,14 @@ variable "authentication" {
     null to disable, true for defaults, or object:
       blocking_functions.before_create  = Cloud Function URI (default: "")
       blocking_functions.before_sign_in = Cloud Function URI (default: "")
+      blocking_functions.managed_by     = trigger の管理主体 (default: "terraform")
+        "terraform" : 上の URI で trigger を authoritative に管理する。URI が空なら
+                      trigger 無しに揃える (firebase deploy が登録した trigger も消す)
+        "deploy"    : firebase deploy (beforeUserCreated / beforeUserSignedIn) の
+                      自動登録に任せ、trigger を ignore_changes で温存する。URI は書かない
+        ※ 作成後にモードを切り替えると state のアドレスが変わるため、
+           その apply で import_existing = true が要る
+           (modules/auth-deploy-managed/README.md 参照)。
 
       authorized_domains = OAuth リダイレクト許可ドメインの default 制御 (optional)。
         ・ドメイン自体はここに列挙しない。hosting / app_hosting の custom_domains で
@@ -100,6 +108,24 @@ variable "authentication" {
       can(tobool(var.authentication.import_existing))
     )
     error_message = "authentication.upgrade_to_identity_platform / authentication.import_existing must be bool."
+  }
+
+  validation {
+    condition = try(contains(
+      ["terraform", "deploy"],
+      coalesce(try(var.authentication.blocking_functions.managed_by, null), "terraform"),
+    ), false)
+    error_message = "authentication.blocking_functions.managed_by must be \"terraform\" or \"deploy\"."
+  }
+
+  validation {
+    condition = !(
+      try(var.authentication.blocking_functions.managed_by, "terraform") == "deploy" && (
+        try(length(var.authentication.blocking_functions.before_create) > 0, false) ||
+        try(length(var.authentication.blocking_functions.before_sign_in) > 0, false)
+      )
+    )
+    error_message = "authentication.blocking_functions.managed_by = \"deploy\" cannot be combined with before_create / before_sign_in URIs (firebase deploy registers the triggers)."
   }
 
   validation {
