@@ -117,15 +117,14 @@ resource "google_storage_bucket_iam_binding" "additional" {
 # Firestore Backup Bucket (optional)
 # ---------------------------------------------------------------------------
 
-data "google_project" "this" {
-  count      = var.firestore_backup != null ? 1 : 0
-  project_id = var.project
-}
-
 locals {
+  # cloud_run の compute SA email は親 module が解決して渡す (var.compute_default_sa)。
+  # ここで data.google_project を読むと、親の module "storage" に付いた depends_on の
+  # 依存先に保留中の変更がある plan (API の追加など) で読み込みが apply まで遅延し、
+  # member が unknown → ForceNew で -/+ になる (#146)。
   firestore_backup_iam_members = {
     cloud_functions = "${var.project}@appspot.gserviceaccount.com"
-    cloud_run       = var.firestore_backup != null ? "${try(data.google_project.this[0].number, "")}-compute@developer.gserviceaccount.com" : ""
+    cloud_run       = var.compute_default_sa
   }
 }
 

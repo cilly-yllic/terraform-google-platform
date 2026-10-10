@@ -9,7 +9,11 @@ output "project_id" {
 
 output "enabled_apis" {
   description = "List of enabled GCP APIs."
-  value       = [for k, v in google_project_service.this : v.service]
+  # base / feature に分けたリソースをまとめ、従来どおり service 名の昇順で返す (#146)
+  value = sort(concat(
+    [for k, v in google_project_service.base : v.service],
+    [for k, v in google_project_service.this : v.service],
+  ))
 }
 
 # ---------------------------------------------------------------------------

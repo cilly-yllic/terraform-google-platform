@@ -5,7 +5,9 @@
 mock_provider "google" {}
 mock_provider "google-beta" {}
 
-# project number を固定して SA email を検証できるようにする。
+# data.google_project は google_project_service.base に依存するため、空の state からの plan では
+# 読まれず SA email が unknown になる (新規 project の作成を待つための挙動)。付与先を検証する
+# run は mock 上で apply する。
 override_data {
   target = data.google_project.this
   values = {
@@ -51,7 +53,7 @@ run "self_roles_omitted_with_cloud_functions_creates_nothing" {
 }
 
 run "self_roles_bind_to_compute_sa_itself" {
-  command = plan
+  command = apply
 
   variables {
     default_compute_sa_roles      = ["roles/secretmanager.secretAccessor"]
