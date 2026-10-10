@@ -122,3 +122,84 @@ run "non_bool_flag_rejected" {
 
   expect_failures = [var.authentication]
 }
+
+# -- blocking_functions.managed_by (#153) ------------------------------------
+
+run "blocking_functions_default_terraform_managed" {
+  command = plan
+
+  variables {
+    authentication = {
+      blocking_functions = {
+        before_create = "https://example.com/before-create"
+      }
+    }
+  }
+
+  # resource の出し分けは modules/auth/tests で検証する
+  assert {
+    condition     = length(module.auth) == 1
+    error_message = "既定 (managed_by 未指定) で config が作られていない"
+  }
+}
+
+run "blocking_functions_deploy_managed" {
+  command = plan
+
+  variables {
+    authentication = {
+      blocking_functions = {
+        managed_by = "deploy"
+      }
+    }
+  }
+
+  assert {
+    condition     = length(module.auth) == 1
+    error_message = "deploy 管理でも config (auth submodule) を作る"
+  }
+}
+
+run "blocking_functions_deploy_with_uri_rejected" {
+  command = plan
+
+  variables {
+    authentication = {
+      blocking_functions = {
+        managed_by     = "deploy"
+        before_sign_in = "https://example.com/before-sign-in"
+      }
+    }
+  }
+
+  expect_failures = [var.authentication]
+}
+
+run "blocking_functions_unknown_mode_rejected" {
+  command = plan
+
+  variables {
+    authentication = {
+      blocking_functions = {
+        managed_by = "console"
+      }
+    }
+  }
+
+  expect_failures = [var.authentication]
+}
+
+run "blocking_functions_deploy_with_upgrade_false_rejected" {
+  command = plan
+
+  variables {
+    authentication = {
+      upgrade_to_identity_platform = false
+      blocking_functions = {
+        managed_by = "deploy"
+      }
+    }
+  }
+
+  expect_failures = [var.authentication]
+}

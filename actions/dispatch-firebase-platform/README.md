@@ -182,6 +182,19 @@ environments:
 - `import_existing: true` は Action が生成する root `main.tf` の `import` block を有効化する。取り込み後も `true` のままでよい (no-op)。
 - `upgrade_to_identity_platform: false` は `import_existing` / `blocking_functions` / `authorized_domains` と併用できない (plan 時に validation エラー)。
 
+### blocking functions を `firebase deploy` に任せる
+
+`beforeUserCreated` / `beforeUserSignedIn` を `firebase deploy` すると trigger が自動登録される。既定 (`managed_by: terraform`) では URI を書かない trigger は次の apply で消えるため、deploy に任せる env では次のように書く。
+
+```yaml
+      authentication:
+        blocking_functions:
+          managed_by: deploy   # deploy が登録した trigger を terraform が触らない
+```
+
+- `managed_by: deploy` と `before_create` / `before_sign_in` は併用できない。
+- 既に config がある env でモードを切り替えるときは、その apply で `import_existing: true` にする (state のアドレスが変わるため)。
+
 各 feature flag は `null` (省略) / `true` / `{ ... }` (custom config) のいずれかを受け取る。設定可能な feature キーの完全リストは `lib/dispatch/index.ts` の `FEATURE_KEYS` / `PASSTHROUGH_KEYS` を参照。完全なサンプルは [`examples/settings.yml`](../../examples/settings.yml)。
 
 ### Cloud SQL ユーザー

@@ -609,7 +609,8 @@ module "auth" {
     before_create  = try(local.authentication_cfg.blocking_functions.before_create, "")
     before_sign_in = try(local.authentication_cfg.blocking_functions.before_sign_in, "")
   }
-  authorized_domains = local.authorized_domains_final
+  manage_blocking_functions = try(local.authentication_cfg.blocking_functions.managed_by, "terraform") != "deploy"
+  authorized_domains        = local.authorized_domains_final
 
   depends_on = [google_project_service.this, module.firebase]
 }

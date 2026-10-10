@@ -21,3 +21,15 @@ variable "blocking_functions" {
   })
   default = {}
 }
+
+variable "manage_blocking_functions" {
+  description = <<-EOT
+    blocking functions を terraform で管理するか。
+    true  : blocking_functions の URI で trigger を authoritative に管理する
+            (空なら trigger 無し。deploy が登録した trigger は次の apply で消える)
+    false : firebase deploy の自動登録に任せ、trigger を ignore_changes で温存する
+            (blocking_functions は空であること)
+  EOT
+  type        = bool
+  default     = true
+}
