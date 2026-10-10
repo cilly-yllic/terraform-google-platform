@@ -1,0 +1,124 @@
+# authentication.upgrade_to_identity_platform / import_existing の回帰テスト
+# (mock provider のみ、認証不要)。
+#   cd modules/firebase-project-platform
+#   terraform init -backend=false && terraform test
+#
+# import_existing の import block 自体は root module (dispatch-firebase-platform
+# Action のテンプレート) 側にあるため、ここでは module 側の validation のみ検証する。
+
+mock_provider "google" {}
+mock_provider "google-beta" {}
+
+variables {
+  project_id = "test-project"
+}
+
+run "default_upgrades_to_identity_platform" {
+  command = plan
+
+  variables {
+    authentication = true
+  }
+
+  assert {
+    condition     = length(module.auth) == 1
+    error_message = "既定 (upgrade_to_identity_platform 未指定) で Identity Platform config が作られていない"
+  }
+}
+
+run "upgrade_false_skips_config_but_enables_api" {
+  command = plan
+
+  variables {
+    authentication = {
+      upgrade_to_identity_platform = false
+    }
+  }
+
+  assert {
+    condition     = length(module.auth) == 0
+    error_message = "upgrade_to_identity_platform = false なのに Identity Platform config が作られている"
+  }
+
+  assert {
+    condition     = contains(keys(google_project_service.this), "identitytoolkit.googleapis.com")
+    error_message = "upgrade_to_identity_platform = false でも identitytoolkit API は有効化する"
+  }
+
+  assert {
+    condition     = output.auth_config_name == null
+    error_message = "config を作らないときは auth_config_name が null"
+  }
+}
+
+# import block は module 内に無いので、import_existing = true 単体では module の
+# plan は通常どおり (config を管理対象にする)。
+run "import_existing_keeps_config_managed" {
+  command = plan
+
+  variables {
+    authentication = {
+      import_existing = true
+    }
+  }
+
+  assert {
+    condition     = length(module.auth) == 1
+    error_message = "import_existing = true で config が管理対象から外れている"
+  }
+}
+
+run "upgrade_false_with_import_rejected" {
+  command = plan
+
+  variables {
+    authentication = {
+      upgrade_to_identity_platform = false
+      import_existing              = true
+    }
+  }
+
+  expect_failures = [var.authentication]
+}
+
+run "upgrade_false_with_authorized_domains_rejected" {
+  command = plan
+
+  variables {
+    authentication = {
+      upgrade_to_identity_platform = false
+      authorized_domains = {
+        include_localhost = false
+      }
+    }
+  }
+
+  expect_failures = [var.authentication]
+}
+
+run "upgrade_false_with_blocking_functions_rejected" {
+  command = plan
+
+  variables {
+    authentication = {
+      upgrade_to_identity_platform = false
+      blocking_functions = {
+        before_create = "https://example.com/before-create"
+      }
+    }
+  }
+
+  expect_failures = [var.authentication]
+}
+
+run "non_bool_flag_rejected" {
+  command = plan
+
+  variables {
+    authentication = {
+      import_existing = "yes"
+    }
+  }
+
+  expect_failures = [var.authentication]
+}
