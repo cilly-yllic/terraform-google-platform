@@ -136,10 +136,9 @@ run "blocking_functions_default_terraform_managed" {
     }
   }
 
-  # resource の出し分けは modules/auth/tests で検証する
   assert {
-    condition     = length(module.auth) == 1
-    error_message = "既定 (managed_by 未指定) で config が作られていない"
+    condition     = length(module.auth) == 1 && length(module.auth_deploy_managed) == 0
+    error_message = "既定 (managed_by 未指定) は terraform 管理の module.auth を使う"
   }
 }
 
@@ -155,8 +154,8 @@ run "blocking_functions_deploy_managed" {
   }
 
   assert {
-    condition     = length(module.auth) == 1
-    error_message = "deploy 管理でも config (auth submodule) を作る"
+    condition     = length(module.auth) == 0 && length(module.auth_deploy_managed) == 1
+    error_message = "managed_by = deploy は module.auth_deploy_managed を使う"
   }
 }
 
@@ -197,6 +196,56 @@ run "blocking_functions_deploy_with_upgrade_false_rejected" {
       upgrade_to_identity_platform = false
       blocking_functions = {
         managed_by = "deploy"
+      }
+    }
+  }
+
+  expect_failures = [var.authentication]
+}
+
+# YAML で値を空にした (null) 場合は既定値として扱う
+run "blocking_functions_null_mode_is_terraform" {
+  command = plan
+
+  variables {
+    authentication = {
+      blocking_functions = {
+        managed_by = null
+      }
+    }
+  }
+
+  assert {
+    condition     = length(module.auth) == 1 && length(module.auth_deploy_managed) == 0
+    error_message = "managed_by = null は terraform 管理として扱う"
+  }
+}
+
+run "blocking_functions_deploy_with_null_uri_allowed" {
+  command = plan
+
+  variables {
+    authentication = {
+      blocking_functions = {
+        managed_by    = "deploy"
+        before_create = null
+      }
+    }
+  }
+
+  assert {
+    condition     = length(module.auth_deploy_managed) == 1
+    error_message = "deploy 管理で URI が null なら許可する"
+  }
+}
+
+run "blocking_functions_non_string_mode_rejected" {
+  command = plan
+
+  variables {
+    authentication = {
+      blocking_functions = {
+        managed_by = ["deploy"]
       }
     }
   }

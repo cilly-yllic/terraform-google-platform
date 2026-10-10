@@ -83,19 +83,19 @@ describe("buildTemplateFiles", () => {
   it("switches the import target by authentication.blocking_functions.managed_by", () => {
     const { "main.tf": main } = buildTemplateFiles(undefined);
     expect(main).toContain(
-      'auth_bf_deploy_managed = try(var.authentication.blocking_functions.managed_by, "terraform") == "deploy"',
+      'auth_bf_deploy_managed = try(var.authentication.blocking_functions.managed_by, null) == "deploy"',
     );
     expect(main).toContain(
       "for_each = local.auth_import_existing && !local.auth_bf_deploy_managed ?",
     );
     expect(main).toContain(
-      "to = module.firebase_platform.module.auth[0].google_identity_platform_config.this[0]",
+      "to = module.firebase_platform.module.auth[0].google_identity_platform_config.this\n",
     );
     expect(main).toContain(
       "for_each = local.auth_import_existing && local.auth_bf_deploy_managed ?",
     );
     expect(main).toContain(
-      "to = module.firebase_platform.module.auth[0].google_identity_platform_config.deploy_managed[0]",
+      "to = module.firebase_platform.module.auth_deploy_managed[0].google_identity_platform_config.this",
     );
   });
 

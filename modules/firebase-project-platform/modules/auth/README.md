@@ -12,8 +12,7 @@ Firebase Authentication / Identity Platform の設定を行う submodule。
 
 | Resource | Provider | Role |
 |----------|----------|------|
-| `google_identity_platform_config.this[0]` | `google-beta` | Identity Platform config (with optional blocking functions and OAuth authorized domains). Created when `manage_blocking_functions = true` (default) |
-| `google_identity_platform_config.deploy_managed[0]` | `google-beta` | Same config, but `blocking_functions` is left to `firebase deploy` (`ignore_changes`). Created when `manage_blocking_functions = false` |
+| `google_identity_platform_config.this` | `google-beta` | Identity Platform config (with optional blocking functions and OAuth authorized domains) |
 
 The `blocking_functions { triggers { ... } }` block is only added if `blocking_functions.before_create` or `before_sign_in` is non-empty.
 
@@ -34,7 +33,6 @@ The `blocking_functions { triggers { ... } }` block is only added if `blocking_f
 | `project` | `string` | (required) | GCP project ID |
 | `blocking_functions.before_create` | `string` | `""` | Cloud Function URI for the `beforeCreate` trigger |
 | `blocking_functions.before_sign_in` | `string` | `""` | Cloud Function URI for the `beforeSignIn` trigger |
-| `manage_blocking_functions` | `bool` | `true` | `true`: Terraform manages the triggers from `blocking_functions` (empty → no triggers; triggers registered by `firebase deploy` are removed). `false`: the triggers registered by `firebase deploy` are kept (`ignore_changes`); `blocking_functions` must be empty |
 | `authorized_domains` | `list(string)` | `[]` | Final, fully-resolved OAuth authorized-domain list (the root module merges defaults / localhost and aggregates hosting domains). Empty → the attribute is left unset and the provider keeps the existing (Firebase default) value. Non-empty → the list is applied **authoritatively** (full replace). |
 
 ## Outputs
@@ -50,7 +48,7 @@ The `blocking_functions { triggers { ... } }` block is only added if `blocking_f
 
 ## Invocation condition
 
-Called when `var.authentication != null` and `authentication.upgrade_to_identity_platform` is not `false`.
+Called when `var.authentication != null`, `authentication.upgrade_to_identity_platform` is not `false`, and `authentication.blocking_functions.managed_by` is not `"deploy"`.
 
 ## Side effects
 
@@ -62,31 +60,13 @@ Identity Platform config は **GCP Project に 1 つだけ存在する singleton
 
 </details>
 
-## Blocking functions: Terraform or `firebase deploy`
+## Blocking functions owned by `firebase deploy`
 
-Deploying `beforeUserCreated` / `beforeUserSignedIn` with `firebase deploy` registers the triggers in the Identity Platform config automatically. The provider's `blocking_functions` is Optional but **not Computed**, so a config without the block removes those triggers on the next apply. Choose who owns the triggers with `authentication.blocking_functions.managed_by` in the root module (`manage_blocking_functions` here):
-
-| `managed_by` | Resource | Triggers |
-|--------------|----------|----------|
-| `terraform` (default) | `this[0]` | Set from `before_create` / `before_sign_in`. Empty → no triggers (deploy-registered ones are removed) |
-| `deploy` | `deploy_managed[0]` | Left to `firebase deploy` (`ignore_changes = [blocking_functions]`). URIs cannot be set |
-
-`ignore_changes` cannot be toggled by a condition, so the two modes use different resources. v1.3.0 and earlier used `this` (no index); a `moved` block carries it to `this[0]` with no changes.
-
-**Switching the mode of an existing config** changes its state address. The old address is destroyed, which only removes it from state (the provider cannot delete the config). The new address must be **imported** (creating it again fails because the config exists), so set `authentication.import_existing = true` for that apply. The dispatch Action's root template switches the import target by `managed_by`; when calling the module directly, point your `import` block at `deploy_managed[0]` instead of `this[0]`.
+This module manages the triggers from `blocking_functions` (empty → no triggers, so triggers registered by `firebase deploy` are removed on the next apply). To leave them to `firebase deploy`, set `authentication.blocking_functions.managed_by = "deploy"` in the root module; it then calls [`modules/auth-deploy-managed`](../auth-deploy-managed/README.md) instead.
 
 <details><summary>Ja</summary>
 
-`beforeUserCreated` / `beforeUserSignedIn` を `firebase deploy` すると、Identity Platform config に trigger が自動登録される。provider の `blocking_functions` は Optional だが **Computed ではない**ため、ブロックを書かない config だと次の apply でその trigger が消える。root module の `authentication.blocking_functions.managed_by` (ここでは `manage_blocking_functions`) で trigger の管理主体を選ぶ。
-
-| `managed_by` | Resource | Trigger |
-|--------------|----------|---------|
-| `terraform` (既定) | `this[0]` | `before_create` / `before_sign_in` から設定。空なら trigger 無し (deploy 登録分は消える) |
-| `deploy` | `deploy_managed[0]` | `firebase deploy` に任せる (`ignore_changes = [blocking_functions]`)。URI は指定不可 |
-
-`ignore_changes` は条件で切り替えられないため、モードごとに resource を分けている。v1.3.0 以前の `this` (index 無し) は `moved` で `this[0]` に引き継がれ、差分は出ない。
-
-**既存 config のモードを切り替える**と state のアドレスが変わる。旧アドレスは destroy されるが、state から外れるだけ (provider は config を削除できない)。新アドレスは **import が必要** (config が既に存在するため作成は失敗する) なので、その apply では `authentication.import_existing = true` にする。dispatch Action の root テンプレートは `managed_by` に応じて import 先を切り替える。module を直接呼ぶ場合は、`import` block の `to` を `this[0]` ではなく `deploy_managed[0]` に向ける。
+この module は `blocking_functions` で trigger を管理する (空なら trigger 無しにするため、`firebase deploy` が登録した trigger は次の apply で消える)。`firebase deploy` に任せる場合は root module で `authentication.blocking_functions.managed_by = "deploy"` にすると、代わりに [`modules/auth-deploy-managed`](../auth-deploy-managed/README.md) が呼ばれる。
 
 </details>
 
@@ -106,8 +86,9 @@ Creating `google_identity_platform_config` calls `initializeAuth`, which **upgra
 import {
   for_each = try(tobool(var.authentication.import_existing), false) ? toset(["existing"]) : toset([])
 
-  # blocking_functions.managed_by = "deploy" のときは deploy_managed[0]
-  to = module.firebase_platform.module.auth[0].google_identity_platform_config.this[0]
+  # blocking_functions.managed_by = "deploy" のときは
+  # module.firebase_platform.module.auth_deploy_managed[0].google_identity_platform_config.this
+  to = module.firebase_platform.module.auth[0].google_identity_platform_config.this
   id = "projects/${var.project_id}/config"
 }
 ```

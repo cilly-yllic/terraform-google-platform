@@ -601,16 +601,33 @@ locals {
   )) : []
 }
 
+# blocking functions の trigger の管理主体 (authentication.blocking_functions.managed_by)
+# で、同じ singleton config を扱う module を出し分ける。
+#   terraform (既定) : module.auth                 — URI で trigger を authoritative に管理
+#   deploy           : module.auth_deploy_managed  — firebase deploy の登録分を ignore_changes で温存
+# terraform 側の module.auth はアドレスを v1.3.0 から変えていない。
+locals {
+  auth_bf_deploy_managed = try(local.authentication_cfg.blocking_functions.managed_by, null) == "deploy"
+}
+
 module "auth" {
-  count   = local.enable_identity_platform ? 1 : 0
+  count   = local.enable_identity_platform && !local.auth_bf_deploy_managed ? 1 : 0
   source  = "./modules/auth"
   project = var.project_id
   blocking_functions = {
     before_create  = try(local.authentication_cfg.blocking_functions.before_create, "")
     before_sign_in = try(local.authentication_cfg.blocking_functions.before_sign_in, "")
   }
-  manage_blocking_functions = try(local.authentication_cfg.blocking_functions.managed_by, "terraform") != "deploy"
-  authorized_domains        = local.authorized_domains_final
+  authorized_domains = local.authorized_domains_final
+
+  depends_on = [google_project_service.this, module.firebase]
+}
+
+module "auth_deploy_managed" {
+  count              = local.enable_identity_platform && local.auth_bf_deploy_managed ? 1 : 0
+  source             = "./modules/auth-deploy-managed"
+  project            = var.project_id
+  authorized_domains = local.authorized_domains_final
 
   depends_on = [google_project_service.this, module.firebase]
 }

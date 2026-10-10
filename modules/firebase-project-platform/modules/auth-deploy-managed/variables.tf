@@ -12,12 +12,3 @@ variable "authorized_domains" {
   type        = list(string)
   default     = []
 }
-
-variable "blocking_functions" {
-  description = "Blocking functions configuration."
-  type = object({
-    before_create  = optional(string, "")
-    before_sign_in = optional(string, "")
-  })
-  default = {}
-}
