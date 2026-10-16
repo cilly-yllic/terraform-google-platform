@@ -68,6 +68,27 @@ Before introducing a new breaking change:
 
 ---
 
+## v1.5.0 (2026-10-16)
+
+### GitHub Actions
+- `dispatch-firebase-platform` stops (before creating a run) when `settings.yml` contains keys from v2.0.0: `app_hosting_compute_sa`, `default_compute_sa`, `service_accounts[].self_roles`, `service_accounts[].bucket_roles`. A v1 Action does not know them; dropping them silently would leave the grants out of the run and the plan would **remove** them. This is the preparation release for the v1 → v2 migration. (#158)
+- The Action README's usage examples pin the Action to a release tag together with `module_version`.
+
+### Upgrade notes
+- No module changes. Without the v2 keys, the behavior is the same as v1.4.0.
+- **If your workflow uses `dispatch-firebase-platform@main`, pin it to `@v1.5.0` now.** `@main` will follow v2.0.0 once it is released, and a v2 Action with a v1 `module_version` fails every run.
+
+<details><summary>Ja</summary>
+
+- `dispatch-firebase-platform` は、`settings.yml` に v2.0.0 の key（`app_hosting_compute_sa`、`default_compute_sa`、`service_accounts[].self_roles`、`service_accounts[].bucket_roles`）があると、run を作る前に止まる。v1 の Action はこれらを知らず、黙って捨てると付与が run に渡らず、plan が付与を**消す**ため。v1 → v2 の移行の準備の版。(#158)
+- Action の README の使用例を、Action のリリースタグと `module_version` の固定にそろえた。
+- module の変更はない。v2 の key を書かなければ、挙動は v1.4.0 と同じ。
+- **workflow が `dispatch-firebase-platform@main` を使っているなら、今のうちに `@v1.5.0` に固定する。** v2.0.0 のリリース後は `@main` が v2 に追従し、v1 の `module_version` と組み合わさると全 run が失敗する。
+
+</details>
+
+---
+
 ## v1.4.0 (2026-10-10)
 
 ### Features
