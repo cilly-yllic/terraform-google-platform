@@ -107,20 +107,22 @@ App Hosting backend は Cloud Run 上で **compute SA (`firebase-app-hosting-com
 `cloudtasks.tasks.create`（= `roles/cloudtasks.enqueuer`）が要る。これが無いと runtime で
 `The principal ... lacks IAM permission "cloudtasks.tasks.create"` の 500 になる。
 
-`app_hosting_compute_sa_roles` に追加 role を列挙すると、共有 compute SA に project-level で付与する:
+[`app_hosting_compute_sa`](./variables-reference.md#app_hosting_compute_sa) に、付与先の種類ごと（project / SA 自身 / バケット）に role を書く:
 
 ```yaml
 firebase_platform:
   app_hosting:
     - backend_id: web-app
       location: asia-northeast1
-  # 共有 compute SA に追加付与する project-level role（追加分のみ。computeRunner は自動付与）
-  app_hosting_compute_sa_roles:
-    - roles/cloudtasks.enqueuer        # backend が Cloud Tasks に enqueue する場合
-    # - roles/iam.serviceAccountUser   # enqueue 時に invoker SA を impersonate する場合 (下記注)
+  # 共有 compute SA への追加の付与（追加分のみ。computeRunner は自動付与）
+  app_hosting_compute_sa:
+    roles:
+      - roles/cloudtasks.enqueuer        # backend が Cloud Tasks に enqueue する場合
+    self_roles:
+      - roles/iam.serviceAccountUser     # task の OIDC token に自分自身を使う場合 (下記注)
 ```
 
-- **スコープ**: project-level 付与（`google_project_iam_member`, non-authoritative）。enqueue 先が
+- **スコープ**: `roles` は project-level 付与（`google_project_iam_member`, non-authoritative）。enqueue 先が
   複数キューに渡るケースを 1 binding でカバーでき、新キュー追加のたびの追記が不要。キュー単位の
   最小権限にしたい場合は本モジュール外で `google_cloud_tasks_queue_iam_member` を使う。
 - **共有 SA が無い構成では no-op**: 全 backend に custom `service_account` を指定して共有 SA を
@@ -131,6 +133,11 @@ firebase_platform:
 > `iam.serviceAccountUser`）が別途必要になることがある。今回の `cloudtasks.tasks.create` は 1 段目なので、
 > まず `roles/cloudtasks.enqueuer` で enqueue の 500 は解消する。invoke 段で PERMISSION_DENIED が出たら
 > invoker SA 側の `run.invoker` を追加確認すること。
+>
+> **actAs は自分自身に絞る**: Firebase Admin SDK の `taskQueue().enqueue()` は、task の OIDC token に
+> 実行中の SA（共有 compute SA 自身）を使う。enqueue には、その SA への `iam.serviceAccounts.actAs` が要る
+> （無いと `lacks "iam.serviceAccounts.actAs"` の 500）。`roles/iam.serviceAccountUser` は `self_roles` に書き、
+> 自分自身への actAs だけを許す。`roles` に書くと、`roles/editor` を持つ既定 compute SA などにも actAs できてしまう。
 
 ## デプロイ（CI / firebase CLI）
 

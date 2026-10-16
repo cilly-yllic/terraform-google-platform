@@ -514,86 +514,92 @@ describe("buildTerraformVariables", () => {
     );
   });
 
-  it("passes app_hosting_compute_sa_roles through as an HCL list", () => {
+  it("passes app_hosting_compute_sa through as an HCL object", () => {
     const vars = buildTerraformVariables("p", {
       app_hosting: [{ backend_id: "web", location: "asia-northeast1" }],
-      app_hosting_compute_sa_roles: [
-        "roles/cloudtasks.enqueuer",
-        "roles/iam.serviceAccountUser",
-      ],
+      app_hosting_compute_sa: {
+        roles: ["roles/cloudtasks.enqueuer"],
+        self_roles: ["roles/iam.serviceAccountUser"],
+        bucket_roles: [{ bucket: "media", roles: ["roles/storage.objectUser"] }],
+      },
     });
-    const r = vars.find((v) => v.key === "app_hosting_compute_sa_roles");
+    const r = vars.find((v) => v.key === "app_hosting_compute_sa");
+    expect(r?.hcl).toBe(true);
     expect(r?.value).toBe(
-      '["roles/cloudtasks.enqueuer", "roles/iam.serviceAccountUser"]',
+      '{ "roles" = ["roles/cloudtasks.enqueuer"], "self_roles" = ["roles/iam.serviceAccountUser"], "bucket_roles" = [{ "bucket" = "media", "roles" = ["roles/storage.objectUser"] }] }',
     );
   });
 
-  it("omits app_hosting_compute_sa_roles entirely when not set (uses module default)", () => {
-    const vars = buildTerraformVariables("p", {
-      app_hosting: [{ backend_id: "web", location: "asia-northeast1" }],
-    });
-    expect(
-      vars.find((v) => v.key === "app_hosting_compute_sa_roles"),
-    ).toBeUndefined();
-  });
-
-  it("passes default_compute_sa_roles through as an HCL list", () => {
+  it("passes default_compute_sa through as an HCL object", () => {
     const vars = buildTerraformVariables("p", {
       cloud_functions: true,
-      secret_manager: true,
-      default_compute_sa_roles: ["roles/secretmanager.secretAccessor"],
+      default_compute_sa: {
+        roles: ["roles/secretmanager.secretAccessor"],
+        self_roles: ["roles/iam.serviceAccountTokenCreator"],
+      },
     });
-    const r = vars.find((v) => v.key === "default_compute_sa_roles");
-    expect(r?.value).toBe('["roles/secretmanager.secretAccessor"]');
-  });
-
-  it("omits default_compute_sa_roles entirely when not set (uses module default)", () => {
-    const vars = buildTerraformVariables("p", { cloud_functions: true });
-    expect(
-      vars.find((v) => v.key === "default_compute_sa_roles"),
-    ).toBeUndefined();
-  });
-
-  it("passes default_compute_sa_self_roles through as an HCL list", () => {
-    const vars = buildTerraformVariables("p", {
-      cloud_functions: true,
-      default_compute_sa_self_roles: ["roles/iam.serviceAccountTokenCreator"],
-    });
-    const r = vars.find((v) => v.key === "default_compute_sa_self_roles");
-    expect(r?.value).toBe('["roles/iam.serviceAccountTokenCreator"]');
-  });
-
-  it("omits default_compute_sa_self_roles entirely when not set (uses module default)", () => {
-    const vars = buildTerraformVariables("p", { cloud_functions: true });
-    expect(
-      vars.find((v) => v.key === "default_compute_sa_self_roles"),
-    ).toBeUndefined();
+    const r = vars.find((v) => v.key === "default_compute_sa");
+    expect(r?.value).toBe(
+      '{ "roles" = ["roles/secretmanager.secretAccessor"], "self_roles" = ["roles/iam.serviceAccountTokenCreator"] }',
+    );
   });
 
   it.each(["app_hosting_compute_sa", "default_compute_sa"])(
-    "throws on the v2-only key %s instead of dropping it",
+    "omits %s entirely when not set (uses module default)",
     (key) => {
-      expect(() =>
-        buildTerraformVariables("p", {
-          cloud_functions: true,
-          [key]: { roles: ["roles/secretmanager.secretAccessor"] },
-        }),
-      ).toThrow(/requires dispatch-firebase-platform v2/);
+      const vars = buildTerraformVariables("p", { cloud_functions: true });
+      expect(vars.find((v) => v.key === key)).toBeUndefined();
     },
   );
 
-  it.each(["self_roles", "bucket_roles"])(
-    "throws on the v2-only service_accounts[].%s instead of dropping it",
-    (field) => {
-      expect(() =>
-        buildTerraformVariables("p", {
-          service_accounts: [
-            { account_id: "vm-runner", type: "runtime", [field]: [] },
-          ],
-        }),
-      ).toThrow(`service_accounts[0].${field}`);
-    },
-  );
+  it.each([
+    ["app_hosting_compute_sa_roles", "app_hosting_compute_sa.roles"],
+    ["default_compute_sa_roles", "default_compute_sa.roles"],
+    ["default_compute_sa_self_roles", "default_compute_sa.self_roles"],
+  ])("throws on the removed v1 key %s instead of dropping it", (key, to) => {
+    expect(() =>
+      buildTerraformVariables("p", {
+        cloud_functions: true,
+        [key]: ["roles/secretmanager.secretAccessor"],
+      }),
+    ).toThrow(`"${key}" → "${to}"`);
+  });
+
+  it.each([
+    ["app_hosting_compute_sa", { role: ["roles/x"] }, /unknown key\(s\) "role"/],
+    ["app_hosting_compute_sa", null, /must be an object/],
+    ["default_compute_sa", ["roles/x"], /must be an object/],
+    ["default_compute_sa", { roles: "roles/x" }, /roles must be a list/],
+    [
+      "app_hosting_compute_sa",
+      { bucket_roles: [{ bucket: "b", role: ["roles/x"] }] },
+      /bucket_roles\[0\] must be/,
+    ],
+  ])("rejects a malformed %s (%j)", (key, val, err) => {
+    expect(() =>
+      buildTerraformVariables("p", { cloud_functions: true, [key]: val }),
+    ).toThrow(err);
+  });
+
+  it("rejects an unknown key in service_accounts[] (e.g. a typo of self_roles)", () => {
+    expect(() =>
+      buildTerraformVariables("p", {
+        service_accounts: [
+          { account_id: "vm-runner", type: "runtime", self_role: ["roles/x"] },
+        ],
+      }),
+    ).toThrow(/service_accounts\[0\] has unknown key\(s\) "self_role"/);
+  });
+
+  it("rejects malformed bucket_roles in service_accounts[]", () => {
+    expect(() =>
+      buildTerraformVariables("p", {
+        service_accounts: [
+          { account_id: "vm-runner", type: "runtime", bucket_roles: [{ bucket: "b" }] },
+        ],
+      }),
+    ).toThrow(/service_accounts\[0\]\.bucket_roles\[0\] must be/);
+  });
 
   it("throws when list-feature value is not an array", () => {
     expect(() =>

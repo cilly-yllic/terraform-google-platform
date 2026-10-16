@@ -239,6 +239,30 @@ service_accounts = [
 - `service_account_roles` — `{ account_id => [roles...] }`
 - `service_account_wif_members` — `{ binding_id => member }` (manual SA の WIF binding。`wif` 未設定なら `{}`)
 
+### Self-targeted and bucket-level grants
+
+`roles` is project-level. To grant a role **on the SA itself** (e.g. `roles/iam.serviceAccountTokenCreator` for `signBlob`) or **on specific buckets only**, use `self_roles` / `bucket_roles` (same shape as `app_hosting_compute_sa` / `default_compute_sa`):
+
+```hcl
+service_accounts = [
+  {
+    account_id   = "vm-runner"
+    type         = "runtime"
+    roles        = ["roles/logging.logWriter"]
+    self_roles   = ["roles/iam.serviceAccountTokenCreator"]
+    bucket_roles = [{ bucket = "my-app-media", roles = ["roles/storage.objectViewer"] }]
+  },
+]
+```
+
+`bucket` is a `storage.buckets[].name` (the input name, before `auto_prefix`); undeclared buckets fail at plan.
+
+<details><summary>Ja</summary>
+
+`roles` は project-level。**SA 自身を対象とする** role（例: `signBlob` 用の `roles/iam.serviceAccountTokenCreator`）や、**特定のバケットだけ**への role は、`self_roles` / `bucket_roles` に書く（`app_hosting_compute_sa` / `default_compute_sa` と同じ形）。`bucket` は `storage.buckets[].name`（`auto_prefix` 前の入力の名前）。宣言されていないバケットは plan で止まる。
+
+</details>
+
 ---
 
 ## App Hosting compute SA

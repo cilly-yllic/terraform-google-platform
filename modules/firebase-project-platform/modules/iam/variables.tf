@@ -42,6 +42,7 @@ variable "service_accounts" {
     display_name = optional(string, "")
     type         = string
     roles        = optional(list(string), [])
+    self_roles   = optional(list(string), [])
     args         = optional(any, {})
     wif = optional(object({
       pool_resource_name = string

@@ -19,9 +19,11 @@ override_data {
 }
 
 variables {
-  project_id               = "test-project"
-  cloud_functions          = true
-  default_compute_sa_roles = ["roles/secretmanager.secretAccessor"]
+  project_id      = "test-project"
+  cloud_functions = true
+  default_compute_sa = {
+    roles = ["roles/secretmanager.secretAccessor"]
+  }
   storage = {
     firestore_backup = {
       export_platform = "cloud_run"
@@ -37,8 +39,11 @@ run "api_change_keeps_compute_sa_members_known" {
   command = plan
 
   variables {
-    additional_apis               = ["iap.googleapis.com"]
-    default_compute_sa_self_roles = ["roles/iam.serviceAccountTokenCreator"]
+    additional_apis = ["iap.googleapis.com"]
+    default_compute_sa = {
+      roles      = ["roles/secretmanager.secretAccessor"]
+      self_roles = ["roles/iam.serviceAccountTokenCreator"]
+    }
   }
 
   # storage (firestore_backup.export_platform = "cloud_run") はこの値をそのまま member に使う

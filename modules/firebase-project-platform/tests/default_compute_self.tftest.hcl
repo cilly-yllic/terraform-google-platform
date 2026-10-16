@@ -1,4 +1,4 @@
-# default_compute_sa_self_roles の回帰テスト (mock provider のみ、認証不要)。
+# default_compute_sa.self_roles の回帰テスト (mock provider のみ、認証不要)。
 #   cd modules/firebase-project-platform
 #   terraform init -backend=false && terraform test
 
@@ -56,8 +56,10 @@ run "self_roles_bind_to_compute_sa_itself" {
   command = apply
 
   variables {
-    default_compute_sa_roles      = ["roles/secretmanager.secretAccessor"]
-    default_compute_sa_self_roles = ["roles/iam.serviceAccountTokenCreator"]
+    default_compute_sa = {
+      roles      = ["roles/secretmanager.secretAccessor"]
+      self_roles = ["roles/iam.serviceAccountTokenCreator"]
+    }
   }
 
   assert {

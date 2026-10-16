@@ -137,6 +137,20 @@ resource "google_project_iam_member" "service_account_role" {
   member   = "serviceAccount:${google_service_account.this[each.value.account_id].email}"
 }
 
+# その SA 自身を対象とする role (resource も member もこの SA)。key = "{account_id}/{role}"。
+resource "google_service_account_iam_member" "service_account_self" {
+  for_each = {
+    for b in flatten([
+      for sa in var.service_accounts : [
+        for role in distinct(sa.self_roles) : { key = "${sa.account_id}/${role}", account_id = sa.account_id, role = role }
+      ]
+    ]) : b.key => b
+  }
+  service_account_id = google_service_account.this[each.value.account_id].name
+  role               = each.value.role
+  member             = google_service_account.this[each.value.account_id].member
+}
+
 # ---------------------------------------------------------------------------
 # Manual SA – optional WIF principalSet bindings
 #

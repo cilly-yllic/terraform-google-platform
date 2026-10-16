@@ -348,24 +348,35 @@ List of Firebase App Hosting backends.
 
 </details>
 
-### `app_hosting_compute_sa_roles`
+### `app_hosting_compute_sa`
 
-共有 compute SA (`firebase-app-hosting-compute@<project>`) に**追加で**付与する project-level role の list。`app_hosting` と同階層の top-level key。
+App Hosting の共有 compute SA (`firebase-app-hosting-compute@<project>`) への**追加の**付与。`app_hosting` と同階層の top-level key。backend の runtime が他 GCP API を叩く時に必要な権限を書く。既定の `roles/firebaseapphosting.computeRunner` は自動付与されるので**追加分だけ**を書く。全 backend に custom `service_account` を指定して共有 SA を作らない構成では no-op。
 
-| Type | Default | Description |
-|------|---------|-------------|
-| `list(string)` | `[]` | backend の runtime が他 GCP API を叩く時に必要な role を列挙する。例: Cloud Tasks に enqueue するなら `roles/cloudtasks.enqueuer`。既定の `roles/firebaseapphosting.computeRunner` は自動付与されるので**追加分だけ**を書く。`google_project_iam_member`（non-authoritative）で付与。全 backend に custom `service_account` を指定して共有 SA を作らない構成では no-op。 |
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `roles` | `list(string)` | `[]` | project-level の role（`google_project_iam_member`） |
+| `self_roles` | `list(string)` | `[]` | **その SA 自身を対象とする** role（`google_service_account_iam_member`。resource も member もこの SA） |
+| `bucket_roles` | `list(object({ bucket = string, roles = list(string) }))` | `[]` | バケット単位の role（`google_storage_bucket_iam_member`）。`bucket` は [`storage.buckets[].name`](#storage)（`auto_prefix` 前の入力の名前）。宣言されていないバケットは plan で止まる |
+
+付与はすべて non-authoritative（`iam_member`）で、ほかの付与を壊さない。同じバケット・同じ role を `storage.buckets[].iams`（authoritative な `iam_binding`）にも書くと、互いに上書きし合うので併用しない。
 
 ```yaml
 firebase_platform:
   app_hosting:
     - backend_id: web-app
       location: asia-northeast1
-  app_hosting_compute_sa_roles:
-    - roles/cloudtasks.enqueuer
+  app_hosting_compute_sa:
+    roles:
+      - roles/cloudtasks.enqueuer        # Cloud Tasks に enqueue する
+    self_roles:
+      - roles/iam.serviceAccountUser     # task の OIDC token に自分自身を使う (actAs)
 ```
 
-詳細・2 段目（invoke 権限）の注意点は [app-hosting.md の Runtime IAM](./app-hosting.md#runtime-iamcompute-sa-に追加権限を付与) を参照。
+> 注意: 自動付与の `roles/firebaseapphosting.computeRunner` は、project-level で**全バケットのオブジェクトの読み書き・削除**（`storage.objects.*`）を含む。App Hosting が動くのに必要なので外せず、この SA の Storage 権限は `bucket_roles` で絞れない（付与を足すことはできる）。
+
+> 注意: `roles/iam.serviceAccountUser` を `roles`（project-level）に書くと、プロジェクト内の**全 SA**（`roles/editor` を持つ既定 compute SA を含む）として actAs できてしまう。自分自身への actAs だけが要る場合は `self_roles` に書く。
+
+詳細・2 段目（invoke 権限）の注意点は [app-hosting.md の Runtime IAM](./app-hosting.md#runtime-iamcompute-sa-に追加権限を付与) を参照。v1 の `app_hosting_compute_sa_roles` からの移行は [upgrade-guide.md](./upgrade-guide.md#v1x--v20) を参照。
 
 ### `data_connect`
 
@@ -452,40 +463,34 @@ Setting `cloud_run` / `cloud_functions` to `true` also makes them participate in
 |-------|------|---------|-------------|
 | `location` | `string` | `var.region` | location |
 
-### `default_compute_sa_roles`
+### `default_compute_sa`
 
-Compute Engine 既定 SA (`<project-number>-compute@developer`) に**追加で**付与する project-level role の list。`cloud_functions` / `cloud_run` 系の top-level key と同階層。
+Compute Engine 既定 SA (`<project-number>-compute@developer`) への**追加の**付与。`cloud_functions` / `cloud_run` 系の top-level key と同階層。Gen2 Cloud Functions / 既定 Cloud Run の **runtime SA**（専用 SA 未分離の構成ではこの既定 compute SA）が他 GCP API を叩く時に必要な権限を書く。既定付与の `run.invoker` / `eventarc.eventReceiver` は自動なので**追加分だけ**書く。形は [`app_hosting_compute_sa`](#app_hosting_compute_sa) と同じ。
 
-| Type | Default | Description |
-|------|---------|-------------|
-| `list(string)` | `[]` | Gen2 Cloud Functions / 既定 Cloud Run の **runtime SA**（専用 SA 未分離の構成ではこの既定 compute SA）が他 GCP API を叩く時に必要な role を列挙。例: function が Secret Manager の値を読むなら `roles/secretmanager.secretAccessor`（既定 SA は `roles/editor` を持つが editor に `secretmanager.versions.access` は含まれない）。既定付与の `run.invoker` / `eventarc.eventReceiver` は自動なので**追加分だけ**書く。`google_project_iam_member`（non-authoritative）で付与。SA email 解決に project number が要るため、本 list が非空なら `cloud_functions` 無効でも `google_project` data を取得する。 |
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `roles` | `list(string)` | `[]` | project-level の role（`google_project_iam_member`） |
+| `self_roles` | `list(string)` | `[]` | **その SA 自身を対象とする** role（`google_service_account_iam_member`。resource も member もこの SA） |
+| `bucket_roles` | `list(object({ bucket = string, roles = list(string) }))` | `[]` | バケット単位の role（`google_storage_bucket_iam_member`）。`bucket` は [`storage.buckets[].name`](#storage)（`auto_prefix` 前の入力の名前）。宣言されていないバケットは plan で止まる |
+
+付与はすべて non-authoritative（`iam_member`）で、ほかの付与を壊さない。同じバケット・同じ role を `storage.buckets[].iams`（authoritative な `iam_binding`）にも書くと、互いに上書きし合うので併用しない。
+
+SA email の解決に project number が要るため、いずれかが非空なら `cloud_functions` 無効でも `google_project` data を取得する。`self_roles` が非空なら、`signBlob` が通るよう `iamcredentials.googleapis.com` も自動で有効化する。
+
+前提: 既定 compute SA は Compute Engine API の有効化で GCP が作る（本 module は作らない）。`cloud_functions` などでこの SA が使われる構成を前提にしている。SA がまだ無い project で付与すると、apply が失敗する。
 
 ```yaml
 firebase_platform:
   cloud_functions: true
   secret_manager: true
-  default_compute_sa_roles:
-    - roles/secretmanager.secretAccessor
+  default_compute_sa:
+    roles:
+      - roles/secretmanager.secretAccessor       # editor に secretmanager.versions.access は無い
+    self_roles:
+      - roles/iam.serviceAccountTokenCreator     # createCustomToken を鍵ファイルなしで使う (signBlob)
 ```
 
-> 注意: 専用 runtime SA を分離していない構成では、この付与は**全 Gen2 functions / 既定 Cloud Run に影響**する。secret 単位に絞るならモジュール外で個別 binding する。App Hosting backend の runtime は別 SA（`firebase-app-hosting-compute`）なので [`app_hosting_compute_sa_roles`](#app_hosting_compute_sa_roles) を使う。
-
-### `default_compute_sa_self_roles`
-
-Compute Engine 既定 SA (`<project-number>-compute@developer`) に、**その SA 自身を対象として**付与する role の list。[`default_compute_sa_roles`](#default_compute_sa_roles) と同階層。
-
-| Type | Default | Description |
-|------|---------|-------------|
-| `list(string)` | `[]` | `google_service_account_iam_member`（non-authoritative）で、resource・member ともに既定 compute SA として付与する。代表例: Firebase Admin SDK の `createCustomToken` を鍵ファイルなしで使うと、IAM Credentials API の `signBlob` で自分自身に署名するため `roles/iam.serviceAccountTokenCreator` が要る。SA email 解決に project number が要るため、本 list が非空なら `cloud_functions` 無効でも `google_project` data を取得し、`signBlob` が通るよう `iamcredentials.googleapis.com` も自動で有効化する。 |
-
-```yaml
-firebase_platform:
-  cloud_functions: true
-  default_compute_sa_self_roles:
-    - roles/iam.serviceAccountTokenCreator
-```
-
-> 注意: `roles/iam.serviceAccountTokenCreator` を [`default_compute_sa_roles`](#default_compute_sa_roles)（project-level）に書くと、runtime SA がプロジェクト内の**全 SA**（terraform 用 SA や `ci-deploy` など）に署名・なりすましできてしまう。自分自身への権限だけが要る場合は本変数を使う。
+> 注意: 専用 runtime SA を分離していない構成では、この付与は**全 Gen2 functions / 既定 Cloud Run に影響**する。App Hosting backend の runtime は別 SA（`firebase-app-hosting-compute`）なので [`app_hosting_compute_sa`](#app_hosting_compute_sa) を使う。`roles/iam.serviceAccountTokenCreator` を `roles`（project-level）に書くと、runtime SA がプロジェクト内の**全 SA** に署名・なりすましできてしまう。自分自身への権限だけが要る場合は `self_roles` に書く。
 
 ---
 
@@ -544,7 +549,9 @@ roles は機能 on/off から自動決定される。詳細は [service-accounts
 | `account_id` | `string` | (required) | SA ID |
 | `display_name` | `string` | Same as `account_id` | display name |
 | `type` | `string` | (required) | `"deploy"` で `args` の sugar role を有効化。それ以外 (例 `"reader"`) は `roles` だけを付与 |
-| `roles` | `list(string)` | `[]` | Additional explicit roles |
+| `roles` | `list(string)` | `[]` | Additional explicit roles (project-level) |
+| `self_roles` | `list(string)` | `[]` | **この SA 自身を対象とする** role（`google_service_account_iam_member`） |
+| `bucket_roles` | `list(object({ bucket, roles }))` | `[]` | バケット単位の role（`google_storage_bucket_iam_member`）。`bucket` は `storage.buckets[].name`。形は [`app_hosting_compute_sa`](#app_hosting_compute_sa) と同じ |
 | `args` | `object` | `{}` | Feature flags for `type = "deploy"` (see below) |
 | `wif` | `object \| null` | `null` | 外部 CI から keyless impersonate する場合の WIF principalSet binding。`{ pool_resource_name, principals[{ attribute, value }] }`（`ci_service_account.wif` と同形式）。deploy SA に強権限を集約せず read-only SA を切るユースケース向け |
 

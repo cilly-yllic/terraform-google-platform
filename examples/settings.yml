@@ -152,16 +152,21 @@ _anchors:
     # への追加 role。runtime が他 API を叩く場合に付与する。
     # 例: function が Secret Manager の値を読むなら secretAccessor が必要
     #   (既定 SA の editor には secretmanager.versions.access が含まれないため)。
-    # App Hosting backend は別 SA なので app_hosting_compute_sa_roles を使う。
-    default_compute_sa_roles:
-      - roles/secretmanager.secretAccessor
-
-    # 既定 compute SA に「その SA 自身を対象として」付与する role (必要な場合のみ)。
-    # 例: Firebase Admin SDK の createCustomToken を鍵ファイルなしで使う場合
-    #   (signBlob で自分自身に署名する)。project-level の default_compute_sa_roles に
-    #   書くと全 SA へのなりすましが可能になるため、こちらで SA 単位に絞る。
-    # default_compute_sa_self_roles:
-    #   - roles/iam.serviceAccountTokenCreator
+    # App Hosting backend は別 SA なので app_hosting_compute_sa を使う。
+    default_compute_sa:
+      roles:
+        - roles/secretmanager.secretAccessor
+      # 「その SA 自身を対象として」付与する role (必要な場合のみ)。
+      # 例: Firebase Admin SDK の createCustomToken を鍵ファイルなしで使う場合
+      #   (signBlob で自分自身に署名する)。roles (project-level) に書くと
+      #   全 SA へのなりすましが可能になるため、こちらで SA 単位に絞る。
+      # self_roles:
+      #   - roles/iam.serviceAccountTokenCreator
+      # バケット単位の role (bucket は storage.buckets[].name)。
+      # bucket_roles:
+      #   - bucket: my-app-media
+      #     roles:
+      #       - roles/storage.objectViewer
 
     # apply 結果通知 (任意)。各 env workspace に TFC notification を設定し、
     # run の終端状態 (success / error / needs_attention) を webhook に通知する。
@@ -283,12 +288,16 @@ environments:
           location: asia-northeast1
           app: admin
 
-      # 共有 compute SA に追加付与する project-level role（任意・追加分のみ）。
-      # backend の runtime が他の GCP API を叩く場合に必要。computeRunner は自動付与。
+      # 共有 compute SA への追加の付与（任意・追加分のみ）。computeRunner は自動付与。
+      # backend の runtime が他の GCP API を叩く場合に必要。
       # 例: backend が Cloud Tasks に enqueue する → roles/cloudtasks.enqueuer が無いと
       #     runtime で cloudtasks.tasks.create 不足の 500 になる。
-      app_hosting_compute_sa_roles:
-        - roles/cloudtasks.enqueuer
+      #   roles        : project-level
+      #   self_roles   : この SA 自身が対象 (例: task の OIDC に自分を使う → iam.serviceAccountUser)
+      #   bucket_roles : バケット単位 (bucket は storage.buckets[].name)
+      app_hosting_compute_sa:
+        roles:
+          - roles/cloudtasks.enqueuer
 
       # Data Connect services。同 instance_id を指す entries は自動 dedup されて
       # 1 Cloud SQL Instance に集約 (コスト最適化)。

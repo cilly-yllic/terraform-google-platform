@@ -68,6 +68,145 @@ Before introducing a new breaking change:
 
 ---
 
+## v1.x → v2.0
+
+v2.0.0 groups the grants to the runtime service accounts into one key per SA, with one list per grant scope (project / the SA itself / bucket). `service_accounts[]` gets the same `self_roles` / `bucket_roles` fields (additive). All SAs are now granted in one shape: `roles` / `self_roles` / `bucket_roles`.
+
+| v1 key | v2 key |
+|---|---|
+| `app_hosting_compute_sa_roles` | `app_hosting_compute_sa.roles` |
+| (none) | `app_hosting_compute_sa.self_roles` (new) |
+| (none) | `app_hosting_compute_sa.bucket_roles` (new) |
+| `default_compute_sa_roles` | `default_compute_sa.roles` |
+| `default_compute_sa_self_roles` | `default_compute_sa.self_roles` |
+| (none) | `default_compute_sa.bucket_roles` (new) |
+
+```yaml
+# v1
+app_hosting_compute_sa_roles:
+  - roles/cloudtasks.enqueuer
+default_compute_sa_roles:
+  - roles/secretmanager.secretAccessor
+default_compute_sa_self_roles:
+  - roles/iam.serviceAccountTokenCreator
+
+# v2
+app_hosting_compute_sa:
+  roles:
+    - roles/cloudtasks.enqueuer
+default_compute_sa:
+  roles:
+    - roles/secretmanager.secretAccessor
+  self_roles:
+    - roles/iam.serviceAccountTokenCreator
+```
+
+The resource addresses of the existing grants (`google_project_iam_member.app_hosting_compute_extra[...]`, `google_project_iam_member.default_compute_extra[...]`, `google_service_account_iam_member.default_compute_self[...]`) are unchanged. After rewriting the keys, the plan shows **no changes**. No `moved` / `import` blocks are needed.
+
+### Why the order matters
+
+The dispatch Action passes only the keys it knows. If the Action and `settings.yml` are on different majors, the grants are not passed at all, and the plan **removes them**. Both v1.5.0 and v2.0.0 Actions stop (before creating a run) when they see the other major's keys, so the mismatch fails instead of dropping grants. Older Actions (≤ v1.4.0) do not have this guard.
+
+The guard only checks the `settings.yml` each Action run reads. Two dispatches for the same workspace that overlap (one v1, one v2) can still mix the v1 root module with the v2 workspace variables. Do not let runs overlap while switching (steps 2–3), and turn off auto-apply so that a wrong plan is never applied.
+
+### Steps (dispatch Action users)
+
+1. **Before v2.0.0 reaches `main`: pin the Action to `@v1.5.0`.** `@main` follows the latest major, and a v2 Action with a v1 `module_version` fails every run. Keep `module_version: "~> 1.4"` (or `"~> 1.5"`). Run once and confirm the plan has no changes.
+2. **Switch the Action, the module and the keys together**, with auto-apply off and no other run in flight:
+   - Set `apply_policy: manual` (or otherwise make the environments require a manual apply) for the switch.
+   - Wait for dispatches already running for these workspaces to finish, and do not start others until step 3 is done.
+   - Action: `@v2.0.0`
+   - `module_version: "~> 2.0"`
+   - `settings.yml`: rewrite the keys as in the table above
+   
+   When `settings.yml` and the workflow are in different repositories, either can go first. Until both are merged, runs stop with an error pointing to this section; nothing is applied.
+3. **Confirm the plan has no changes, then apply it and restore `apply_policy`.** If it destroys `app_hosting_compute_extra` / `default_compute_extra` / `default_compute_self`, a key was missed. Discard the run and fix `settings.yml`.
+4. (Optional) **Narrow the grants in two applies.** To move a role from `roles` to `self_roles` / `bucket_roles` (e.g. `roles/iam.serviceAccountUser` to `self_roles`), first add it to the new scope and apply, check the app, and only then remove it from `roles` and apply again. Removing and adding in one apply runs both in parallel, so the SA can be without the permission for a moment.
+   - The App Hosting compute SA always has `roles/firebaseapphosting.computeRunner`, which includes `storage.objects.*` on every bucket. Moving its Storage roles to `bucket_roles` does not narrow its access.
+
+New projects can write the final form from the start; the steps above are only for existing projects.
+
+### Steps (direct module users)
+
+Rename the variables as in the table above and pin `version = "~> 2.0"`. Terraform rejects the removed v1 variables, so a missed rename fails at plan. Step 4 applies as well.
+
+<details><summary>Ja</summary>
+
+v2.0.0 は、実行 SA への付与を SA ごとに 1 つの key にまとめ、付与先の種類（project / SA 自身 / バケット）ごとに list を持つ形にした。`service_accounts[]` にも同じ `self_roles` / `bucket_roles` を足した（追加のみ）。すべての SA の付与が `roles` / `self_roles` / `bucket_roles` の 1 つの形になる。
+
+| v1 の key | v2 の key |
+|---|---|
+| `app_hosting_compute_sa_roles` | `app_hosting_compute_sa.roles` |
+| (なし) | `app_hosting_compute_sa.self_roles` (新規) |
+| (なし) | `app_hosting_compute_sa.bucket_roles` (新規) |
+| `default_compute_sa_roles` | `default_compute_sa.roles` |
+| `default_compute_sa_self_roles` | `default_compute_sa.self_roles` |
+| (なし) | `default_compute_sa.bucket_roles` (新規) |
+
+既存の付与の resource アドレス（`google_project_iam_member.app_hosting_compute_extra[...]`、`google_project_iam_member.default_compute_extra[...]`、`google_service_account_iam_member.default_compute_self[...]`）は変えていない。key を書き換えた後の plan は**差分なし**になる。`moved` / `import` block は不要。
+
+#### 順番が大事な理由
+
+dispatch Action は、知っている key だけを terraform に渡す。Action と `settings.yml` の major がずれると付与がまったく渡らず、plan が**付与を消す**。v1.5.0 と v2.0.0 の Action は、もう一方の major の key を見つけると（run を作る前に）止まる。ずれは付与の消失ではなくエラーになる。v1.4.0 以前の Action にはこのガードが無い。
+
+ガードは、各 Action の run が読んだ `settings.yml` しか確かめない。同じ workspace への dispatch が重なる（v1 と v2 が並行する）と、v1 の root module と v2 の workspace 変数が組み合わさることがある。切り替えの間（手順 2〜3）は run を重ねず、誤った plan が適用されないよう自動 apply を止める。
+
+#### 手順（dispatch Action を使う場合）
+
+1. **v2.0.0 が `main` に入る前に、Action を `@v1.5.0` に固定する。** `@main` は最新の major に追従し、v1 の `module_version` と v2 の Action の組み合わせでは全 run が失敗する。`module_version` は `"~> 1.4"`（または `"~> 1.5"`）のまま。一度 run し、plan に差分が無いことを確かめる。
+2. **自動 apply を止め、ほかの run が無い状態で、Action・module・key を一緒に切り替える**:
+   - 切り替えの間は `apply_policy: manual` にする（または対象環境の apply を手動にする）。
+   - 対象 workspace へ走っている dispatch が終わるのを待ち、手順 3 が終わるまでほかの run を始めない。
+   - Action: `@v2.0.0`
+   - `module_version: "~> 2.0"`
+   - `settings.yml`: 上の表のとおりに key を書き換える
+   
+   `settings.yml` と workflow が別のリポジトリにある場合、どちらを先にしてもよい。両方が入るまでの run は、この節を示すエラーで止まり、何も apply されない。
+3. **plan に差分が無いことを確かめてから apply し、`apply_policy` を戻す。** `app_hosting_compute_extra` / `default_compute_extra` / `default_compute_self` の destroy が出たら key の書き換え漏れ。その run を破棄し、`settings.yml` を直す。
+4. (任意) **付与を絞るときは apply を 2 回に分ける。** role を `roles` から `self_roles` / `bucket_roles` に移す（例: `roles/iam.serviceAccountUser` を `self_roles` へ）ときは、まず新しい付与先に足して apply し、アプリの動作を確かめてから、`roles` から外して再度 apply する。1 回の apply で外すと足すを同時に行うと並行に実行され、SA が一瞬その権限を失うことがある。
+   - App Hosting の共有 compute SA は、常に `roles/firebaseapphosting.computeRunner` を持ち、これに全バケットの `storage.objects.*` が含まれる。Storage の role を `bucket_roles` に移しても、この SA の権限は狭まらない。
+
+新しく作る project は最初から最終形を書けばよい。上の手順は既存の project のためのもの。
+
+#### 手順（module を直接使う場合）
+
+上の表のとおりに変数名を変え、`version = "~> 2.0"` に固定する。消えた v1 の変数は terraform が拒否するので、書き換え漏れは plan で止まる。手順 4 も同様。
+
+</details>
+
+---
+
+## v2.0.0 (2026-10-16)
+
+### Breaking changes
+- The grants to the runtime service accounts are grouped into one key per SA: `app_hosting_compute_sa_roles` / `default_compute_sa_roles` / `default_compute_sa_self_roles` are replaced by `app_hosting_compute_sa` / `default_compute_sa` (`{ roles, self_roles, bucket_roles }`). See [v1.x → v2.0](#v1x--v20) for the migration. (#161)
+- `dispatch-firebase-platform` stops when `settings.yml` still contains the removed v1 keys, or when a grant object has an unknown key, `null`, or a wrong shape (Terraform's object conversion would drop them and the plan would remove the grants). `service_accounts[]` entries with unknown keys are rejected too.
+
+### Features
+- `app_hosting_compute_sa.self_roles`: grant roles to the shared App Hosting compute SA **on itself**, e.g. `roles/iam.serviceAccountUser` for the Cloud Tasks OIDC token, instead of project-wide actAs.
+- `bucket_roles` on all three kinds of SA (`app_hosting_compute_sa`, `default_compute_sa`, `service_accounts[]`): bucket-level grants on `storage.buckets[]` (by input name).
+- `service_accounts[].self_roles` / `bucket_roles` (additive): every SA is now granted in one shape, `roles` / `self_roles` / `bucket_roles`.
+
+### Upgrade notes
+- Existing grants keep their resource addresses, so the plan after rewriting the keys has **no changes**.
+- Follow [v1.x → v2.0](#v1x--v20): switch the Action, `module_version` and the keys together, with auto-apply off and no runs in flight.
+- The App Hosting compute SA always has `roles/firebaseapphosting.computeRunner`, which includes `storage.objects.*` on every bucket; `bucket_roles` cannot narrow its Storage access.
+
+<details><summary>Ja</summary>
+
+- 実行 SA への付与を SA ごとに 1 つの key にまとめた: `app_hosting_compute_sa_roles` / `default_compute_sa_roles` / `default_compute_sa_self_roles` を `app_hosting_compute_sa` / `default_compute_sa`（`{ roles, self_roles, bucket_roles }`）に置き換えた。移行は [v1.x → v2.0](#v1x--v20) を参照。(#161)
+- `dispatch-firebase-platform` は、消えた v1 の key が `settings.yml` に残っているとき、または付与の object に未知の key・`null`・形の誤りがあるときに止まる（terraform の object 変換が捨て、plan が付与を消すため）。`service_accounts[]` の未知の key も止める。
+- `app_hosting_compute_sa.self_roles`: App Hosting の共有 compute SA に、**その SA 自身を対象として** role を付ける。例: Cloud Tasks の OIDC token 用の `roles/iam.serviceAccountUser` を、project 全体の actAs ではなく自分自身だけに絞る。
+- 3 種の SA（`app_hosting_compute_sa`、`default_compute_sa`、`service_accounts[]`）に `bucket_roles`: `storage.buckets[]`（入力の名前）へのバケット単位の付与。
+- `service_accounts[].self_roles` / `bucket_roles`（追加のみ）: すべての SA の付与が `roles` / `self_roles` / `bucket_roles` の 1 つの形になった。
+- 既存の付与の resource アドレスは変えていない。key を書き換えた後の plan は**差分なし**。
+- [v1.x → v2.0](#v1x--v20) に従い、自動 apply を止め、run を重ねない状態で、Action・`module_version`・key を一緒に切り替える。
+- App Hosting の共有 compute SA は常に `roles/firebaseapphosting.computeRunner` を持ち、これに全バケットの `storage.objects.*` が含まれる。`bucket_roles` ではこの SA の Storage 権限を絞れない。
+
+</details>
+
+---
+
 ## v1.5.0 (2026-10-16)
 
 ### GitHub Actions

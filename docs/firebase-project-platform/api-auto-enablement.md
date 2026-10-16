@@ -78,7 +78,7 @@ serviceusage.googleapis.com
 | `eventarc` | `eventarc.googleapis.com` |
 | `cloud_run` | `run.googleapis.com` |
 | `cloud_functions` | `cloudfunctions.googleapis.com`, `cloudbuild.googleapis.com`, `artifactregistry.googleapis.com`, `run.googleapis.com`, `eventarc.googleapis.com`, `pubsub.googleapis.com` (Gen2 Functions internally use Cloud Run / Eventarc / Pub/Sub) |
-| `default_compute_sa_self_roles` (non-empty) | `iamcredentials.googleapis.com` (e.g. a self-targeted `serviceAccountTokenCreator` is used via `signBlob`) |
+| non-empty `self_roles` on an SA that this module grants to: `default_compute_sa.self_roles`, `app_hosting_compute_sa.self_roles` (only when the shared App Hosting SA is created, i.e. some backend has no custom `service_account`), or any `service_accounts[].self_roles` | `iamcredentials.googleapis.com` (e.g. a self-targeted `serviceAccountTokenCreator` is used via `signBlob`) |
 
 `distinct()` deduplicates the final list, so APIs requested by multiple features are only enabled once.
 

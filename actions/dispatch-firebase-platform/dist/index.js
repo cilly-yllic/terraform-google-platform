@@ -50125,40 +50125,96 @@ const PASSTHROUGH_KEYS = [
     "users",
     "ci_service_account",
     "service_accounts",
-    // App Hosting 共有 compute SA への追加 role リスト (例: cloudtasks.enqueuer)。
-    // 値は settings.yml の文字列配列をそのまま HCL list として渡す。
-    "app_hosting_compute_sa_roles",
-    // Gen2 functions / 既定 Cloud Run の既定 compute SA への追加 role リスト
-    // (例: secretmanager.secretAccessor)。
-    "default_compute_sa_roles",
-    // 既定 compute SA 自身を対象とする role リスト (例: iam.serviceAccountTokenCreator)。
-    "default_compute_sa_self_roles",
+    // 実行 SA への付与 ({ roles, self_roles, bucket_roles })。
+    // App Hosting の共有 compute SA と、Gen2 functions / 既定 Cloud Run の既定 compute SA。
+    "app_hosting_compute_sa",
+    "default_compute_sa",
 ];
-// v2.0.0 で実行 SA の付与をまとめた key。v1 の Action はこれを知らないので、
-// 書かれていても黙って捨てると、付与が消える plan になる（v1 の key が無いため）。
-// v1 の Action では読まずに止める（docs/firebase-project-platform/upgrade-guide.md の v1 → v2）。
-const V2_ONLY_KEYS = ["app_hosting_compute_sa", "default_compute_sa"];
-// v2.0.0 で service_accounts[] に足した付与の field。v1 の module の object 型は
-// 知らない属性を捨てるので、同じく黙って付与が作られない。
-const V2_ONLY_SERVICE_ACCOUNT_FIELDS = ["self_roles", "bucket_roles"];
-function rejectV2OnlyKeys(firebasePlatform) {
-    const found = V2_ONLY_KEYS.filter((key) => firebasePlatform[key] !== undefined);
+// v1 で実行 SA の付与に使っていた key。v2.0.0 で app_hosting_compute_sa / default_compute_sa に
+// まとめた。黙って捨てると付与が消える plan になるので、読まずに止める
+// (docs/firebase-project-platform/upgrade-guide.md の v1 → v2)。
+const V1_REMOVED_KEYS = {
+    app_hosting_compute_sa_roles: "app_hosting_compute_sa.roles",
+    default_compute_sa_roles: "default_compute_sa.roles",
+    default_compute_sa_self_roles: "default_compute_sa.self_roles",
+};
+function rejectV1RemovedKeys(firebasePlatform) {
+    const found = Object.keys(V1_REMOVED_KEYS).filter((key) => firebasePlatform[key] !== undefined);
+    if (found.length > 0) {
+        throw new Error(`settings uses v1 key(s) removed in v2: ${found.map((k) => `"${k}" → "${V1_REMOVED_KEYS[k]}"`).join(", ")}. ` +
+            "Rewrite them before running this v2 Action, otherwise the grants would be dropped. " +
+            "See docs/firebase-project-platform/upgrade-guide.md (v1 → v2).");
+    }
+}
+// SA への付与 ({ roles, self_roles, bucket_roles })。terraform の object 変換は未知の属性を
+// 黙って捨て、全属性が optional なので、打ち間違い (例 role) や null は「付与なし」として通り、
+// 既存の付与が消える plan になる。Action で形を確かめて止める。
+const GRANT_KEYS = ["roles", "self_roles", "bucket_roles"];
+// service_accounts[] の entry の key (module の variables.tf と同じ)。
+const SERVICE_ACCOUNT_KEYS = [
+    "account_id",
+    "display_name",
+    "type",
+    "args",
+    "wif",
+    ...GRANT_KEYS,
+];
+function isStringArray(val) {
+    return Array.isArray(val) && val.every((v) => typeof v === "string");
+}
+function validateBucketRoles(where, val) {
+    if (!Array.isArray(val)) {
+        throw new Error(`${where}.bucket_roles must be a list of { bucket, roles }`);
+    }
+    val.forEach((entry, i) => {
+        const e = entry;
+        if (e === null ||
+            typeof e !== "object" ||
+            Array.isArray(e) ||
+            typeof e.bucket !== "string" ||
+            !isStringArray(e.roles) ||
+            Object.keys(e).some((k) => k !== "bucket" && k !== "roles")) {
+            throw new Error(`${where}.bucket_roles[${i}] must be { bucket: string, roles: string[] } (got ${JSON.stringify(entry)})`);
+        }
+    });
+}
+function validateGrantFields(where, obj) {
+    for (const key of ["roles", "self_roles"]) {
+        if (obj[key] !== undefined && !isStringArray(obj[key])) {
+            throw new Error(`${where}.${key} must be a list of role strings`);
+        }
+    }
+    if (obj.bucket_roles !== undefined) {
+        validateBucketRoles(where, obj.bucket_roles);
+    }
+}
+function validateSaGrants(firebasePlatform) {
+    for (const key of ["app_hosting_compute_sa", "default_compute_sa"]) {
+        if (!(key in firebasePlatform))
+            continue;
+        const val = firebasePlatform[key];
+        if (val === null || typeof val !== "object" || Array.isArray(val)) {
+            throw new Error(`${key} must be an object { roles, self_roles, bucket_roles } (got ${JSON.stringify(val)}). Omit the key to grant nothing.`);
+        }
+        const obj = val;
+        const unknown = Object.keys(obj).filter((k) => !GRANT_KEYS.includes(k));
+        if (unknown.length > 0) {
+            throw new Error(`${key} has unknown key(s) ${unknown.map((k) => `"${k}"`).join(", ")} (allowed: ${GRANT_KEYS.join(", ")})`);
+        }
+        validateGrantFields(key, obj);
+    }
     const sas = firebasePlatform.service_accounts;
     if (Array.isArray(sas)) {
         sas.forEach((sa, i) => {
-            if (sa !== null && typeof sa === "object") {
-                for (const field of V2_ONLY_SERVICE_ACCOUNT_FIELDS) {
-                    if (sa[field] !== undefined) {
-                        found.push(`service_accounts[${i}].${field}`);
-                    }
+            if (sa !== null && typeof sa === "object" && !Array.isArray(sa)) {
+                const obj = sa;
+                const unknown = Object.keys(obj).filter((k) => !SERVICE_ACCOUNT_KEYS.includes(k));
+                if (unknown.length > 0) {
+                    throw new Error(`service_accounts[${i}] has unknown key(s) ${unknown.map((k) => `"${k}"`).join(", ")} (allowed: ${SERVICE_ACCOUNT_KEYS.join(", ")})`);
                 }
+                validateGrantFields(`service_accounts[${i}]`, obj);
             }
         });
-    }
-    if (found.length > 0) {
-        throw new Error(`settings uses ${found.map((k) => `"${k}"`).join(", ")}, which requires dispatch-firebase-platform v2 and module_version "~> 2.0". ` +
-            "This v1 Action would ignore it and drop the grants. " +
-            "See docs/firebase-project-platform/upgrade-guide.md (v1 → v2).");
     }
 }
 function toHclValue(val) {
@@ -50428,8 +50484,9 @@ function dataConnectHasBuiltinPassword(normalized) {
 function buildTerraformVariables(projectId, firebasePlatform) {
     // Cloud SQL の CLOUD_IAM_USER 付与 (users[].cloud_sql) を事前 validation。
     validateUsersCloudSql(firebasePlatform);
-    // v2 の key を v1 の Action で読まない（付与が消える plan を作らない）。
-    rejectV2OnlyKeys(firebasePlatform);
+    // v1 で消えた key を黙って捨てない（付与が消える plan を作らない）。
+    rejectV1RemovedKeys(firebasePlatform);
+    validateSaGrants(firebasePlatform);
     const vars = [];
     vars.push({
         key: "project_id",
@@ -50808,10 +50865,8 @@ ${VERSION_PLACEHOLDER}
   ci_service_account = var.ci_service_account
   service_accounts   = var.service_accounts
 
-  app_hosting_compute_sa_roles = var.app_hosting_compute_sa_roles
-  default_compute_sa_roles     = var.default_compute_sa_roles
-
-  default_compute_sa_self_roles = var.default_compute_sa_self_roles
+  app_hosting_compute_sa = var.app_hosting_compute_sa
+  default_compute_sa     = var.default_compute_sa
 }
 
 # Console で Authentication を開始済み (= Identity Platform にアップグレード済み) の
@@ -50890,19 +50945,14 @@ variable "app_hosting" {
   default = null
 }
 
-variable "app_hosting_compute_sa_roles" {
-  type    = list(string)
-  default = []
+variable "app_hosting_compute_sa" {
+  type    = any
+  default = {}
 }
 
-variable "default_compute_sa_roles" {
-  type    = list(string)
-  default = []
-}
-
-variable "default_compute_sa_self_roles" {
-  type    = list(string)
-  default = []
+variable "default_compute_sa" {
+  type    = any
+  default = {}
 }
 
 variable "data_connect" {
