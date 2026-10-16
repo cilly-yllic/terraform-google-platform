@@ -253,6 +253,40 @@ const PASSTHROUGH_KEYS = [
   "default_compute_sa_self_roles",
 ] as const;
 
+// v2.0.0 で実行 SA の付与をまとめた key。v1 の Action はこれを知らないので、
+// 書かれていても黙って捨てると、付与が消える plan になる（v1 の key が無いため）。
+// v1 の Action では読まずに止める（docs/firebase-project-platform/upgrade-guide.md の v1 → v2）。
+const V2_ONLY_KEYS = ["app_hosting_compute_sa", "default_compute_sa"] as const;
+
+// v2.0.0 で service_accounts[] に足した付与の field。v1 の module の object 型は
+// 知らない属性を捨てるので、同じく黙って付与が作られない。
+const V2_ONLY_SERVICE_ACCOUNT_FIELDS = ["self_roles", "bucket_roles"] as const;
+
+function rejectV2OnlyKeys(firebasePlatform: FirebasePlatformConfig): void {
+  const found: string[] = V2_ONLY_KEYS.filter(
+    (key) => firebasePlatform[key] !== undefined,
+  );
+  const sas = firebasePlatform.service_accounts;
+  if (Array.isArray(sas)) {
+    sas.forEach((sa, i) => {
+      if (sa !== null && typeof sa === "object") {
+        for (const field of V2_ONLY_SERVICE_ACCOUNT_FIELDS) {
+          if ((sa as Record<string, unknown>)[field] !== undefined) {
+            found.push(`service_accounts[${i}].${field}`);
+          }
+        }
+      }
+    });
+  }
+  if (found.length > 0) {
+    throw new Error(
+      `settings uses ${found.map((k) => `"${k}"`).join(", ")}, which requires dispatch-firebase-platform v2 and module_version "~> 2.0". ` +
+        "This v1 Action would ignore it and drop the grants. " +
+        "See docs/firebase-project-platform/upgrade-guide.md (v1 → v2).",
+    );
+  }
+}
+
 function toHclValue(val: unknown): string {
   if (val === null || val === undefined) return "null";
   if (val === true) return "true";
@@ -601,6 +635,8 @@ export function buildTerraformVariables(
 ): VariableSpec[] {
   // Cloud SQL の CLOUD_IAM_USER 付与 (users[].cloud_sql) を事前 validation。
   validateUsersCloudSql(firebasePlatform);
+  // v2 の key を v1 の Action で読まない（付与が消える plan を作らない）。
+  rejectV2OnlyKeys(firebasePlatform);
 
   const vars: VariableSpec[] = [];
 

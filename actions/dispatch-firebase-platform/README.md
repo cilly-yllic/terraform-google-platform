@@ -12,11 +12,22 @@ This corresponds to **Action B** (`dispatch-tfc-firebase-platform`). Action A (`
 
 ## Usage
 
+> **Pin the Action to a release tag (e.g. `@v1.5.0`) together with `module_version`.**
+> `@main` follows the latest major, so a major release (e.g. v2) changes the expected `settings.yml` keys and the generated root module at once.
+> Keep the Action tag and `module_version` on the same major, and follow [upgrade-guide.md](../../docs/firebase-project-platform/upgrade-guide.md) when moving between majors.
+>
+> <details><summary>Ja</summary>
+>
+> Action はリリースタグ（例 `@v1.5.0`）に固定し、`module_version` と同じ major にそろえる。`@main` は最新の major に追従するので、major が上がると（例 v2）`settings.yml` の key と生成される root module が一度に変わる。major をまたぐときは [upgrade-guide.md](../../docs/firebase-project-platform/upgrade-guide.md) の手順に従う。
+>
+> </details>
+
 ### env キーを直接指定する場合
 
 ```yaml
-- uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
+- uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@v1.5.0
   with:
+    module_version: "~> 1.5"                # Action のタグと同じ major に固定
     service: my-app
     environments: '["dev-001"]'             # 単一でも JSON 配列で指定
     tfc_org: my-tfc-org
@@ -27,8 +38,9 @@ This corresponds to **Action B** (`dispatch-tfc-firebase-platform`). Action A (`
 複数 env も同じ shape で:
 
 ```yaml
-- uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
+- uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@v1.5.0
   with:
+    module_version: "~> 1.5"                # Action のタグと同じ major に固定
     service: my-app
     environments: '["dev-001","dev-002"]'
     tfc_org: my-tfc-org
@@ -39,8 +51,9 @@ This corresponds to **Action B** (`dispatch-tfc-firebase-platform`). Action A (`
 ### labels で複数 env を選別する場合
 
 ```yaml
-- uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
+- uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@v1.5.0
   with:
+    module_version: "~> 1.5"                # Action のタグと同じ major に固定
     service: my-app
     # environments 未指定 → settings.environments 全件が候補
     labels: '["^tier:dev$"]'
@@ -276,8 +289,9 @@ firebase_platform:
 Action input `labels` は **JSON 配列の RegExp 文字列**。指定された全パターンが、env の `labels` 配列のいずれかにマッチする必要がある（AND）。input が空ならゲート無効。
 
 ```yaml
-- uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
+- uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@v1.5.0
   with:
+    module_version: "~> 1.5"                # Action のタグと同じ major に固定
     service: my-app
     labels: '["^tier:dev$", "^region:apne1$"]'
     # ...
@@ -314,8 +328,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: dispatch
-        uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
+        uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@v1.5.0
         with:
+          module_version: "~> 1.5"
           service: my-app
           environments: '["dev-001"]'
           tfc_org: my-tfc-org
@@ -341,8 +356,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
+      - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@v1.5.0
         with:
+          module_version: "~> 1.5"
           service: ${{ github.event.client_payload.service }}
           environments: ${{ github.event.client_payload.environments }}
           tfc_org: my-tfc-org
@@ -355,8 +371,9 @@ jobs:
 代わりに B 自身に settings.yml で再解決させたい（drift 許容）場合は labels を中継:
 
 ```yaml
-      - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
+      - uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@v1.5.0
         with:
+          module_version: "~> 1.5"
           service: ${{ github.event.client_payload.service }}
           labels: ${{ github.event.client_payload.labels }}
           tfc_org: my-tfc-org
@@ -369,8 +386,9 @@ jobs:
 ### labels で dev だけまとめて再 apply
 
 ```yaml
-- uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
+- uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@v1.5.0
   with:
+    module_version: "~> 1.5"                # Action のタグと同じ major に固定
     service: my-app
     labels: '["^tier:dev$"]'
     tfc_org: my-tfc-org
@@ -434,8 +452,9 @@ orchestrator workflow から `bootstrap_project_number` input に Secret を渡�
 
 ```yaml
 # orchestrator workflow
-- uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@main
+- uses: cilly-yllic/terraform-google-platform/actions/dispatch-firebase-platform@v1.5.0
   with:
+    module_version: "~> 1.5"                # Action のタグと同じ major に固定
     service: my-app
     environments: '["dev-001"]'
     tfc_org: my-tfc-org
