@@ -99,7 +99,7 @@ describe("buildTemplateFiles", () => {
     );
   });
 
-  it("declares AND forwards non-feature passthrough variables (incl. app_hosting_compute_sa_roles)", () => {
+  it("declares AND forwards non-feature passthrough variables (incl. app_hosting_compute_sa)", () => {
     const { "main.tf": main } = buildTemplateFiles(undefined);
     // PASSTHROUGH_KEYS (dispatch/index.ts) に対応する root 変数。宣言だけでなく
     // module ブロックへの受け渡しまで無いと、tfvars に値があっても TFC が
@@ -109,9 +109,8 @@ describe("buildTemplateFiles", () => {
       "users",
       "ci_service_account",
       "service_accounts",
-      "app_hosting_compute_sa_roles",
-      "default_compute_sa_roles",
-      "default_compute_sa_self_roles",
+      "app_hosting_compute_sa",
+      "default_compute_sa",
     ];
     for (const k of passthrough) {
       expect(main, `should declare variable ${k}`).toContain(

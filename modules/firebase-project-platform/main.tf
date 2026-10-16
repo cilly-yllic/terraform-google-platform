@@ -440,7 +440,9 @@ locals {
     ] : [],
     # 自分自身への role (例: serviceAccountTokenCreator) は IAM Credentials API の
     # signBlob で使うため、API が無効だと実行時に 403 になる。
-    length(var.default_compute_sa_self_roles) > 0 ? [
+    length(var.default_compute_sa.self_roles) > 0 ||
+    (local.app_hosting_default_sa_needed && length(var.app_hosting_compute_sa.self_roles) > 0) ||
+    anytrue([for sa in var.service_accounts : length(sa.self_roles) > 0]) ? [
       "iamcredentials.googleapis.com",
     ] : [],
   )
@@ -823,10 +825,20 @@ resource "google_project_iam_member" "app_hosting_runner" {
 # toset([]) で no-op になり、google_service_account.app_hosting_default[0] も
 # 評価されない)。non-authoritative な iam_member なので既存 binding を壊さない。
 resource "google_project_iam_member" "app_hosting_compute_extra" {
-  for_each = local.app_hosting_default_sa_needed ? toset(var.app_hosting_compute_sa_roles) : toset([])
+  for_each = local.app_hosting_default_sa_needed ? toset(var.app_hosting_compute_sa.roles) : toset([])
   project  = var.project_id
   role     = each.value
   member   = google_service_account.app_hosting_default[0].member
+}
+
+# 共有 compute SA 自身を対象とする role 付与 (resource も member も共有 compute SA)。
+# 例: Cloud Tasks の OIDC token に自分自身を使う (actAs) なら "roles/iam.serviceAccountUser"。
+# project-level (app_hosting_compute_extra) で付けるとプロジェクト内の全 SA に actAs できてしまう。
+resource "google_service_account_iam_member" "app_hosting_compute_self" {
+  for_each           = local.app_hosting_default_sa_needed ? toset(var.app_hosting_compute_sa.self_roles) : toset([])
+  service_account_id = google_service_account.app_hosting_default[0].name
+  role               = each.value
+  member             = google_service_account.app_hosting_default[0].member
 }
 
 # app_hosting の参照整合性を plan-time validate。
@@ -1154,13 +1166,14 @@ module "iam" {
 # ---------------------------------------------------------------------------
 
 data "google_project" "this" {
-  # cloud_functions 有効時 (gen2 compute SA bindings 用) か、default_compute_sa_roles /
-  # default_compute_sa_self_roles が指定された時 (SA email の project number 解決用) に取得する。
+  # cloud_functions 有効時 (gen2 compute SA bindings 用) か、default_compute_sa の付与が
+  # 指定された時 (SA email の project number 解決用) に取得する。
   # storage.firestore_backup.export_platform = "cloud_run" の export SA 解決にも使う。
   count = (
     local.enable_cloud_functions ||
-    length(var.default_compute_sa_roles) > 0 ||
-    length(var.default_compute_sa_self_roles) > 0 ||
+    length(var.default_compute_sa.roles) > 0 ||
+    length(var.default_compute_sa.self_roles) > 0 ||
+    length(var.default_compute_sa.bucket_roles) > 0 ||
     try(local.storage_cfg.firestore_backup.export_platform, "cloud_functions") == "cloud_run"
   ) ? 1 : 0
   project_id = var.project_id
@@ -1226,7 +1239,7 @@ resource "google_project_iam_member" "gen2_compute_eventarc_receiver" {
 # 専用 runtime SA 未分離の構成では全 Gen2 functions / 既定 Cloud Run に影響する点に注意。
 # for_each が空なら compute_default_sa も評価されない (data source も未取得で OK)。
 resource "google_project_iam_member" "default_compute_extra" {
-  for_each = toset(var.default_compute_sa_roles)
+  for_each = toset(var.default_compute_sa.roles)
   project  = var.project_id
   role     = each.value
   member   = "serviceAccount:${local.compute_default_sa}"
@@ -1240,10 +1253,65 @@ resource "google_project_iam_member" "default_compute_extra" {
 # default_compute_extra (project-level) で付けるとプロジェクト内の全 SA に署名・なりすまし
 # できてしまうので、こちらで SA 単位に絞る。
 resource "google_service_account_iam_member" "default_compute_self" {
-  for_each           = toset(var.default_compute_sa_self_roles)
+  for_each           = toset(var.default_compute_sa.self_roles)
   service_account_id = "projects/${var.project_id}/serviceAccounts/${local.compute_default_sa}"
   role               = each.value
   member             = "serviceAccount:${local.compute_default_sa}"
 
   depends_on = [google_project_service.this]
+}
+
+# ---------------------------------------------------------------------------
+# SA へのバケット単位の付与 (bucket_roles)
+#
+# app_hosting_compute_sa / default_compute_sa / service_accounts[] の bucket_roles を
+# 1 つの resource で付与する。bucket は storage.buckets[].name (入力の名前) で書き、
+# module.storage の出力から実名を引く (バケットの作成を待つ)。
+# key = "<grantee>|<bucket>|<role>"。grantee は "app_hosting_compute" / "default_compute" /
+# service_accounts[].account_id (account_id は "_" を含められないので衝突しない)。
+# ---------------------------------------------------------------------------
+
+locals {
+  # storage.buckets[].name (入力の名前) → 実名 (auto_prefix 適用後)。
+  storage_bucket_names = local.enable_storage ? module.storage[0].additional_buckets : {}
+
+  sa_bucket_grantees = concat(
+    local.app_hosting_default_sa_needed ? [{
+      id           = "app_hosting_compute"
+      member       = google_service_account.app_hosting_default[0].member
+      bucket_roles = var.app_hosting_compute_sa.bucket_roles
+    }] : [],
+    length(var.default_compute_sa.bucket_roles) > 0 ? [{
+      id           = "default_compute"
+      member       = "serviceAccount:${local.compute_default_sa}"
+      bucket_roles = var.default_compute_sa.bucket_roles
+    }] : [],
+    [for sa in var.service_accounts : {
+      id           = sa.account_id
+      member       = "serviceAccount:${module.iam.service_account_emails[sa.account_id]}"
+      bucket_roles = sa.bucket_roles
+    } if length(sa.bucket_roles) > 0],
+  )
+
+  sa_bucket_roles = merge([
+    for g in local.sa_bucket_grantees : merge([
+      for b in g.bucket_roles : {
+        for r in distinct(b.roles) : "${g.id}|${b.bucket}|${r}" => { member = g.member, bucket = b.bucket, role = r }
+      }
+    ]...)
+  ]...)
+}
+
+resource "google_storage_bucket_iam_member" "service_account_bucket" {
+  for_each = local.sa_bucket_roles
+  bucket   = try(local.storage_bucket_names[each.value.bucket], each.value.bucket)
+  role     = each.value.role
+  member   = each.value.member
+
+  lifecycle {
+    precondition {
+      condition     = contains(keys(local.storage_bucket_names), each.value.bucket)
+      error_message = "bucket_roles: bucket '${each.value.bucket}' is not declared in storage.buckets[].name (use the input name, before auto_prefix)."
+    }
+  }
 }

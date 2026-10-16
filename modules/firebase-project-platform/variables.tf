@@ -293,72 +293,72 @@ variable "app_hosting" {
   default     = null
 }
 
-variable "app_hosting_compute_sa_roles" {
+# ---------------------------------------------------------------------------
+# 実行 SA への付与 (App Hosting の共有 compute SA / Compute Engine 既定 SA)
+#
+# どちらも同じ形で、付与先の種類ごとに list を持つ:
+#   roles        = project-level の role
+#   self_roles   = その SA 自身を対象とする role (google_service_account_iam_member)
+#   bucket_roles = storage.buckets のバケット単位の role (google_storage_bucket_iam_member)
+# 付与はすべて non-authoritative (iam_member) で、ほかの付与を壊さない。
+# ---------------------------------------------------------------------------
+
+variable "app_hosting_compute_sa" {
   description = <<-EOT
-    App Hosting の共有 compute SA (firebase-app-hosting-compute@<project>) に
-    **追加で** 付与する project-level role のリスト。
+    App Hosting の共有 compute SA (firebase-app-hosting-compute@<project>) への **追加の** 付与。
+    App Hosting backend は Cloud Run 上でこの SA として実行される。既定の
+    "roles/firebaseapphosting.computeRunner" は自動で付与されるので、ここには追加分だけを書く。
 
-    前提: App Hosting backend は Cloud Run 上でこの compute SA として実行される。
-    backend の runtime コードが他の GCP API を叩く場合、その API の権限を SA に
-    付ける必要がある。代表例:
-      - Cloud Tasks へ task を enqueue する  → "roles/cloudtasks.enqueuer"
-      - 他 SA を impersonate して OIDC invoke → "roles/iam.serviceAccountUser"
+      roles        = project-level の role。例: Cloud Tasks への enqueue → "roles/cloudtasks.enqueuer"
+      self_roles   = この SA 自身を対象とする role。例: Cloud Tasks の OIDC token に自分自身を
+                     使う (actAs) → "roles/iam.serviceAccountUser"。roles に書くとプロジェクト内の
+                     全 SA に actAs できてしまう
+      bucket_roles = バケット単位の role。bucket は storage.buckets[].name (入力の名前) を書く。
+                     例: [{ bucket = "media", roles = ["roles/storage.objectUser"] }]
 
-    既定の "roles/firebaseapphosting.computeRunner" は別途自動付与されるので、
-    ここには追加分だけを書く。
-
-    注意: 全 backend に custom service_account を指定していて共有 compute SA を
-    作らない構成では、共有 SA が存在しないため本付与は no-op になる
-    (その場合は custom SA 側で権限を管理すること)。
+    全 backend に custom service_account を指定していて共有 SA を作らない構成では no-op
+    (その場合は custom SA 側で権限を管理する)。
   EOT
-  type        = list(string)
-  default     = []
+  type = object({
+    roles      = optional(list(string), [])
+    self_roles = optional(list(string), [])
+    bucket_roles = optional(list(object({
+      bucket = string
+      roles  = list(string)
+    })), [])
+  })
+  default  = {}
+  nullable = false
 }
 
-variable "default_compute_sa_roles" {
+variable "default_compute_sa" {
   description = <<-EOT
-    Compute Engine 既定 SA (<project-number>-compute@developer) に **追加で**
-    付与する project-level role のリスト。
+    Compute Engine 既定 SA (<project-number>-compute@developer) への **追加の** 付与。
+    Gen2 Cloud Functions / 既定 Cloud Run の runtime SA (専用 SA 未分離の構成) で、
+    付与は **全 Gen2 functions / 既定 Cloud Run に影響** する。既定で付与される
+    run.invoker / eventarc.eventReceiver は自動なので、ここには追加分だけを書く。
 
-    前提: Gen2 Cloud Functions / 既定 Cloud Run の **runtime SA** はこの既定 compute SA
-    (専用 SA 未分離の構成)。runtime コードが他の GCP API を叩く場合に必要。代表例:
-      - Secret Manager の値を読む (secretmanager.versions.access)
-                                    → "roles/secretmanager.secretAccessor"
-        ※ 既定 compute SA は roles/editor を持つが editor には
-          secretmanager.versions.access が含まれないため別途必要。
+      roles        = project-level の role。例: Secret Manager の値を読む →
+                     "roles/secretmanager.secretAccessor" (editor に versions.access は無い)
+      self_roles   = この SA 自身を対象とする role。例: Firebase Admin SDK の createCustomToken を
+                     鍵ファイルなしで使う (signBlob) → "roles/iam.serviceAccountTokenCreator"。
+                     roles に書くとプロジェクト内の全 SA に署名・なりすましできてしまう
+      bucket_roles = バケット単位の role (app_hosting_compute_sa.bucket_roles と同じ形)
 
-    既定で付与される run.invoker / eventarc.eventReceiver は別途自動付与されるので、
-    ここには追加分だけを書く。SA email の解決に project number が要るため、本リストが
-    非空なら cloud_functions 無効でも google_project data を取得する。
-
-    注意: 専用 runtime SA を分離していない場合、この付与は **全 Gen2 functions /
-    既定 Cloud Run に影響** する (最小権限にしたい場合は secret 単位の binding を
-    モジュール外で行う)。
+    SA email の解決に project number が要るため、いずれかが非空なら cloud_functions 無効でも
+    google_project data を取得する。self_roles が非空なら iamcredentials.googleapis.com を
+    自動で有効化する (signBlob はこの API 経由のため)。
   EOT
-  type        = list(string)
-  default     = []
-}
-
-variable "default_compute_sa_self_roles" {
-  description = <<-EOT
-    Compute Engine 既定 SA (<project-number>-compute@developer) に、**その SA 自身を
-    対象として** 付与する role のリスト (google_service_account_iam_member。resource も
-    member も既定 compute SA)。
-
-    代表例:
-      - Firebase Admin SDK の createCustomToken を鍵ファイルなしで使う
-        (IAM Credentials API の signBlob で自分自身に署名する)
-                                    → "roles/iam.serviceAccountTokenCreator"
-
-    default_compute_sa_roles (project-level) に serviceAccountTokenCreator を書くと
-    プロジェクト内の全 SA に署名・なりすましできてしまう。自分自身への権限だけが
-    必要な場合はこちらを使う。SA email の解決に project number が要るため、本リストが
-    非空なら cloud_functions 無効でも google_project data を取得する。
-    また、本リストが非空なら iamcredentials.googleapis.com を自動で有効化する
-    (signBlob はこの API 経由のため)。
-  EOT
-  type        = list(string)
-  default     = []
+  type = object({
+    roles      = optional(list(string), [])
+    self_roles = optional(list(string), [])
+    bucket_roles = optional(list(object({
+      bucket = string
+      roles  = list(string)
+    })), [])
+  })
+  default  = {}
+  nullable = false
 }
 
 variable "data_connect" {
@@ -578,7 +578,11 @@ variable "service_accounts" {
       display_name = display name (optional)
       type         = "deploy" (args の sugar を効かせたい場合) / それ以外 (例 "reader")
                      なら roles だけを付与
-      roles        = additional custom IAM roles (optional)
+      roles        = additional custom IAM roles (optional, project-level)
+      self_roles   = この SA 自身を対象とする role (optional。google_service_account_iam_member)
+      bucket_roles = バケット単位の role (optional。google_storage_bucket_iam_member)。
+                     [{ bucket = storage.buckets[].name (入力の名前), roles = [...] }]
+                     付与の形は app_hosting_compute_sa / default_compute_sa と同じ
       args         = feature flags for deploy type:
         hosting   = true/false (roles/firebasehosting.admin)
         functions = true/false (roles/cloudfunctions.admin, roles/iam.serviceAccountUser, roles/artifactregistry.admin)
@@ -601,7 +605,12 @@ variable "service_accounts" {
     display_name = optional(string, "")
     type         = string
     roles        = optional(list(string), [])
-    args         = optional(any, {})
+    self_roles   = optional(list(string), [])
+    bucket_roles = optional(list(object({
+      bucket = string
+      roles  = list(string)
+    })), [])
+    args = optional(any, {})
     wif = optional(object({
       pool_resource_name = string
       principals = list(object({

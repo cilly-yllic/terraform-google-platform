@@ -36,10 +36,8 @@ ${VERSION_PLACEHOLDER}
   ci_service_account = var.ci_service_account
   service_accounts   = var.service_accounts
 
-  app_hosting_compute_sa_roles = var.app_hosting_compute_sa_roles
-  default_compute_sa_roles     = var.default_compute_sa_roles
-
-  default_compute_sa_self_roles = var.default_compute_sa_self_roles
+  app_hosting_compute_sa = var.app_hosting_compute_sa
+  default_compute_sa     = var.default_compute_sa
 }
 
 # Console で Authentication を開始済み (= Identity Platform にアップグレード済み) の
@@ -118,19 +116,14 @@ variable "app_hosting" {
   default = null
 }
 
-variable "app_hosting_compute_sa_roles" {
-  type    = list(string)
-  default = []
+variable "app_hosting_compute_sa" {
+  type    = any
+  default = {}
 }
 
-variable "default_compute_sa_roles" {
-  type    = list(string)
-  default = []
-}
-
-variable "default_compute_sa_self_roles" {
-  type    = list(string)
-  default = []
+variable "default_compute_sa" {
+  type    = any
+  default = {}
 }
 
 variable "data_connect" {
