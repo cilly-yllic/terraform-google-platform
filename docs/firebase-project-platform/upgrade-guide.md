@@ -176,6 +176,37 @@ dispatch Action は、知っている key だけを terraform に渡す。Action
 
 ---
 
+## v2.0.0 (2026-10-16)
+
+### Breaking changes
+- The grants to the runtime service accounts are grouped into one key per SA: `app_hosting_compute_sa_roles` / `default_compute_sa_roles` / `default_compute_sa_self_roles` are replaced by `app_hosting_compute_sa` / `default_compute_sa` (`{ roles, self_roles, bucket_roles }`). See [v1.x → v2.0](#v1x--v20) for the migration. (#161)
+- `dispatch-firebase-platform` stops when `settings.yml` still contains the removed v1 keys, or when a grant object has an unknown key, `null`, or a wrong shape (Terraform's object conversion would drop them and the plan would remove the grants). `service_accounts[]` entries with unknown keys are rejected too.
+
+### Features
+- `app_hosting_compute_sa.self_roles`: grant roles to the shared App Hosting compute SA **on itself**, e.g. `roles/iam.serviceAccountUser` for the Cloud Tasks OIDC token, instead of project-wide actAs.
+- `bucket_roles` on all three kinds of SA (`app_hosting_compute_sa`, `default_compute_sa`, `service_accounts[]`): bucket-level grants on `storage.buckets[]` (by input name).
+- `service_accounts[].self_roles` / `bucket_roles` (additive): every SA is now granted in one shape, `roles` / `self_roles` / `bucket_roles`.
+
+### Upgrade notes
+- Existing grants keep their resource addresses, so the plan after rewriting the keys has **no changes**.
+- Follow [v1.x → v2.0](#v1x--v20): switch the Action, `module_version` and the keys together, with auto-apply off and no runs in flight.
+- The App Hosting compute SA always has `roles/firebaseapphosting.computeRunner`, which includes `storage.objects.*` on every bucket; `bucket_roles` cannot narrow its Storage access.
+
+<details><summary>Ja</summary>
+
+- 実行 SA への付与を SA ごとに 1 つの key にまとめた: `app_hosting_compute_sa_roles` / `default_compute_sa_roles` / `default_compute_sa_self_roles` を `app_hosting_compute_sa` / `default_compute_sa`（`{ roles, self_roles, bucket_roles }`）に置き換えた。移行は [v1.x → v2.0](#v1x--v20) を参照。(#161)
+- `dispatch-firebase-platform` は、消えた v1 の key が `settings.yml` に残っているとき、または付与の object に未知の key・`null`・形の誤りがあるときに止まる（terraform の object 変換が捨て、plan が付与を消すため）。`service_accounts[]` の未知の key も止める。
+- `app_hosting_compute_sa.self_roles`: App Hosting の共有 compute SA に、**その SA 自身を対象として** role を付ける。例: Cloud Tasks の OIDC token 用の `roles/iam.serviceAccountUser` を、project 全体の actAs ではなく自分自身だけに絞る。
+- 3 種の SA（`app_hosting_compute_sa`、`default_compute_sa`、`service_accounts[]`）に `bucket_roles`: `storage.buckets[]`（入力の名前）へのバケット単位の付与。
+- `service_accounts[].self_roles` / `bucket_roles`（追加のみ）: すべての SA の付与が `roles` / `self_roles` / `bucket_roles` の 1 つの形になった。
+- 既存の付与の resource アドレスは変えていない。key を書き換えた後の plan は**差分なし**。
+- [v1.x → v2.0](#v1x--v20) に従い、自動 apply を止め、run を重ねない状態で、Action・`module_version`・key を一緒に切り替える。
+- App Hosting の共有 compute SA は常に `roles/firebaseapphosting.computeRunner` を持ち、これに全バケットの `storage.objects.*` が含まれる。`bucket_roles` ではこの SA の Storage 権限を絞れない。
+
+</details>
+
+---
+
 ## v1.5.0 (2026-10-16)
 
 ### GitHub Actions
