@@ -570,6 +570,31 @@ describe("buildTerraformVariables", () => {
     ).toBeUndefined();
   });
 
+  it.each(["app_hosting_compute_sa", "default_compute_sa"])(
+    "throws on the v2-only key %s instead of dropping it",
+    (key) => {
+      expect(() =>
+        buildTerraformVariables("p", {
+          cloud_functions: true,
+          [key]: { roles: ["roles/secretmanager.secretAccessor"] },
+        }),
+      ).toThrow(/requires dispatch-firebase-platform v2/);
+    },
+  );
+
+  it.each(["self_roles", "bucket_roles"])(
+    "throws on the v2-only service_accounts[].%s instead of dropping it",
+    (field) => {
+      expect(() =>
+        buildTerraformVariables("p", {
+          service_accounts: [
+            { account_id: "vm-runner", type: "runtime", [field]: [] },
+          ],
+        }),
+      ).toThrow(`service_accounts[0].${field}`);
+    },
+  );
+
   it("throws when list-feature value is not an array", () => {
     expect(() =>
       buildTerraformVariables("p", {
