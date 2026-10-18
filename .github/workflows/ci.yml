@@ -13,6 +13,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  terraform-compute-host-platform:
+    name: "Terraform Validate – compute-host-platform"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.16.x"
+
+      - name: terraform fmt -check
+        run: terraform fmt -check -recursive modules/compute-host-platform
+
+      - name: terraform init
+        working-directory: modules/compute-host-platform
+        run: terraform init -backend=false
+
+      - name: terraform validate
+        working-directory: modules/compute-host-platform
+        run: terraform validate
+
+      - name: terraform test
+        working-directory: modules/compute-host-platform
+        run: terraform test
+
   terraform-firebase-platform:
     name: "Terraform Validate – firebase-project-platform"
     runs-on: ubuntu-latest

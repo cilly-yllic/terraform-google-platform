@@ -6,6 +6,7 @@ GCP / Firebase プロジェクトの作成・設定を一元管理する Terrafo
 
 - [`modules/firebase-project-platform/`](./modules/firebase-project-platform/) — Firebase Platform 化（Firebase / GCP リソース・API・IAM）
 - [`modules/project-bootstrap/`](./modules/project-bootstrap/) — GCP Project / SA / IAM の作成（project factory）
+- [`modules/compute-host-platform/`](./modules/compute-host-platform/) — VM を置くプロジェクトの基盤（VPC・ファイアウォール・Cloud NAT・最小権限の IAM）
 
 ---
 
@@ -25,7 +26,8 @@ GCP / Firebase プロジェクトの作成・設定を一元管理する Terrafo
 registry.terraform.io/modules/cilly-yllic/platform/google
 └── modules/
     ├── firebase-project-platform   ← サブモジュール
-    └── project-bootstrap            ← サブモジュール
+    ├── project-bootstrap            ← サブモジュール
+    └── compute-host-platform        ← サブモジュール
 ```
 
 ### `modules/firebase-project-platform`
@@ -72,6 +74,48 @@ module "project_bootstrap" {
 ```
 
 詳細: [`modules/project-bootstrap/`](./modules/project-bootstrap/) / [docs](./docs/project-bootstrap/)
+
+### `modules/compute-host-platform`
+
+Firebase のプロジェクトとは別の「VM を置くプロジェクト」（compute host）に、VM 用のネットワークと最小権限の IAM を作るモジュール。VM そのものは作らない（利用側のアプリが実行時に作る）。プロジェクトは `project-bootstrap` で作る。
+
+```hcl
+module "compute_host" {
+  source  = "cilly-yllic/platform/google//modules/compute-host-platform"
+  version = "~> 2.1"
+
+  project_id = "example-host-dev-001"
+  region     = "asia-northeast1"
+
+  network   = { name = "vm", subnets = [{ name = "vm-asia-northeast1", cidr = "10.10.0.0/20" }] }
+  cloud_nat = { router_name = "vm-router", nat_name = "vm-nat" }
+  firewall_rules = [
+    { name = "deny-internal-egress", direction = "EGRESS", action = "deny", priority = 900,
+      ranges = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"] },
+  ]
+
+  service_accounts = [{ account_id = "vm-runtime" }]
+  custom_roles = [{
+    role_id     = "vmManager"
+    title       = "VM manager"
+    permissions = ["compute.instances.create", "compute.instances.start", "compute.instances.stop"]
+  }]
+  iam_bindings = [
+    { role = "custom:vmManager", members = ["serviceAccount:manager@other-project.iam.gserviceaccount.com"] },
+  ]
+  service_account_iam = [
+    { service_account = "vm-runtime", role = "roles/iam.serviceAccountUser",
+      members = ["serviceAccount:manager@other-project.iam.gserviceaccount.com"] },
+  ]
+}
+```
+
+- `"custom:<role_id>"` は `custom_roles` のロール、`"sa:<account_id>"` はこのモジュールの SA を指す
+- IAM は非排他（ほかの付与を消さない）。`iam_bindings` には IAM の条件を付けられる
+- プロジェクト単位の組織のポリシー（外部 IP の禁止など）は扱わない（terraform の SA は組織のポリシーを設定できない。cilly-yllic/terraform-google-platform#12 で検討中）
+- settings.yml から使う Action（`dispatch-compute-host`）は後で足す
+
+詳細: [`modules/compute-host-platform/`](./modules/compute-host-platform/)
 
 ---
 
