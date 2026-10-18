@@ -38,6 +38,24 @@ import { buildTemplateFiles } from "../lib/templates/index.js";
 import { resolveModuleVersion } from "../lib/registry/index.js";
 import { buildTarball } from "../lib/config-version/index.js";
 
+/** 別の Action の workspace・tag を読めない workspace なら止める（変えない） */
+function assertNotForeign(
+  name: string,
+  attributes: Record<string, unknown> | undefined,
+): void {
+  const foreign = findForeignMarker(attributes);
+  if (foreign === "unknown") {
+    throw new Error(
+      `Could not read the tags of workspace "${name}"; refusing to change it.`,
+    );
+  }
+  if (foreign) {
+    throw new Error(
+      `Workspace "${name}" is managed by dispatch-firebase-platform (tag "${foreign}"). Use a different service name for the compute host settings.yml.`,
+    );
+  }
+}
+
 async function run(): Promise<void> {
   try {
     // -----------------------------------------------------------------------
@@ -244,11 +262,8 @@ async function run(): Promise<void> {
           targetName,
           tfcToken,
         );
-        const foreign = findForeignMarker(existingWorkspace?.attributes);
-        if (foreign) {
-          throw new Error(
-            `Workspace "${targetName}" is managed by dispatch-firebase-platform (tag "${foreign}"). Use a different service name for the compute host settings.yml.`,
-          );
+        if (existingWorkspace) {
+          assertNotForeign(targetName, existingWorkspace.attributes);
         }
         const workspace = await upsertWorkspace(
           tfcOrg,
@@ -260,6 +275,10 @@ async function run(): Promise<void> {
 
         // Attach marker tag (additive — does not replace user-set tags)
         await addWorkspaceTags(workspaceId, [markerTag], tfcToken);
+        // 印を付けた後にも読み直す。確かめてから upsert するまでの間に、別の Action が同じ名前で作っていたら
+        // 変数・構成を変える前に止める（両方が同時に動いても、少なくとも一方は相手の印を見て止まる）
+        const tagged = await findWorkspaceByName(tfcOrg, targetName, tfcToken);
+        assertNotForeign(targetName, tagged?.attributes);
 
         // Notification config
         if (enableWebhook) {
@@ -389,16 +408,18 @@ async function run(): Promise<void> {
         );
         continue;
       }
-      // 別の Action の marker も付いている workspace は消さない（その Action ではまだ使っているかもしれない）
+      // 別の Action の marker も付いている・tag を読めない workspace は消さない（その Action ではまだ使っているかもしれない）
       const foreign = findForeignMarker(w.attributes);
       if (foreign) {
+        const why =
+          foreign === "unknown"
+            ? "its tags could not be read"
+            : `it also carries "${foreign}"`;
         failed.push({
           env,
-          error: `Workspace "${w.attributes.name}" also carries "${foreign}"; not deleted. Remove it manually if it is no longer used.`,
+          error: `Workspace "${w.attributes.name}" was not deleted because ${why}. Remove it manually if it is no longer used.`,
         });
-        core.error(
-          `[reconcile] workspace "${w.attributes.name}" carries "${foreign}"; not deleted`,
-        );
+        core.error(`[reconcile] workspace "${w.attributes.name}" not deleted: ${why}`);
         continue;
       }
       // Orphan → force-delete the workspace

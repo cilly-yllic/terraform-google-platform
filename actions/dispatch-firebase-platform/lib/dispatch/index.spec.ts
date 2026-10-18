@@ -1269,7 +1269,9 @@ describe("findComputeHostMarker", () => {
       "compute-host-app",
     );
     expect(findComputeHostMarker({ "tag-names": ["firebase-platform-app"] })).toBeNull();
-    expect(findComputeHostMarker({})).toBeNull();
-    expect(findComputeHostMarker(undefined)).toBeNull();
+    expect(findComputeHostMarker({ "tag-names": [] })).toBeNull();
+    // 読めなければ判定できない（止める・消さない）
+    expect(findComputeHostMarker({})).toBe("unknown");
+    expect(findComputeHostMarker(undefined)).toBe("unknown");
   });
 });

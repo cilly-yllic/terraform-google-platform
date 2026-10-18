@@ -43,6 +43,24 @@ import { buildTemplateFiles } from "../lib/templates/index.js";
 import { resolveModuleVersion } from "../lib/registry/index.js";
 import { buildTarball } from "../lib/config-version/index.js";
 
+/** dispatch-compute-host の workspace・tag を読めない workspace なら止める（変えない） */
+function assertNotComputeHost(
+  name: string,
+  attributes: Record<string, unknown> | undefined,
+): void {
+  const marker = findComputeHostMarker(attributes);
+  if (marker === "unknown") {
+    throw new Error(
+      `Could not read the tags of workspace "${name}"; refusing to change it.`,
+    );
+  }
+  if (marker) {
+    throw new Error(
+      `Workspace "${name}" is managed by dispatch-compute-host (tag "${marker}"). Use a different service name.`,
+    );
+  }
+}
+
 async function run(): Promise<void> {
   try {
     // -----------------------------------------------------------------------
@@ -256,11 +274,8 @@ async function run(): Promise<void> {
         // Project → service project の migration もこれで完結する)。
         // dispatch-compute-host の workspace なら触らない（同じ service・env を両方に指定したときに置き換えない）
         const existingWorkspace = await findWorkspaceByName(tfcOrg, targetName, tfcToken);
-        const computeHostMarker = findComputeHostMarker(existingWorkspace?.attributes);
-        if (computeHostMarker) {
-          throw new Error(
-            `Workspace "${targetName}" is managed by dispatch-compute-host (tag "${computeHostMarker}"). Use a different service name.`,
-          );
+        if (existingWorkspace) {
+          assertNotComputeHost(targetName, existingWorkspace.attributes);
         }
         const workspace = await upsertWorkspace(
           tfcOrg,
@@ -272,6 +287,9 @@ async function run(): Promise<void> {
 
         // Attach marker tag (additive — does not replace user-set tags)
         await addWorkspaceTags(workspaceId, [markerTag], tfcToken);
+        // 印を付けた後にも読み直す（確かめてから upsert するまでの間に dispatch-compute-host が同じ名前で作っていたら止める）
+        const tagged = await findWorkspaceByName(tfcOrg, targetName, tfcToken);
+        assertNotComputeHost(targetName, tagged?.attributes);
 
         // Notification config
         if (enableWebhook) {
@@ -438,7 +456,11 @@ async function run(): Promise<void> {
       const computeHostMarker = findComputeHostMarker(w.attributes);
       if (computeHostMarker) {
         core.warning(
-          `[reconcile] workspace "${w.attributes.name}" also carries "${computeHostMarker}"; not deleted`,
+          `[reconcile] workspace "${w.attributes.name}" not deleted: ${
+            computeHostMarker === "unknown"
+              ? "its tags could not be read"
+              : `it also carries "${computeHostMarker}"`
+          }`,
         );
         continue;
       }

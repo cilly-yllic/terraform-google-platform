@@ -195,9 +195,11 @@ describe("templates と marker", () => {
       }),
     ).toBe("firebase-platform-x");
     expect(findForeignMarker({ "tag-names": ["compute-host-x"] })).toBeNull();
-    expect(
-      findForeignMarker({ "tag-names": "firebase-platform-x" }),
-    ).toBeNull();
-    expect(findForeignMarker(undefined)).toBeNull();
+    expect(findForeignMarker({ "tag-names": [] })).toBeNull();
+    // 読めなければ判定できない（止める・消さない）
+    expect(findForeignMarker({ "tag-names": "firebase-platform-x" })).toBe(
+      "unknown",
+    );
+    expect(findForeignMarker(undefined)).toBe("unknown");
   });
 });

@@ -50335,12 +50335,13 @@ const FOREIGN_MARKER_PREFIX = "firebase-platform-";
 /**
  * workspace に別の Action（dispatch-firebase-platform）の marker tag が付いていれば、その tag を返す。
  * 付いていれば、この Action はその workspace を変えない・消さない（同じ service・env を両方の Action に指定したとき、
- * 変数・構成を置き換えたり、reconcile で消し合ったりしない）。tag-names が読めなければ付いていない扱い
+ * 変数・構成を置き換えたり、reconcile で消し合ったりしない）。
+ * tag-names が読めない（無い・配列でない）ときは判定できないので "unknown" を返す（呼び出し側は止める・消さない）
  */
 function findForeignMarker(attributes) {
     const tags = attributes?.["tag-names"];
     if (!Array.isArray(tags))
-        return null;
+        return "unknown";
     const found = tags.find((tag) => typeof tag === "string" && tag.startsWith(FOREIGN_MARKER_PREFIX));
     return found ?? null;
 }
@@ -50622,6 +50623,16 @@ function buildTarball(files) {
 
 
 
+/** 別の Action の workspace・tag を読めない workspace なら止める（変えない） */
+function assertNotForeign(name, attributes) {
+    const foreign = findForeignMarker(attributes);
+    if (foreign === "unknown") {
+        throw new Error(`Could not read the tags of workspace "${name}"; refusing to change it.`);
+    }
+    if (foreign) {
+        throw new Error(`Workspace "${name}" is managed by dispatch-firebase-platform (tag "${foreign}"). Use a different service name for the compute host settings.yml.`);
+    }
+}
 async function run() {
     try {
         // -----------------------------------------------------------------------
@@ -50791,14 +50802,17 @@ async function run() {
                 // Project → service project の migration もこれで完結する)。
                 // 別の Action（dispatch-firebase-platform）の workspace なら触らない
                 const existingWorkspace = await findWorkspaceByName(tfcOrg, targetName, tfcToken);
-                const foreign = findForeignMarker(existingWorkspace?.attributes);
-                if (foreign) {
-                    throw new Error(`Workspace "${targetName}" is managed by dispatch-firebase-platform (tag "${foreign}"). Use a different service name for the compute host settings.yml.`);
+                if (existingWorkspace) {
+                    assertNotForeign(targetName, existingWorkspace.attributes);
                 }
                 const workspace = await upsertWorkspace(tfcOrg, { name: targetName, "auto-apply": autoApply }, tfcToken, project.id);
                 const workspaceId = workspace.id;
                 // Attach marker tag (additive — does not replace user-set tags)
                 await addWorkspaceTags(workspaceId, [markerTag], tfcToken);
+                // 印を付けた後にも読み直す。確かめてから upsert するまでの間に、別の Action が同じ名前で作っていたら
+                // 変数・構成を変える前に止める（両方が同時に動いても、少なくとも一方は相手の印を見て止まる）
+                const tagged = await findWorkspaceByName(tfcOrg, targetName, tfcToken);
+                assertNotForeign(targetName, tagged?.attributes);
                 // Notification config
                 if (enableWebhook) {
                     if (!webhookUrl) {
@@ -50893,14 +50907,17 @@ async function run() {
                 info(`[reconcile] env "${env}" retained (workspace "${w.attributes.name}" kept)`);
                 continue;
             }
-            // 別の Action の marker も付いている workspace は消さない（その Action ではまだ使っているかもしれない）
+            // 別の Action の marker も付いている・tag を読めない workspace は消さない（その Action ではまだ使っているかもしれない）
             const foreign = findForeignMarker(w.attributes);
             if (foreign) {
+                const why = foreign === "unknown"
+                    ? "its tags could not be read"
+                    : `it also carries "${foreign}"`;
                 failed.push({
                     env,
-                    error: `Workspace "${w.attributes.name}" also carries "${foreign}"; not deleted. Remove it manually if it is no longer used.`,
+                    error: `Workspace "${w.attributes.name}" was not deleted because ${why}. Remove it manually if it is no longer used.`,
                 });
-                error(`[reconcile] workspace "${w.attributes.name}" carries "${foreign}"; not deleted`);
+                error(`[reconcile] workspace "${w.attributes.name}" not deleted: ${why}`);
                 continue;
             }
             // Orphan → force-delete the workspace

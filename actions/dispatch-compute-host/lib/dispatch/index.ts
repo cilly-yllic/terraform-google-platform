@@ -528,13 +528,14 @@ export const FOREIGN_MARKER_PREFIX = "firebase-platform-";
 /**
  * workspace に別の Action（dispatch-firebase-platform）の marker tag が付いていれば、その tag を返す。
  * 付いていれば、この Action はその workspace を変えない・消さない（同じ service・env を両方の Action に指定したとき、
- * 変数・構成を置き換えたり、reconcile で消し合ったりしない）。tag-names が読めなければ付いていない扱い
+ * 変数・構成を置き換えたり、reconcile で消し合ったりしない）。
+ * tag-names が読めない（無い・配列でない）ときは判定できないので "unknown" を返す（呼び出し側は止める・消さない）
  */
 export function findForeignMarker(
   attributes: Record<string, unknown> | undefined,
-): string | null {
+): string | null | "unknown" {
   const tags = attributes?.["tag-names"];
-  if (!Array.isArray(tags)) return null;
+  if (!Array.isArray(tags)) return "unknown";
   const found = tags.find(
     (tag): tag is string =>
       typeof tag === "string" && tag.startsWith(FOREIGN_MARKER_PREFIX),

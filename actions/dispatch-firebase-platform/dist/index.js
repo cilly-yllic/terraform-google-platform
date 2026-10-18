@@ -50802,12 +50802,13 @@ const COMPUTE_HOST_MARKER_PREFIX = "compute-host-";
 /**
  * workspace に dispatch-compute-host の marker tag が付いていれば、その tag を返す。
  * 付いていれば、この Action はその workspace を変えない・消さない（同じ service・env を両方の Action に指定したとき、
- * 変数・構成を置き換えたり、reconcile で消し合ったりしない）。tag-names が読めなければ付いていない扱い
+ * 変数・構成を置き換えたり、reconcile で消し合ったりしない）。
+ * tag-names が読めない（無い・配列でない）ときは判定できないので "unknown" を返す（呼び出し側は止める・消さない）
  */
 function findComputeHostMarker(attributes) {
     const tags = attributes?.["tag-names"];
     if (!Array.isArray(tags))
-        return null;
+        return "unknown";
     const found = tags.find((tag) => typeof tag === "string" && tag.startsWith(COMPUTE_HOST_MARKER_PREFIX));
     return found ?? null;
 }
@@ -51234,6 +51235,16 @@ function buildTarball(files) {
 
 
 
+/** dispatch-compute-host の workspace・tag を読めない workspace なら止める（変えない） */
+function assertNotComputeHost(name, attributes) {
+    const marker = findComputeHostMarker(attributes);
+    if (marker === "unknown") {
+        throw new Error(`Could not read the tags of workspace "${name}"; refusing to change it.`);
+    }
+    if (marker) {
+        throw new Error(`Workspace "${name}" is managed by dispatch-compute-host (tag "${marker}"). Use a different service name.`);
+    }
+}
 async function run() {
     try {
         // -----------------------------------------------------------------------
@@ -51415,14 +51426,16 @@ async function run() {
                 // Project → service project の migration もこれで完結する)。
                 // dispatch-compute-host の workspace なら触らない（同じ service・env を両方に指定したときに置き換えない）
                 const existingWorkspace = await findWorkspaceByName(tfcOrg, targetName, tfcToken);
-                const computeHostMarker = findComputeHostMarker(existingWorkspace?.attributes);
-                if (computeHostMarker) {
-                    throw new Error(`Workspace "${targetName}" is managed by dispatch-compute-host (tag "${computeHostMarker}"). Use a different service name.`);
+                if (existingWorkspace) {
+                    assertNotComputeHost(targetName, existingWorkspace.attributes);
                 }
                 const workspace = await upsertWorkspace(tfcOrg, { name: targetName, "auto-apply": autoApply }, tfcToken, project.id);
                 const workspaceId = workspace.id;
                 // Attach marker tag (additive — does not replace user-set tags)
                 await addWorkspaceTags(workspaceId, [markerTag], tfcToken);
+                // 印を付けた後にも読み直す（確かめてから upsert するまでの間に dispatch-compute-host が同じ名前で作っていたら止める）
+                const tagged = await findWorkspaceByName(tfcOrg, targetName, tfcToken);
+                assertNotComputeHost(targetName, tagged?.attributes);
                 // Notification config
                 if (enableWebhook) {
                     if (!webhookUrl) {
@@ -51544,7 +51557,9 @@ async function run() {
             // dispatch-compute-host の marker も付いている workspace は消さない（そちらでまだ使っているかもしれない）
             const computeHostMarker = findComputeHostMarker(w.attributes);
             if (computeHostMarker) {
-                warning(`[reconcile] workspace "${w.attributes.name}" also carries "${computeHostMarker}"; not deleted`);
+                warning(`[reconcile] workspace "${w.attributes.name}" not deleted: ${computeHostMarker === "unknown"
+                    ? "its tags could not be read"
+                    : `it also carries "${computeHostMarker}"`}`);
                 continue;
             }
             // Orphan → force-delete the workspace
