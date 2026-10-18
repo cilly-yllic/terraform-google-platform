@@ -50,6 +50,7 @@ run "network_firewall_nat" {
       subnets = [
         { name = "vm-a", cidr = "10.10.0.0/20" },
         { name = "vm-b", cidr = "10.20.0.0/20", region = "us-central1", private_google_access = false, flow_logs = true },
+        { name = "vm-c", cidr = "10.30.0.0/20" },
       ]
     }
     firewall_rules = [
@@ -69,7 +70,6 @@ run "network_firewall_nat" {
         target_service_accounts = ["vm-runtime"]
       },
     ]
-    cloud_nat        = { router_name = "vm-router", nat_name = "vm-nat" }
     service_accounts = [{ account_id = "vm-runtime" }]
   }
 
@@ -110,15 +110,38 @@ run "network_firewall_nat" {
     )
     error_message = "account_id を SA のメールにしていない、または許可のルールが違う"
   }
+}
+
+run "nat_defaults" {
+  command = plan
+
+  variables {
+    network   = { name = "vm", subnets = [{ name = "vm-a", cidr = "10.10.0.0/20" }, { name = "vm-c", cidr = "10.30.0.0/20" }] }
+    cloud_nat = { router_name = "vm-router", nat_name = "vm-nat" }
+  }
+
   assert {
     condition = (
+      google_compute_router.this[0].region == "asia-northeast1" &&
       google_compute_router_nat.this[0].source_subnetwork_ip_ranges_to_nat == "ALL_SUBNETWORKS_ALL_IP_RANGES" &&
       google_compute_router_nat.this[0].min_ports_per_vm == 64 &&
       google_compute_router_nat.this[0].log_config[0].enable == true &&
       google_compute_router_nat.this[0].log_config[0].filter == "ERRORS_ONLY"
     )
-    error_message = "Cloud NAT の既定（全サブネット・ポート・エラーだけのログ）が違う"
+    error_message = "Cloud NAT の既定（同じリージョンの全サブネット・ポート・エラーだけのログ）が違う"
   }
+}
+
+run "rejects_nat_with_other_region_subnet" {
+  command = plan
+  variables {
+    network = {
+      name    = "vm"
+      subnets = [{ name = "vm-a", cidr = "10.10.0.0/20" }, { name = "vm-b", cidr = "10.20.0.0/20", region = "us-central1" }]
+    }
+    cloud_nat = { router_name = "vm-router", nat_name = "vm-nat" }
+  }
+  expect_failures = [var.cloud_nat]
 }
 
 run "nat_without_logs" {
@@ -138,6 +161,15 @@ run "nat_without_logs" {
 run "iam_custom_roles_conditions_and_sa_scoped" {
   command = apply
 
+  # SA ごとに違うメールを返し、付与先の取り違えを見分ける
+  override_resource {
+    target = google_service_account.this["vm-reconciler"]
+    values = {
+      email = "vm-reconciler@test-project.iam.gserviceaccount.com"
+      name  = "projects/test-project/serviceAccounts/vm-reconciler@test-project.iam.gserviceaccount.com"
+    }
+  }
+
   variables {
     service_accounts = [
       { account_id = "vm-runtime" },
@@ -150,19 +182,25 @@ run "iam_custom_roles_conditions_and_sa_scoped" {
     }]
     iam_bindings = [
       {
+        name    = "manager-vms"
         role    = "custom:vmManager"
-        members = ["serviceAccount:manager@other-project.iam.gserviceaccount.com"]
+        members = { manager = "serviceAccount:manager@other-project.iam.gserviceaccount.com" }
         condition = {
           title      = "vm-prefix"
           expression = "resource.name.extract(\"/instances/{name}\").startsWith(\"vm-\")"
         }
       },
-      { role = "roles/logging.viewer", members = ["sa:vm-reconciler", "group:ops@example.com"] },
+      {
+        name    = "log-readers"
+        role    = "roles/logging.viewer"
+        members = { reconciler = "sa:vm-reconciler", ops = "group:ops@example.com" }
+      },
     ]
     service_account_iam = [{
+      name            = "manager-acts-as-runtime"
       service_account = "vm-runtime"
       role            = "roles/iam.serviceAccountUser"
-      members         = ["serviceAccount:manager@other-project.iam.gserviceaccount.com"]
+      members         = { manager = "serviceAccount:manager@other-project.iam.gserviceaccount.com" }
     }]
   }
 
@@ -172,38 +210,59 @@ run "iam_custom_roles_conditions_and_sa_scoped" {
   }
   assert {
     condition = (
-      google_project_iam_member.bindings["0|custom:vmManager|serviceAccount:manager@other-project.iam.gserviceaccount.com"].role == "projects/test-project/roles/vmManager" &&
-      google_project_iam_member.bindings["0|custom:vmManager|serviceAccount:manager@other-project.iam.gserviceaccount.com"].condition[0].title == "vm-prefix"
+      google_project_iam_member.bindings["manager-vms|manager"].role == "projects/test-project/roles/vmManager" &&
+      google_project_iam_member.bindings["manager-vms|manager"].condition[0].title == "vm-prefix"
     )
     error_message = "custom:<role_id> をロールの名前にしていない、または条件が付いていない"
   }
   assert {
     condition = (
-      google_project_iam_member.bindings["1|roles/logging.viewer|sa:vm-reconciler"].member == "serviceAccount:vm-runtime@test-project.iam.gserviceaccount.com" &&
-      google_project_iam_member.bindings["1|roles/logging.viewer|group:ops@example.com"].member == "group:ops@example.com" &&
-      length(google_project_iam_member.bindings["1|roles/logging.viewer|group:ops@example.com"].condition) == 0
+      google_project_iam_member.bindings["log-readers|reconciler"].member == "serviceAccount:vm-reconciler@test-project.iam.gserviceaccount.com" &&
+      google_project_iam_member.bindings["log-readers|ops"].member == "group:ops@example.com" &&
+      length(google_project_iam_member.bindings["log-readers|ops"].condition) == 0
     )
-    error_message = "sa:<account_id> をこのモジュールの SA にしていない、またはほかのメンバーをそのまま渡していない"
+    error_message = "sa:<account_id> を、その SA にしていない（ほかの SA と取り違えた）、またはほかのメンバーをそのまま渡していない"
   }
   assert {
     condition = (
       google_project_iam_member.service_account_roles["vm-reconciler|custom:vmManager"].role == "projects/test-project/roles/vmManager" &&
+      google_project_iam_member.service_account_roles["vm-reconciler|custom:vmManager"].member == "serviceAccount:vm-reconciler@test-project.iam.gserviceaccount.com" &&
       google_project_iam_member.service_account_roles["vm-reconciler|roles/monitoring.viewer"].role == "roles/monitoring.viewer"
     )
-    error_message = "SA のプロジェクトの role が違う"
+    error_message = "SA のプロジェクトの role・付与先が違う"
   }
   assert {
     condition = (
-      google_service_account_iam_member.this["0|vm-runtime|roles/iam.serviceAccountUser|serviceAccount:manager@other-project.iam.gserviceaccount.com"].service_account_id == "projects/test-project/serviceAccounts/vm-runtime@test-project.iam.gserviceaccount.com"
+      google_service_account_iam_member.this["manager-acts-as-runtime|manager"].service_account_id == "projects/test-project/serviceAccounts/vm-runtime@test-project.iam.gserviceaccount.com"
     )
     error_message = "SA を対象にした IAM の対象が違う"
+  }
+}
+
+# 付与の識別子は名前とラベルなので、並べ替えても同じアドレスのまま（作り直さない）
+run "bindings_keep_addresses_when_reordered" {
+  command = plan
+
+  variables {
+    iam_bindings = [
+      { name = "b", role = "roles/logging.viewer", members = { ops = "group:ops@example.com" } },
+      { name = "a", role = "roles/viewer", members = { dev = "group:dev@example.com" } },
+    ]
+  }
+
+  assert {
+    condition = (
+      google_project_iam_member.bindings["a|dev"].role == "roles/viewer" &&
+      google_project_iam_member.bindings["b|ops"].role == "roles/logging.viewer"
+    )
+    error_message = "付与のアドレスが名前・ラベルになっていない"
   }
 }
 
 run "rejects_unknown_custom_role" {
   command = plan
   variables {
-    iam_bindings = [{ role = "custom:missing", members = ["user:someone@example.com"] }]
+    iam_bindings = [{ name = "x", role = "custom:missing", members = { someone = "user:someone@example.com" } }]
   }
   expect_failures = [var.iam_bindings]
 }
@@ -211,7 +270,7 @@ run "rejects_unknown_custom_role" {
 run "rejects_unknown_sa_member" {
   command = plan
   variables {
-    iam_bindings = [{ role = "roles/viewer", members = ["sa:missing"] }]
+    iam_bindings = [{ name = "x", role = "roles/viewer", members = { missing = "sa:missing" } }]
   }
   expect_failures = [var.iam_bindings]
 }
@@ -219,7 +278,7 @@ run "rejects_unknown_sa_member" {
 run "rejects_sa_iam_for_unknown_target" {
   command = plan
   variables {
-    service_account_iam = [{ service_account = "missing", role = "roles/iam.serviceAccountUser", members = ["user:someone@example.com"] }]
+    service_account_iam = [{ name = "x", service_account = "missing", role = "roles/iam.serviceAccountUser", members = { someone = "user:someone@example.com" } }]
   }
   expect_failures = [var.service_account_iam]
 }
@@ -269,6 +328,51 @@ run "rejects_unknown_nat_log_filter" {
     cloud_nat = { router_name = "r", nat_name = "n", log_filter = "VERBOSE" }
   }
   expect_failures = [var.cloud_nat]
+}
+
+run "rejects_empty_firewall_ranges" {
+  command = plan
+  variables {
+    network        = { name = "vm", subnets = [{ name = "vm-a", cidr = "10.10.0.0/20" }] }
+    firewall_rules = [{ name = "x", direction = "INGRESS", action = "allow", ranges = [] }]
+  }
+  expect_failures = [var.firewall_rules]
+}
+
+run "rejects_duplicate_binding_names" {
+  command = plan
+  variables {
+    iam_bindings = [
+      { name = "x", role = "roles/viewer", members = { a = "group:a@example.com" } },
+      { name = "x", role = "roles/logging.viewer", members = { b = "group:b@example.com" } },
+    ]
+  }
+  expect_failures = [var.iam_bindings]
+}
+
+run "rejects_duplicate_grants_in_bindings" {
+  command = plan
+  variables {
+    iam_bindings = [
+      { name = "x", role = "roles/viewer", members = { a = "group:a@example.com" } },
+      { name = "y", role = "roles/viewer", members = { again = "group:a@example.com" } },
+    ]
+  }
+  expect_failures = [var.iam_bindings]
+}
+
+run "rejects_grant_also_in_service_account_roles" {
+  command = plan
+  variables {
+    service_accounts = [{ account_id = "vm-reconciler", roles = ["roles/monitoring.viewer"] }]
+    iam_bindings = [{
+      name      = "x"
+      role      = "roles/monitoring.viewer"
+      members   = { reconciler = "sa:vm-reconciler" }
+      condition = { title = "t", expression = "true" }
+    }]
+  }
+  expect_failures = [var.iam_bindings]
 }
 
 run "rejects_duplicate_service_accounts" {

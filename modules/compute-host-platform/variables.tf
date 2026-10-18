@@ -48,7 +48,8 @@ variable "network" {
   default = null
 
   validation {
-    condition     = var.network == null || length(var.network.subnets) > 0
+    # Terraform 1.10 系は || を短絡評価しないので、null の属性を読まないよう条件式で分ける
+    condition     = var.network == null ? true : length(var.network.subnets) > 0
     error_message = "network.subnets を 1 つ以上指定してください。"
   }
 }
@@ -60,7 +61,7 @@ variable "firewall_rules" {
       direction               = "INGRESS" / "EGRESS"
       action                  = "allow" / "deny"
       priority                = 0〜65535（小さいほど先。既定 1000）
-      ranges                  = INGRESS なら送信元、EGRESS なら宛先の CIDR
+      ranges                  = INGRESS なら送信元、EGRESS なら宛先の CIDR（1 つ以上。すべてなら "0.0.0.0/0" を明示する）
       protocols               = [{ protocol = "tcp" / "udp" / "icmp" / "all", ports = ["22", "443"] }]（既定は all）
       target_tags             = 対象の VM のネットワークタグ（target_service_accounts と同時には使えない）
       target_service_accounts = 対象の VM の SA のメール。account_id だけを書くと、このモジュールの SA のメールにする
@@ -105,6 +106,16 @@ variable "firewall_rules" {
   }
 
   validation {
+    condition     = alltrue([for rule in var.firewall_rules : length(rule.ranges) > 0])
+    error_message = "firewall_rules の ranges を 1 つ以上指定してください（空のまま渡すと、すべての送信元・宛先が対象になる）。"
+  }
+
+  validation {
+    condition     = length(distinct([for rule in var.firewall_rules : rule.name])) == length(var.firewall_rules)
+    error_message = "firewall_rules の name が重なっています。"
+  }
+
+  validation {
     condition     = length(var.firewall_rules) == 0 || var.network != null
     error_message = "firewall_rules を使うには network を指定してください。"
   }
@@ -123,6 +134,8 @@ variable "firewall_rules" {
 variable "cloud_nat" {
   description = <<-EOT
     Cloud Router と Cloud NAT（network が必要）。VM に外部 IP を持たせずに外へ出るために使う。
+      Cloud NAT が効くのは同じリージョンのサブネットだけ。network.subnets はすべて NAT と同じリージョンにする
+      （違うリージョンのサブネットがあれば断る）。
       router_name      = Cloud Router の名前
       nat_name         = Cloud NAT の名前
       region           = 省略時は var.region
@@ -139,8 +152,16 @@ variable "cloud_nat" {
   default = null
 
   validation {
-    condition     = var.cloud_nat == null || try(contains(["ERRORS_ONLY", "TRANSLATIONS_ONLY", "ALL", "NONE"], var.cloud_nat.log_filter), false)
+    condition     = var.cloud_nat == null ? true : contains(["ERRORS_ONLY", "TRANSLATIONS_ONLY", "ALL", "NONE"], var.cloud_nat.log_filter)
     error_message = "cloud_nat.log_filter は ERRORS_ONLY / TRANSLATIONS_ONLY / ALL / NONE にしてください。"
+  }
+
+  validation {
+    condition = var.cloud_nat == null || var.network == null ? true : alltrue([
+      for subnet in var.network.subnets :
+      coalesce(subnet.region, var.region) == coalesce(var.cloud_nat.region, var.region)
+    ])
+    error_message = "cloud_nat と違うリージョンのサブネットがあります（Cloud NAT は同じリージョンのサブネットにだけ効く）。"
   }
 
   validation {
@@ -186,17 +207,25 @@ variable "service_accounts" {
 
 variable "service_account_iam" {
   description = <<-EOT
-    SA を対象にした IAM（例: 管理用の SA に、VM に付ける SA の roles/iam.serviceAccountUser を付ける）。
+    SA を対象にした IAM（例: 管理用の SA に、VM に付ける SA の roles/iam.serviceAccountUser を付ける）。非排他。
+      name            = この付与の名前（重ならない。並べ替え・追加で既存の付与を作り直さないための識別子）
       service_account = 対象の SA（このモジュールの service_accounts の account_id）
       role            = 付ける role
-      members         = 付ける相手（"serviceAccount:<email>" など。"sa:<account_id>" でこのモジュールの SA を指す）
+      members         = 付ける相手（ラベル → メンバー）。ラベルは付与の識別子に使うので、メンバーの値が apply まで
+                        決まらなくてもよい。"serviceAccount:<email>" など。"sa:<account_id>" でこのモジュールの SA を指す
   EOT
   type = list(object({
+    name            = string
     service_account = string
     role            = string
-    members         = list(string)
+    members         = map(string)
   }))
   default = []
+
+  validation {
+    condition     = length(distinct([for binding in var.service_account_iam : binding.name])) == length(var.service_account_iam)
+    error_message = "service_account_iam の name が重なっています。"
+  }
 
   validation {
     condition = alltrue([
@@ -209,7 +238,7 @@ variable "service_account_iam" {
   validation {
     condition = alltrue(flatten([
       for binding in var.service_account_iam : [
-        for member in binding.members :
+        for member in values(binding.members) :
         !startswith(member, "sa:") || contains([for sa in var.service_accounts : sa.account_id], trimprefix(member, "sa:"))
       ]
     ]))
@@ -254,15 +283,21 @@ variable "custom_roles" {
 variable "iam_bindings" {
   description = <<-EOT
     プロジェクト単位の IAM（非排他。ほかの付与を消さない）。別のプロジェクトの SA にも付けられる。
+      name      = この付与の名前（重ならない。並べ替え・追加で既存の付与を作り直さないための識別子）
       role      = 付ける role（"custom:<role_id>" で custom_roles のロールを指す）
-      members   = 付ける相手（"serviceAccount:<email>" など。"sa:<account_id>" でこのモジュールの SA を指す）
+      members   = 付ける相手（ラベル → メンバー）。ラベルは付与の識別子に使うので、メンバーの値が apply まで
+                  決まらなくてもよい（別の資源で作る SA のメールなど）。"serviceAccount:<email>" など。
+                  "sa:<account_id>" でこのモジュールの SA を指す
       condition = IAM の条件（任意）。{ title, expression, description }
                   例: 資源の名前の接頭辞で絞る
-                  resource.name.startsWith("projects/<project>/zones/") && resource.name.extract("/instances/{name}").startsWith("vm-")
+                  resource.name.extract("/instances/{name}").startsWith("vm-")
+                  ※ 条件は、同じ相手・同じ role の条件なしの付与（service_accounts の roles や、このモジュールの外の
+                    付与）を狭めない。絞りたい相手には条件なしの付与を作らないこと
   EOT
   type = list(object({
+    name    = string
     role    = string
-    members = list(string)
+    members = map(string)
     condition = optional(object({
       title       = string
       expression  = string
@@ -270,6 +305,11 @@ variable "iam_bindings" {
     }))
   }))
   default = []
+
+  validation {
+    condition     = length(distinct([for binding in var.iam_bindings : binding.name])) == length(var.iam_bindings)
+    error_message = "iam_bindings の name が重なっています。"
+  }
 
   validation {
     condition = alltrue([
@@ -282,10 +322,32 @@ variable "iam_bindings" {
   validation {
     condition = alltrue(flatten([
       for binding in var.iam_bindings : [
-        for member in binding.members :
+        for member in values(binding.members) :
         !startswith(member, "sa:") || contains([for sa in var.service_accounts : sa.account_id], trimprefix(member, "sa:"))
       ]
     ]))
     error_message = "iam_bindings の members の sa:<account_id> が service_accounts にありません。"
+  }
+
+  # 同じ相手・同じ role の付与を、iam_bindings の中と service_accounts の roles とで二重に持たない
+  # （片方を外すと、もう片方の付与まで消える。条件なしの付与があると条件が効かない）。
+  # apply まで決まらないメンバーの値は比べられないので、決まっている値だけで見る
+  validation {
+    condition = length(flatten([
+      for binding in var.iam_bindings : [for member in values(binding.members) : "${binding.role}|${member}"]
+      ])) == length(distinct(flatten([
+        for binding in var.iam_bindings : [for member in values(binding.members) : "${binding.role}|${member}"]
+    ])))
+    error_message = "iam_bindings に同じ role・同じ相手の付与が重なっています。"
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for binding in var.iam_bindings : [
+        for member in values(binding.members) :
+        !contains(flatten([for sa in var.service_accounts : [for role in sa.roles : "${role}|sa:${sa.account_id}"]]), "${binding.role}|${member}")
+      ]
+    ]))
+    error_message = "iam_bindings と service_accounts の roles に同じ付与があります（どちらか一方にしてください）。"
   }
 }

@@ -101,18 +101,23 @@ module "compute_host" {
     permissions = ["compute.instances.create", "compute.instances.start", "compute.instances.stop"]
   }]
   iam_bindings = [
-    { role = "custom:vmManager", members = ["serviceAccount:manager@other-project.iam.gserviceaccount.com"] },
+    { name = "manager-vms", role = "custom:vmManager",
+      members = { manager = "serviceAccount:manager@other-project.iam.gserviceaccount.com" } },
   ]
   service_account_iam = [
-    { service_account = "vm-runtime", role = "roles/iam.serviceAccountUser",
-      members = ["serviceAccount:manager@other-project.iam.gserviceaccount.com"] },
+    { name = "manager-acts-as-runtime", service_account = "vm-runtime", role = "roles/iam.serviceAccountUser",
+      members = { manager = "serviceAccount:manager@other-project.iam.gserviceaccount.com" } },
   ]
 }
 ```
 
 - `"custom:<role_id>"` は `custom_roles` のロール、`"sa:<account_id>"` はこのモジュールの SA を指す
-- IAM は非排他（ほかの付与を消さない）。`iam_bindings` には IAM の条件を付けられる
-- プロジェクト単位の組織のポリシー（外部 IP の禁止など）は扱わない（terraform の SA は組織のポリシーを設定できない。cilly-yllic/terraform-google-platform#12 で検討中）
+- IAM は非排他（ほかの付与を消さない）。付与ごとに `name`、相手ごとにラベル（`members` の key）を付ける。これが付与の識別子になるので、並べ替え・追加で既存の付与を作り直さず、相手の値（別の資源で作る SA のメールなど）が apply まで決まらなくても plan できる
+- `iam_bindings` の条件は、同じ相手・同じ role の条件なしの付与を狭めない。同じ付与を `iam_bindings` と `service_accounts` の `roles` に重ねると断る
+- ファイアウォールの `ranges` は 1 つ以上（すべてなら `0.0.0.0/0` を明示する）
+- Cloud NAT が効くのは同じリージョンのサブネットだけ。違うリージョンのサブネットがあると断る
+- カスタムロールを外して apply すると削除される。GCP は削除したロールの `role_id` を一定期間（約 37 日）再利用できないので、戻すときは `gcloud iam roles undelete` で復元してから `terraform import` する（新しい `role_id` にしてもよい）
+- プロジェクト単位の組織のポリシー（外部 IP の禁止など）は、このモジュールの対象外
 - settings.yml から使う Action（`dispatch-compute-host`）は後で足す
 
 詳細: [`modules/compute-host-platform/`](./modules/compute-host-platform/)

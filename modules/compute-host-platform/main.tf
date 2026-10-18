@@ -33,11 +33,12 @@
  *     permissions = ["compute.instances.create", "compute.instances.start", "compute.instances.stop"]
  *   }]
  *   iam_bindings = [
- *     { role = "custom:vmManager", members = ["serviceAccount:manager@other-project.iam.gserviceaccount.com"] },
+ *     { name = "manager-vms", role = "custom:vmManager",
+ *       members = { manager = "serviceAccount:manager@other-project.iam.gserviceaccount.com" } },
  *   ]
  *   service_account_iam = [
- *     { service_account = "vm-runtime", role = "roles/iam.serviceAccountUser",
- *       members = ["serviceAccount:manager@other-project.iam.gserviceaccount.com"] },
+ *     { name = "manager-acts-as-runtime", service_account = "vm-runtime", role = "roles/iam.serviceAccountUser",
+ *       members = { manager = "serviceAccount:manager@other-project.iam.gserviceaccount.com" } },
  *   ]
  * }
  * ```
@@ -68,10 +69,11 @@ locals {
 
   firewall_rules = { for rule in var.firewall_rules : rule.name => rule }
 
-  # IAM の付与を 1 件ずつにする（キーは入力から決まる文字列。値の role・member は作ってから決まってよい）
+  # IAM の付与を 1 件ずつにする。キーは付与の名前とメンバーのラベル（並べ替え・追加で作り直さない。メンバーの値が
+  # apply まで決まらなくても plan できる）
   project_bindings = merge([
-    for index, binding in var.iam_bindings : {
-      for member in binding.members : "${index}|${binding.role}|${member}" => {
+    for binding in var.iam_bindings : {
+      for label, member in binding.members : "${binding.name}|${label}" => {
         role      = binding.role
         member    = member
         condition = binding.condition
@@ -86,8 +88,8 @@ locals {
   ]...)
 
   sa_bindings = merge([
-    for index, binding in var.service_account_iam : {
-      for member in binding.members : "${index}|${binding.service_account}|${binding.role}|${member}" => {
+    for binding in var.service_account_iam : {
+      for label, member in binding.members : "${binding.name}|${label}" => {
         service_account = binding.service_account
         role            = binding.role
         member          = member
