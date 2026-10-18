@@ -50797,6 +50797,20 @@ function deriveEnvFromWorkspaceName(workspaceName, pattern, service) {
 function buildMarkerTag(service) {
     return `firebase-platform-${service}`;
 }
+/** dispatch-compute-host が付ける marker tag の接頭辞 */
+const COMPUTE_HOST_MARKER_PREFIX = "compute-host-";
+/**
+ * workspace に dispatch-compute-host の marker tag が付いていれば、その tag を返す。
+ * 付いていれば、この Action はその workspace を変えない・消さない（同じ service・env を両方の Action に指定したとき、
+ * 変数・構成を置き換えたり、reconcile で消し合ったりしない）。tag-names が読めなければ付いていない扱い
+ */
+function findComputeHostMarker(attributes) {
+    const tags = attributes?.["tag-names"];
+    if (!Array.isArray(tags))
+        return null;
+    const found = tags.find((tag) => typeof tag === "string" && tag.startsWith(COMPUTE_HOST_MARKER_PREFIX));
+    return found ?? null;
+}
 // ---------------------------------------------------------------------------
 // Project propagation pre-run wait (chained-from-A only)
 // ---------------------------------------------------------------------------
@@ -51399,6 +51413,12 @@ async function run() {
                 // upsertWorkspace は relationships.project を見て、既存 workspace が
                 // 別 project に居る場合は PATCH で project を張り替える (Default
                 // Project → service project の migration もこれで完結する)。
+                // dispatch-compute-host の workspace なら触らない（同じ service・env を両方に指定したときに置き換えない）
+                const existingWorkspace = await findWorkspaceByName(tfcOrg, targetName, tfcToken);
+                const computeHostMarker = findComputeHostMarker(existingWorkspace?.attributes);
+                if (computeHostMarker) {
+                    throw new Error(`Workspace "${targetName}" is managed by dispatch-compute-host (tag "${computeHostMarker}"). Use a different service name.`);
+                }
                 const workspace = await upsertWorkspace(tfcOrg, { name: targetName, "auto-apply": autoApply }, tfcToken, project.id);
                 const workspaceId = workspace.id;
                 // Attach marker tag (additive — does not replace user-set tags)
@@ -51519,6 +51539,12 @@ async function run() {
             if (retainedEnvKeys.has(env)) {
                 retainedTouched.push(env);
                 info(`[reconcile] env "${env}" retained (workspace "${w.attributes.name}" kept)`);
+                continue;
+            }
+            // dispatch-compute-host の marker も付いている workspace は消さない（そちらでまだ使っているかもしれない）
+            const computeHostMarker = findComputeHostMarker(w.attributes);
+            if (computeHostMarker) {
+                warning(`[reconcile] workspace "${w.attributes.name}" also carries "${computeHostMarker}"; not deleted`);
                 continue;
             }
             // Orphan → force-delete the workspace

@@ -1138,6 +1138,23 @@ export function buildMarkerTag(service: string): string {
   return `firebase-platform-${service}`;
 }
 
+/** dispatch-compute-host が付ける marker tag の接頭辞 */
+export const COMPUTE_HOST_MARKER_PREFIX = "compute-host-";
+
+/**
+ * workspace に dispatch-compute-host の marker tag が付いていれば、その tag を返す。
+ * 付いていれば、この Action はその workspace を変えない・消さない（同じ service・env を両方の Action に指定したとき、
+ * 変数・構成を置き換えたり、reconcile で消し合ったりしない）。tag-names が読めなければ付いていない扱い
+ */
+export function findComputeHostMarker(attributes: Record<string, unknown> | undefined): string | null {
+  const tags = attributes?.["tag-names"];
+  if (!Array.isArray(tags)) return null;
+  const found = tags.find(
+    (tag): tag is string => typeof tag === "string" && tag.startsWith(COMPUTE_HOST_MARKER_PREFIX),
+  );
+  return found ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Project propagation pre-run wait (chained-from-A only)
 // ---------------------------------------------------------------------------

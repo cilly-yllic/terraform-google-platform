@@ -69,6 +69,13 @@ environments:
 - `${service}`・`${env}`・`${BOOTSTRAP_PROJECT_NUMBER}` の placeholder を使える（dispatch-firebase-platform と同じ）
 - 中身の検証はモジュールの変数の検証で行う（plan で止まる）
 
+## 注意
+
+- **compute host の settings.yml の `service` は、Firebase のプロジェクト（dispatch-firebase-platform）の service と別の名前にする**。同じ名前・同じ env だと workspace の名前（`{service}-{env}`）が重なる。この Action は dispatch-firebase-platform の marker tag が付いた workspace を変えず・消さず、止まる（dispatch-firebase-platform も逆向きに同じ）
+- workspace の名前は `{service}-{environment}` に固定（Action A が作る WIF の許可先と合わせるため。`target_workspace` input は無い）
+- `service` input と settings.yml の `service` が違えば止まる
+- env を消したときの workspace の後片付けに失敗したら、Action は失敗で終わる
+
 ## Inputs / Outputs
 
-[`action.yml`](./action.yml) を参照（dispatch-firebase-platform から `cloud_sql_secrets` を除いたもの）。
+[`action.yml`](./action.yml) を参照（dispatch-firebase-platform から `cloud_sql_secrets` と `target_workspace` を除いたもの）。

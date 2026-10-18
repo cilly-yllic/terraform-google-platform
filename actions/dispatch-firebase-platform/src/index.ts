@@ -2,6 +2,7 @@ import * as core from "@actions/core";
 import {
   upsertProject,
   upsertWorkspace,
+  findWorkspaceByName,
   addWorkspaceTags,
   listWorkspacesByTag,
   deleteWorkspace,
@@ -36,6 +37,7 @@ import {
   NOTIFICATION_NAME_PREFIX,
   resolveProjectPropagationWaitMs,
   parseCloudSqlSecrets,
+  findComputeHostMarker,
 } from "../lib/dispatch/index.js";
 import { buildTemplateFiles } from "../lib/templates/index.js";
 import { resolveModuleVersion } from "../lib/registry/index.js";
@@ -252,6 +254,14 @@ async function run(): Promise<void> {
         // upsertWorkspace は relationships.project を見て、既存 workspace が
         // 別 project に居る場合は PATCH で project を張り替える (Default
         // Project → service project の migration もこれで完結する)。
+        // dispatch-compute-host の workspace なら触らない（同じ service・env を両方に指定したときに置き換えない）
+        const existingWorkspace = await findWorkspaceByName(tfcOrg, targetName, tfcToken);
+        const computeHostMarker = findComputeHostMarker(existingWorkspace?.attributes);
+        if (computeHostMarker) {
+          throw new Error(
+            `Workspace "${targetName}" is managed by dispatch-compute-host (tag "${computeHostMarker}"). Use a different service name.`,
+          );
+        }
         const workspace = await upsertWorkspace(
           tfcOrg,
           { name: targetName, "auto-apply": autoApply },
@@ -421,6 +431,14 @@ async function run(): Promise<void> {
         retainedTouched.push(env);
         core.info(
           `[reconcile] env "${env}" retained (workspace "${w.attributes.name}" kept)`,
+        );
+        continue;
+      }
+      // dispatch-compute-host の marker も付いている workspace は消さない（そちらでまだ使っているかもしれない）
+      const computeHostMarker = findComputeHostMarker(w.attributes);
+      if (computeHostMarker) {
+        core.warning(
+          `[reconcile] workspace "${w.attributes.name}" also carries "${computeHostMarker}"; not deleted`,
         );
         continue;
       }

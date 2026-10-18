@@ -50326,6 +50326,24 @@ function deriveEnvFromWorkspaceName(workspaceName, pattern, service) {
 function buildMarkerTag(service) {
     return `compute-host-${service}`;
 }
+/**
+ * workspace の名前（固定。Action A の WIF の許可先 `${service}-${env}` と合わせるため、変えられない）
+ */
+const WORKSPACE_NAME_PATTERN = "{service}-{environment}";
+/** dispatch-firebase-platform（Action B）が付ける marker tag の接頭辞 */
+const FOREIGN_MARKER_PREFIX = "firebase-platform-";
+/**
+ * workspace に別の Action（dispatch-firebase-platform）の marker tag が付いていれば、その tag を返す。
+ * 付いていれば、この Action はその workspace を変えない・消さない（同じ service・env を両方の Action に指定したとき、
+ * 変数・構成を置き換えたり、reconcile で消し合ったりしない）。tag-names が読めなければ付いていない扱い
+ */
+function findForeignMarker(attributes) {
+    const tags = attributes?.["tag-names"];
+    if (!Array.isArray(tags))
+        return null;
+    const found = tags.find((tag) => typeof tag === "string" && tag.startsWith(FOREIGN_MARKER_PREFIX));
+    return found ?? null;
+}
 // ---------------------------------------------------------------------------
 // Project propagation pre-run wait（Action A から続けて起動されたときだけ。dispatch-firebase-platform と同じ）
 // ---------------------------------------------------------------------------
@@ -50613,7 +50631,8 @@ async function run() {
         const environmentsInputRaw = getInput("environments");
         const settingsPath = getInput("settings_path");
         const tfcOrg = getInput("tfc_org", { required: true });
-        const targetWorkspacePattern = getInput("target_workspace");
+        // workspace の名前は固定（Action A の WIF の許可先 `${service}-${env}` と合わせる）
+        const targetWorkspacePattern = WORKSPACE_NAME_PATTERN;
         const tfcProjectPattern = getInput("tfc_project_name");
         // 注: bootstrap_project_id input は WIF pool 等の文脈で残すが、per-env SA は
         // ターゲットプロジェクト内に作るようになったため saEmail には使わない
@@ -50651,6 +50670,11 @@ async function run() {
         // -----------------------------------------------------------------------
         info(`Loading settings from ${settingsPath}`);
         const settings = await loadSettings(settingsPath);
+        // project_id・SA・workspace は input の service、placeholder の ${service} は settings.service から作るので、
+        // 食い違うと別のプロジェクト向けの値が混ざる
+        if (settings.service !== service) {
+            throw new Error(`The 'service' input ("${service}") does not match settings.yml service ("${settings.service}") in ${settingsPath}.`);
+        }
         // -----------------------------------------------------------------------
         // 3. Validate input combination + select target envs
         // -----------------------------------------------------------------------
@@ -50765,6 +50789,12 @@ async function run() {
                 // upsertWorkspace は relationships.project を見て、既存 workspace が
                 // 別 project に居る場合は PATCH で project を張り替える (Default
                 // Project → service project の migration もこれで完結する)。
+                // 別の Action（dispatch-firebase-platform）の workspace なら触らない
+                const existingWorkspace = await findWorkspaceByName(tfcOrg, targetName, tfcToken);
+                const foreign = findForeignMarker(existingWorkspace?.attributes);
+                if (foreign) {
+                    throw new Error(`Workspace "${targetName}" is managed by dispatch-firebase-platform (tag "${foreign}"). Use a different service name for the compute host settings.yml.`);
+                }
                 const workspace = await upsertWorkspace(tfcOrg, { name: targetName, "auto-apply": autoApply }, tfcToken, project.id);
                 const workspaceId = workspace.id;
                 // Attach marker tag (additive — does not replace user-set tags)
@@ -50844,8 +50874,13 @@ async function run() {
             knownWorkspaces = await listWorkspacesByTag(tfcOrg, markerTag, tfcToken);
         }
         catch (err) {
+            // 一覧を読めなければ後片付けが済んだとは言えない（失敗として返す）
             const msg = err instanceof Error ? err.message : String(err);
-            warning(`Could not list workspaces by tag "${markerTag}" for reconciliation: ${msg}`);
+            failed.push({
+                env: "(reconcile)",
+                error: `Could not list workspaces by tag "${markerTag}": ${msg}`,
+            });
+            error(`[reconcile] could not list workspaces by tag "${markerTag}": ${msg}`);
         }
         for (const w of knownWorkspaces) {
             const env = deriveEnvFromWorkspaceName(w.attributes.name, targetWorkspacePattern, service);
@@ -50858,6 +50893,16 @@ async function run() {
                 info(`[reconcile] env "${env}" retained (workspace "${w.attributes.name}" kept)`);
                 continue;
             }
+            // 別の Action の marker も付いている workspace は消さない（その Action ではまだ使っているかもしれない）
+            const foreign = findForeignMarker(w.attributes);
+            if (foreign) {
+                failed.push({
+                    env,
+                    error: `Workspace "${w.attributes.name}" also carries "${foreign}"; not deleted. Remove it manually if it is no longer used.`,
+                });
+                error(`[reconcile] workspace "${w.attributes.name}" carries "${foreign}"; not deleted`);
+                continue;
+            }
             // Orphan → force-delete the workspace
             try {
                 await deleteWorkspace(w.id, tfcToken);
@@ -50866,7 +50911,11 @@ async function run() {
             }
             catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
-                warning(`[reconcile] failed to delete workspace "${w.attributes.name}" for env "${env}": ${msg}`);
+                failed.push({
+                    env,
+                    error: `Failed to delete orphan workspace "${w.attributes.name}": ${msg}`,
+                });
+                error(`[reconcile] failed to delete workspace "${w.attributes.name}" for env "${env}": ${msg}`);
             }
         }
         // -----------------------------------------------------------------------
@@ -50881,7 +50930,7 @@ async function run() {
         setOutput("workspace_ids", JSON.stringify(workspaceIds));
         setOutput("workspace_names", JSON.stringify(workspaceNames));
         if (failed.length > 0) {
-            setFailed(`${failed.length}/${targets.length} env(s) failed: ${failed.map((f) => f.env).join(", ")}`);
+            setFailed(`${failed.length} failure(s): ${failed.map((f) => f.env).join(", ")}`);
             return;
         }
         if (applied.length === 0 && destroyed.length === 0) {

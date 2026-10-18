@@ -25,11 +25,6 @@ inputs:
   tfc_org:
     description: "Terraform Cloud organization name"
     required: true
-  target_workspace:
-    description: >
-      This stage's workspace name pattern.
-      Placeholders: {service}, {environment}
-    default: "{service}-{environment}"
   tfc_project_name:
     description: >
       TFC Project name pattern that all env workspaces for this service go

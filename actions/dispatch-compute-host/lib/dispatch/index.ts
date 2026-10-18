@@ -517,6 +517,31 @@ export function buildMarkerTag(service: string): string {
   return `compute-host-${service}`;
 }
 
+/**
+ * workspace の名前（固定。Action A の WIF の許可先 `${service}-${env}` と合わせるため、変えられない）
+ */
+export const WORKSPACE_NAME_PATTERN = "{service}-{environment}";
+
+/** dispatch-firebase-platform（Action B）が付ける marker tag の接頭辞 */
+export const FOREIGN_MARKER_PREFIX = "firebase-platform-";
+
+/**
+ * workspace に別の Action（dispatch-firebase-platform）の marker tag が付いていれば、その tag を返す。
+ * 付いていれば、この Action はその workspace を変えない・消さない（同じ service・env を両方の Action に指定したとき、
+ * 変数・構成を置き換えたり、reconcile で消し合ったりしない）。tag-names が読めなければ付いていない扱い
+ */
+export function findForeignMarker(
+  attributes: Record<string, unknown> | undefined,
+): string | null {
+  const tags = attributes?.["tag-names"];
+  if (!Array.isArray(tags)) return null;
+  const found = tags.find(
+    (tag): tag is string =>
+      typeof tag === "string" && tag.startsWith(FOREIGN_MARKER_PREFIX),
+  );
+  return found ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Project propagation pre-run wait（Action A から続けて起動されたときだけ。dispatch-firebase-platform と同じ）
 // ---------------------------------------------------------------------------

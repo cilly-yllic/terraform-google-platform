@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -6,7 +7,9 @@ import {
   buildTerraformVariables,
   COMPUTE_HOST_KEYS,
   expandComputeHostPlaceholders,
+  findForeignMarker,
   selectTargetEnvs,
+  WORKSPACE_NAME_PATTERN,
 } from "../lib/dispatch/index.js";
 import { extractComputeHost, loadSettings } from "../lib/settings/index.js";
 import { buildTemplateFiles } from "../lib/templates/index.js";
@@ -121,20 +124,21 @@ describe("buildTerraformVariables", () => {
     );
   });
 
-  it("受け付けるキーはモジュールの変数と同じ（project_id はこの Action が決める）", () => {
+  it("受け付けるキーは、モジュールの variables.tf の変数から project_id を除いたもの", () => {
+    const variablesTf = readFileSync(
+      fileURLToPath(
+        new URL(
+          "../../../modules/compute-host-platform/variables.tf",
+          import.meta.url,
+        ),
+      ),
+      "utf-8",
+    );
+    const moduleVars = [...variablesTf.matchAll(/^variable "([a-z_]+)"/gm)].map(
+      (m) => m[1],
+    );
     expect(Object.keys(COMPUTE_HOST_KEYS).sort()).toEqual(
-      [
-        "api_propagation_wait",
-        "apis",
-        "cloud_nat",
-        "custom_roles",
-        "firewall_rules",
-        "iam_bindings",
-        "network",
-        "region",
-        "service_account_iam",
-        "service_accounts",
-      ].sort(),
+      moduleVars.filter((name) => name !== "project_id").sort(),
     );
   });
 });
@@ -178,5 +182,22 @@ describe("templates と marker", () => {
 
   it("marker tag は dispatch-firebase-platform と別の名前", () => {
     expect(buildMarkerTag("example-host")).toBe("compute-host-example-host");
+  });
+
+  it("workspace の名前は Action A の WIF の許可先と同じ形に固定", () => {
+    expect(WORKSPACE_NAME_PATTERN).toBe("{service}-{environment}");
+  });
+
+  it("dispatch-firebase-platform の marker tag が付いた workspace を見分ける", () => {
+    expect(
+      findForeignMarker({
+        "tag-names": ["compute-host-x", "firebase-platform-x"],
+      }),
+    ).toBe("firebase-platform-x");
+    expect(findForeignMarker({ "tag-names": ["compute-host-x"] })).toBeNull();
+    expect(
+      findForeignMarker({ "tag-names": "firebase-platform-x" }),
+    ).toBeNull();
+    expect(findForeignMarker(undefined)).toBeNull();
   });
 });

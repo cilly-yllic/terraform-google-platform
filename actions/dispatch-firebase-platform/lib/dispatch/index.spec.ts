@@ -13,6 +13,7 @@ import {
   buildMarkerTag,
   deriveEnvFromWorkspaceName,
   parseNotifications,
+  findComputeHostMarker,
 } from "./index.js";
 
 describe("expandFirebasePlatformPlaceholders", () => {
@@ -1259,5 +1260,16 @@ describe("parseNotifications", () => {
     expect(r[0].hmacToken).toBe("s3cret");
     expect(r[1].hmacToken).toBeUndefined();
     expect(r[2].hmacToken).toBeUndefined();
+  });
+});
+
+describe("findComputeHostMarker", () => {
+  it("dispatch-compute-host の marker tag が付いていれば返し、無ければ・読めなければ null", () => {
+    expect(findComputeHostMarker({ "tag-names": ["firebase-platform-app", "compute-host-app"] })).toBe(
+      "compute-host-app",
+    );
+    expect(findComputeHostMarker({ "tag-names": ["firebase-platform-app"] })).toBeNull();
+    expect(findComputeHostMarker({})).toBeNull();
+    expect(findComputeHostMarker(undefined)).toBeNull();
   });
 });

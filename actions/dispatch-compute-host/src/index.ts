@@ -2,6 +2,7 @@ import * as core from "@actions/core";
 import {
   upsertProject,
   upsertWorkspace,
+  findWorkspaceByName,
   addWorkspaceTags,
   listWorkspacesByTag,
   deleteWorkspace,
@@ -30,6 +31,8 @@ import {
   buildMarkerTag,
   deriveEnvFromWorkspaceName,
   resolveProjectPropagationWaitMs,
+  WORKSPACE_NAME_PATTERN,
+  findForeignMarker,
 } from "../lib/dispatch/index.js";
 import { buildTemplateFiles } from "../lib/templates/index.js";
 import { resolveModuleVersion } from "../lib/registry/index.js";
@@ -44,7 +47,8 @@ async function run(): Promise<void> {
     const environmentsInputRaw = core.getInput("environments");
     const settingsPath = core.getInput("settings_path");
     const tfcOrg = core.getInput("tfc_org", { required: true });
-    const targetWorkspacePattern = core.getInput("target_workspace");
+    // workspace の名前は固定（Action A の WIF の許可先 `${service}-${env}` と合わせる）
+    const targetWorkspacePattern = WORKSPACE_NAME_PATTERN;
     const tfcProjectPattern = core.getInput("tfc_project_name");
     // 注: bootstrap_project_id input は WIF pool 等の文脈で残すが、per-env SA は
     // ターゲットプロジェクト内に作るようになったため saEmail には使わない
@@ -87,6 +91,13 @@ async function run(): Promise<void> {
     // -----------------------------------------------------------------------
     core.info(`Loading settings from ${settingsPath}`);
     const settings = await loadSettings(settingsPath);
+    // project_id・SA・workspace は input の service、placeholder の ${service} は settings.service から作るので、
+    // 食い違うと別のプロジェクト向けの値が混ざる
+    if (settings.service !== service) {
+      throw new Error(
+        `The 'service' input ("${service}") does not match settings.yml service ("${settings.service}") in ${settingsPath}.`,
+      );
+    }
 
     // -----------------------------------------------------------------------
     // 3. Validate input combination + select target envs
@@ -227,6 +238,18 @@ async function run(): Promise<void> {
         // upsertWorkspace は relationships.project を見て、既存 workspace が
         // 別 project に居る場合は PATCH で project を張り替える (Default
         // Project → service project の migration もこれで完結する)。
+        // 別の Action（dispatch-firebase-platform）の workspace なら触らない
+        const existingWorkspace = await findWorkspaceByName(
+          tfcOrg,
+          targetName,
+          tfcToken,
+        );
+        const foreign = findForeignMarker(existingWorkspace?.attributes);
+        if (foreign) {
+          throw new Error(
+            `Workspace "${targetName}" is managed by dispatch-firebase-platform (tag "${foreign}"). Use a different service name for the compute host settings.yml.`,
+          );
+        }
         const workspace = await upsertWorkspace(
           tfcOrg,
           { name: targetName, "auto-apply": autoApply },
@@ -340,9 +363,14 @@ async function run(): Promise<void> {
     try {
       knownWorkspaces = await listWorkspacesByTag(tfcOrg, markerTag, tfcToken);
     } catch (err) {
+      // 一覧を読めなければ後片付けが済んだとは言えない（失敗として返す）
       const msg = err instanceof Error ? err.message : String(err);
-      core.warning(
-        `Could not list workspaces by tag "${markerTag}" for reconciliation: ${msg}`,
+      failed.push({
+        env: "(reconcile)",
+        error: `Could not list workspaces by tag "${markerTag}": ${msg}`,
+      });
+      core.error(
+        `[reconcile] could not list workspaces by tag "${markerTag}": ${msg}`,
       );
     }
 
@@ -361,6 +389,18 @@ async function run(): Promise<void> {
         );
         continue;
       }
+      // 別の Action の marker も付いている workspace は消さない（その Action ではまだ使っているかもしれない）
+      const foreign = findForeignMarker(w.attributes);
+      if (foreign) {
+        failed.push({
+          env,
+          error: `Workspace "${w.attributes.name}" also carries "${foreign}"; not deleted. Remove it manually if it is no longer used.`,
+        });
+        core.error(
+          `[reconcile] workspace "${w.attributes.name}" carries "${foreign}"; not deleted`,
+        );
+        continue;
+      }
       // Orphan → force-delete the workspace
       try {
         await deleteWorkspace(w.id, tfcToken);
@@ -370,7 +410,11 @@ async function run(): Promise<void> {
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        core.warning(
+        failed.push({
+          env,
+          error: `Failed to delete orphan workspace "${w.attributes.name}": ${msg}`,
+        });
+        core.error(
           `[reconcile] failed to delete workspace "${w.attributes.name}" for env "${env}": ${msg}`,
         );
       }
@@ -390,7 +434,7 @@ async function run(): Promise<void> {
 
     if (failed.length > 0) {
       core.setFailed(
-        `${failed.length}/${targets.length} env(s) failed: ${failed.map((f) => f.env).join(", ")}`,
+        `${failed.length} failure(s): ${failed.map((f) => f.env).join(", ")}`,
       );
       return;
     }
