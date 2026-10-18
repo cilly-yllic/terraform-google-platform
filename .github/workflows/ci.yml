@@ -197,6 +197,38 @@ jobs:
       - name: dist/ up to date
         run: git diff --exit-code dist/
 
+  action-dispatch-compute-host:
+    name: "Action – dispatch-compute-host (Lint, Test & Build)"
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: actions/dispatch-compute-host
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: actions/dispatch-compute-host/package-lock.json
+
+      - name: npm ci
+        run: npm ci
+
+      - name: tsc --noEmit
+        run: npx tsc --noEmit
+
+      - name: vitest (unit tests)
+        run: npm test
+
+      - name: ncc build
+        run: npm run build
+
+      - name: dist/ up to date
+        run: git diff --exit-code dist/
+
   action-dispatch-project-bootstrap:
     name: "Action – dispatch-project-bootstrap (Typecheck, Test & Build)"
     runs-on: ubuntu-latest

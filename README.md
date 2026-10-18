@@ -118,7 +118,7 @@ module "compute_host" {
 - Cloud NAT が効くのは同じリージョンのサブネットだけ。違うリージョンのサブネットがあると断る
 - カスタムロールを外して apply すると削除される。GCP は削除したロールの `role_id` を一定期間（約 37 日）再利用できないので、戻すときは `gcloud iam roles undelete` で復元してから `terraform import` する（新しい `role_id` にしてもよい）
 - プロジェクト単位の組織のポリシー（外部 IP の禁止など）は、このモジュールの対象外
-- settings.yml から使う Action（`dispatch-compute-host`）は後で足す
+- settings.yml から使う Action: [`actions/dispatch-compute-host/`](./actions/dispatch-compute-host/)
 
 詳細: [`modules/compute-host-platform/`](./modules/compute-host-platform/)
 
@@ -130,6 +130,7 @@ module "compute_host" {
 |--------|------|------|------|
 | dispatch-tfc-project-bootstrap (A) | `actions/dispatch-project-bootstrap/` | GCP Project / SA / WIF の bootstrap | `environments` map に複数 env を蓄積し 1 Run で `for_each` 展開 |
 | dispatch-tfc-firebase-platform (B) | `actions/dispatch-firebase-platform/` | Firebase Platform リソースの構築 | env ごとに `{service}-{env}` workspace を作成し逐次 Run |
+| dispatch-tfc-compute-host | `actions/dispatch-compute-host/` | VM を置くプロジェクト（compute host）の基盤の構築 | B と同じ流れで、env の `compute_host` を compute-host-platform に渡す |
 
 両 Action は同一の `settings.yml` を読み、env 選別ロジックも共通（status / labels gate）。input shape は用途に合わせて異なる:
 

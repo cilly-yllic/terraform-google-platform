@@ -1,0 +1,45 @@
+service: example-host
+
+x-base: &base
+  region: asia-northeast1
+  network:
+    name: vm
+    subnets:
+      - name: vm-${env}
+        cidr: 10.10.0.0/20
+  cloud_nat:
+    router_name: vm-router
+    nat_name: vm-nat
+  firewall_rules:
+    - name: deny-internal-egress
+      direction: EGRESS
+      action: deny
+      priority: 900
+      ranges: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+  service_accounts:
+    - account_id: vm-runtime
+  custom_roles:
+    - role_id: vmManager
+      title: VM manager
+      permissions: ["compute.instances.create"]
+  iam_bindings:
+    - name: manager-vms
+      role: custom:vmManager
+      members:
+        manager: serviceAccount:manager@other-project.iam.gserviceaccount.com
+      condition:
+        title: vm-prefix
+        expression: resource.name.extract("/instances/{name}").startsWith("vm-")
+
+environments:
+  dev-001:
+    labels: ["tier:dev"]
+    billing_account_id: "000000-000000-000000"
+    compute_host:
+      <<: *base
+  prd-001:
+    status: inactive
+    billing_account_id: "000000-000000-000000"
+    compute_host:
+      <<: *base
+      apis: ["artifactregistry.googleapis.com"]

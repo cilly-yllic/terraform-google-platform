@@ -1,0 +1,135 @@
+name: "dispatch-tfc-compute-host"
+description: >
+  Dispatch a Terraform Cloud Run for the compute-host-platform module.
+  Reads settings.yml, upserts a {service}-{env} workspace, maps the env's
+  compute_host section to Terraform variables, syncs Dynamic Credentials,
+  and starts a Run with env-based apply policy.
+
+inputs:
+  service:
+    description: "Service name (e.g. my-app)"
+    required: true
+  environments:
+    description: >
+      JSON array of target env keys (e.g. '["prd-001","dev-002"]'). Each key
+      must exist in settings.environments (the Action throws with the
+      available list otherwise). Optional — when omitted (`""` or `[]`), the
+      Action iterates over every entry in settings.environments and selects
+      targets via `labels`. At least one of `environments` / `labels` must be
+      non-empty.
+    required: false
+    default: ""
+  settings_path:
+    description: "Path to settings.yml within the calling repo"
+    default: "terraform/settings.yml"
+  tfc_org:
+    description: "Terraform Cloud organization name"
+    required: true
+  target_workspace:
+    description: >
+      This stage's workspace name pattern.
+      Placeholders: {service}, {environment}
+    default: "{service}-{environment}"
+  tfc_project_name:
+    description: >
+      TFC Project name pattern that all env workspaces for this service go
+      under (placeholders: {service}). The Action upserts the project once
+      per Run and PATCHes existing workspaces' relationships.project so
+      bootstrap and compute-host workspaces end up grouped under a
+      single per-service project in the TFC org.
+    default: "{service}"
+  bootstrap_project_id:
+    description: "GCP bootstrap project ID for Workload Identity"
+    default: "infra-bootstrap"
+  bootstrap_project_number:
+    description: "GCP bootstrap project number (numeric) for Workload Identity Pool path"
+    required: true
+  workload_identity_pool_id:
+    description: "Workload Identity Pool ID"
+    default: "terraform-cloud"
+  workload_identity_provider_id:
+    description: "Workload Identity Provider ID"
+    default: "terraform-cloud"
+  tfc_token:
+    description: "Terraform Cloud API token"
+    required: true
+  apply_policy:
+    description: >
+      Run apply policy: auto | manual | env-based.
+      env-based (default): env keys starting with "dev" → auto, others → manual.
+    default: "env-based"
+  enable_webhook_notification:
+    description: "If true, ensure TFC notification config exists for Phase 2"
+    default: "false"
+  cloud_run_webhook_url:
+    description: "Cloud Run router URL (required when enable_webhook_notification=true)"
+    required: false
+  cloud_run_webhook_secret:
+    description: "HMAC secret shared with Cloud Run router"
+    required: false
+  module_version:
+    description: >
+      Version constraint for the cilly-yllic/platform/google Registry module
+      (compute-host-platform sub-module) written into the uploaded main.tf
+      (e.g. "0.0.0-rc15" or "~> 1.0"). When empty, the Action auto-resolves
+      the latest version from the Terraform Registry (pre-release versions
+      included). This avoids the "no versions available" failure caused by
+      Terraform's policy of not picking pre-release versions without an
+      explicit constraint.
+    required: false
+    default: ""
+  labels:
+    description: >
+      JSON array of JS RegExp pattern strings (e.g. '["^tier:dev$","^region:apne1$"]').
+      Each candidate env's `labels` (from settings.yml) must match ALL patterns
+      (AND) — otherwise the env is filtered out. Anchor patterns with ^...$ for
+      exact match. Empty / omitted means "no label gating" (then `environments`
+      input is required).
+    required: false
+    default: ""
+  project_propagation_wait_seconds:
+    description: >
+      Seconds to sleep before creating any TFC Run, but ONLY when this Action was
+      chained from Action A (project-bootstrap) via repository_dispatch. Gives the
+      just-created project / SA / IAM / billing time to propagate in GCP, so the
+      run's first operations (google_project_service, WIF impersonation) don't fail
+      with project-not-ready / permission errors. On manual workflow_dispatch the
+      project already exists, so the wait is skipped regardless of this value.
+      Set to "0" to disable entirely.
+    required: false
+    default: "60"
+
+outputs:
+  applied_envs:
+    description: 'JSON array of env keys that were successfully dispatched (e.g. ["prd-001","dev-002"])'
+  filtered_envs:
+    description: >
+      JSON array of {env, reason, detail} entries describing envs filtered out
+      by status or labels gating.
+  failed_envs:
+    description: 'JSON array of {env, error} entries describing per-env failures during the loop'
+  destroyed_envs:
+    description: >
+      JSON array of env keys whose TFC workspaces were force-deleted because
+      they appear in neither settings.environments nor settings.retained_envs.
+      GCP resources are NOT destroyed by this Action (that is Action A's job).
+  retained_envs:
+    description: >
+      JSON array of env keys whose workspaces are kept untouched because they
+      appear in settings.retained_envs (safety net for accidental deletion).
+  run_ids:
+    description: 'JSON object mapping env → TFC Run ID for successfully dispatched envs'
+  run_urls:
+    description: 'JSON object mapping env → TFC Run URL'
+  workspace_ids:
+    description: 'JSON object mapping env → TFC Workspace ID'
+  workspace_names:
+    description: 'JSON object mapping env → TFC Workspace name'
+  skipped:
+    description: '"true" when no env was dispatched and no workspace was deleted, "false" otherwise'
+  skip_reason:
+    description: "Reason code when skipped=true: no_changes (empty otherwise)"
+
+runs:
+  using: "node24"
+  main: "dist/index.js"
