@@ -160,6 +160,11 @@ jobs:
       - name: terraform validate
         run: terraform validate
 
+      # compute-host-platform は検証の式の評価が Terraform の版で違う（1.10 は || を短絡評価しない）ので、下限でも test を流す
+      - name: terraform test
+        if: matrix.module == 'compute-host-platform'
+        run: terraform test
+
   action-dispatch-firebase-platform:
     name: "Action – dispatch-firebase-platform (Lint, Test & Build)"
     runs-on: ubuntu-latest

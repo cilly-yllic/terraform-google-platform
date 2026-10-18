@@ -375,6 +375,68 @@ run "rejects_grant_also_in_service_account_roles" {
   expect_failures = [var.iam_bindings]
 }
 
+run "rejects_separator_in_names" {
+  command = plan
+  variables {
+    iam_bindings = [
+      { name = "a|b", role = "roles/viewer", members = { c = "group:a@example.com" } },
+      { name = "a", role = "roles/logging.viewer", members = { "b|c" = "group:b@example.com" } },
+    ]
+  }
+  expect_failures = [var.iam_bindings]
+}
+
+run "rejects_same_sa_written_two_ways" {
+  command = plan
+  variables {
+    service_accounts = [{ account_id = "vm-runtime" }]
+    iam_bindings = [
+      { name = "x", role = "roles/viewer", members = { short = "sa:vm-runtime" } },
+      { name = "y", role = "roles/viewer", members = { long = "serviceAccount:vm-runtime@test-project.iam.gserviceaccount.com" } },
+    ]
+  }
+  expect_failures = [var.iam_bindings]
+}
+
+run "rejects_binding_overlapping_sa_role_by_email" {
+  command = plan
+  variables {
+    service_accounts = [{ account_id = "vm-reconciler", roles = ["roles/monitoring.viewer"] }]
+    iam_bindings = [{
+      name    = "x"
+      role    = "roles/monitoring.viewer"
+      members = { reconciler = "serviceAccount:vm-reconciler@test-project.iam.gserviceaccount.com" }
+    }]
+  }
+  expect_failures = [var.iam_bindings]
+}
+
+run "rejects_duplicate_sa_scoped_grants" {
+  command = plan
+  variables {
+    service_accounts = [{ account_id = "vm-runtime" }]
+    service_account_iam = [
+      { name = "x", service_account = "vm-runtime", role = "roles/iam.serviceAccountUser", members = { a = "group:a@example.com" } },
+      { name = "y", service_account = "vm-runtime", role = "roles/iam.serviceAccountUser", members = { again = "group:a@example.com" } },
+    ]
+  }
+  expect_failures = [var.service_account_iam]
+}
+
+run "rejects_duplicate_members_under_two_labels" {
+  command = plan
+  variables {
+    service_accounts = [{ account_id = "vm-runtime" }]
+    service_account_iam = [{
+      name            = "x"
+      service_account = "vm-runtime"
+      role            = "roles/iam.serviceAccountUser"
+      members         = { a = "group:a@example.com", b = "group:a@example.com" }
+    }]
+  }
+  expect_failures = [var.service_account_iam]
+}
+
 run "rejects_duplicate_service_accounts" {
   command = plan
   variables {
