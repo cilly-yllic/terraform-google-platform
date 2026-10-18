@@ -238,15 +238,15 @@ variable "service_account_iam" {
   }
 
   # 同じ SA・同じ role・同じ相手の付与を二重に持たない（片方を外すと、もう片方の付与まで消える）。
-  # sa:<account_id> は SA のメールに直して比べる。apply まで決まらない値は比べられない
+  # sa:<account_id> は SA のメールに直して比べる（ほかは書いたまま）。apply まで決まらない値は比べられない
   validation {
     condition = length(flatten([
       for binding in var.service_account_iam : [
-        for member in values(binding.members) : "${binding.service_account}|${binding.role}|${lower(startswith(member, "sa:") ? "serviceAccount:${trimprefix(member, "sa:")}@${var.project_id}.iam.gserviceaccount.com" : member)}"
+        for member in values(binding.members) : "${binding.service_account}|${binding.role}|${(startswith(member, "sa:") ? "serviceAccount:${trimprefix(member, "sa:")}@${var.project_id}.iam.gserviceaccount.com" : member)}"
       ]
       ])) == length(distinct(flatten([
         for binding in var.service_account_iam : [
-          for member in values(binding.members) : "${binding.service_account}|${binding.role}|${lower(startswith(member, "sa:") ? "serviceAccount:${trimprefix(member, "sa:")}@${var.project_id}.iam.gserviceaccount.com" : member)}"
+          for member in values(binding.members) : "${binding.service_account}|${binding.role}|${(startswith(member, "sa:") ? "serviceAccount:${trimprefix(member, "sa:")}@${var.project_id}.iam.gserviceaccount.com" : member)}"
         ]
     ])))
     error_message = "service_account_iam に同じ SA・同じ role・同じ相手の付与が重なっています。"
@@ -366,12 +366,13 @@ variable "iam_bindings" {
 
   # 同じ相手・同じ role の付与を、iam_bindings の中と service_accounts の roles とで二重に持たない
   # （片方を外すと、もう片方の付与まで消える。条件なしの付与があると条件が効かない）。
-  # sa:<account_id> は SA のメールに直し、ほかは小文字にして比べる。apply まで決まらない値は比べられない
+  # sa:<account_id> は SA のメールに直して比べる（ほかは書いたまま。principal:// や role は大文字・小文字を区別する）。
+  # apply まで決まらない値は比べられない
   validation {
     condition = length(flatten([
-      for binding in var.iam_bindings : [for member in values(binding.members) : "${binding.role}|${lower(startswith(member, "sa:") ? "serviceAccount:${trimprefix(member, "sa:")}@${var.project_id}.iam.gserviceaccount.com" : member)}"]
+      for binding in var.iam_bindings : [for member in values(binding.members) : "${binding.role}|${(startswith(member, "sa:") ? "serviceAccount:${trimprefix(member, "sa:")}@${var.project_id}.iam.gserviceaccount.com" : member)}"]
       ])) == length(distinct(flatten([
-        for binding in var.iam_bindings : [for member in values(binding.members) : "${binding.role}|${lower(startswith(member, "sa:") ? "serviceAccount:${trimprefix(member, "sa:")}@${var.project_id}.iam.gserviceaccount.com" : member)}"]
+        for binding in var.iam_bindings : [for member in values(binding.members) : "${binding.role}|${(startswith(member, "sa:") ? "serviceAccount:${trimprefix(member, "sa:")}@${var.project_id}.iam.gserviceaccount.com" : member)}"]
     ])))
     error_message = "iam_bindings に同じ role・同じ相手の付与が重なっています。"
   }
@@ -381,8 +382,8 @@ variable "iam_bindings" {
       for binding in var.iam_bindings : [
         for member in values(binding.members) :
         !contains(
-          flatten([for sa in var.service_accounts : [for role in sa.roles : lower("${role}|serviceAccount:${sa.account_id}@${var.project_id}.iam.gserviceaccount.com")]]),
-          lower("${binding.role}|${lower(startswith(member, "sa:") ? "serviceAccount:${trimprefix(member, "sa:")}@${var.project_id}.iam.gserviceaccount.com" : member)}")
+          flatten([for sa in var.service_accounts : [for role in sa.roles : "${role}|serviceAccount:${sa.account_id}@${var.project_id}.iam.gserviceaccount.com"]]),
+          "${binding.role}|${(startswith(member, "sa:") ? "serviceAccount:${trimprefix(member, "sa:")}@${var.project_id}.iam.gserviceaccount.com" : member)}"
         )
       ]
     ]))

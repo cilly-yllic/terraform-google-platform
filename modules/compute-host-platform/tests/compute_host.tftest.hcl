@@ -437,6 +437,34 @@ run "rejects_duplicate_members_under_two_labels" {
   expect_failures = [var.service_account_iam]
 }
 
+# 大文字・小文字を区別する主体・ロールは、別のものとして扱う（重なりにしない）
+run "case_sensitive_principals_and_roles_are_distinct" {
+  command = plan
+  variables {
+    service_accounts = [{ account_id = "vm-runtime", roles = ["custom:vmManager"] }]
+    custom_roles = [
+      { role_id = "vmManager", title = "A", permissions = ["compute.instances.get"] },
+      { role_id = "vmmanager", title = "B", permissions = ["compute.instances.list"] },
+    ]
+    iam_bindings = [
+      { name = "lower-role", role = "custom:vmmanager", members = { runtime = "sa:vm-runtime" } },
+      {
+        name = "subjects"
+        role = "roles/viewer"
+        members = {
+          upper = "principal://iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/subject/Alice"
+          lower = "principal://iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/subject/alice"
+        }
+      },
+    ]
+  }
+
+  assert {
+    condition     = length(google_project_iam_member.bindings) == 3
+    error_message = "大文字・小文字だけが違う主体・ロールを重なりとして断っている"
+  }
+}
+
 run "rejects_duplicate_service_accounts" {
   command = plan
   variables {
