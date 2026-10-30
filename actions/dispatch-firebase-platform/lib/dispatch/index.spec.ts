@@ -1216,6 +1216,27 @@ describe("parseNotifications", () => {
     expect(r[1].destinationType).toBe("generic");
   });
 
+  it("detects slack for uppercase or trailing-dot hosts", () => {
+    const r = parseNotifications({
+      notifications: [
+        { url: "https://HOOKS.SLACK.COM/services/T/B/x" },
+        { url: "https://hooks.slack.com./services/T/B/x" },
+      ],
+    });
+    expect(r.map((n) => n.destinationType)).toEqual(["slack", "slack"]);
+  });
+
+  it("does not treat hooks.slack.com outside the host as slack", () => {
+    const r = parseNotifications({
+      notifications: [
+        { url: "https://evil.example.com/hooks.slack.com" },
+        { url: "https://hooks.slack.com.evil.example.com/x" },
+        { url: "not a url hooks.slack.com" },
+      ],
+    });
+    expect(r.map((n) => n.destinationType)).toEqual(["generic", "generic", "generic"]);
+  });
+
   it("honors explicit type and falls back to auto-detect on invalid type", () => {
     const r = parseNotifications({
       notifications: [
