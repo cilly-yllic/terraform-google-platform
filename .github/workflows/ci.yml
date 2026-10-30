@@ -143,11 +143,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: actions/dispatch-firebase-platform/package-lock.json
+      - uses: jdx/mise-action@v5
 
       - name: npm ci
         run: npm ci
@@ -175,11 +171,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: actions/dispatch-project-bootstrap/package-lock.json
+      - uses: jdx/mise-action@v5
 
       - name: npm ci
         run: npm ci
@@ -207,11 +199,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: cloud-run-router/package-lock.json
+      - uses: jdx/mise-action@v5
 
       - name: npm ci
         run: npm ci
