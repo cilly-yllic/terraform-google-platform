@@ -829,6 +829,15 @@ const DEFAULT_NOTIFICATION_TRIGGERS = [
 ];
 const VALID_DESTINATION_TYPES = ["slack", "generic", "microsoft-teams"];
 
+/** URL のホストが hooks.slack.com か (部分一致では他ホストの URL も通ってしまうため host で判定) */
+const isSlackWebhookUrl = (url: string): boolean => {
+  try {
+    return new URL(url).hostname === "hooks.slack.com";
+  } catch {
+    return false;
+  }
+};
+
 export interface ParsedNotification {
   url: string;
   destinationType: string;
@@ -842,7 +851,7 @@ export interface ParsedNotification {
  * apply 結果を webhook (Slack 等) に通知する TFC notification の宣言。各 entry:
  *   url      = 通知先 URL (必須。空ならその entry は skip)
  *   type     = "slack" | "generic" | "microsoft-teams" (省略時 host 自動判定:
- *              hooks.slack.com を含めば slack、それ以外 generic)
+ *              host が hooks.slack.com なら slack、それ以外 generic)
  *   triggers = TFC trigger 配列 (省略時 run:completed / errored / needs_attention)
  *   hmac_secret = generic 用の署名 secret (任意)
  *
@@ -865,7 +874,7 @@ export function parseNotifications(
     const destinationType =
       typeof o.type === "string" && VALID_DESTINATION_TYPES.includes(o.type)
         ? o.type
-        : url.includes("hooks.slack.com")
+        : isSlackWebhookUrl(url)
           ? "slack"
           : "generic";
     const triggers =
