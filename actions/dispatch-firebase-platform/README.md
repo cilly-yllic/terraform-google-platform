@@ -262,7 +262,7 @@ firebase_platform:
 | Field | Type | Default | 説明 |
 |-------|------|---------|------|
 | `url` | `string` | (必須) | 通知先 URL。**空・未設定の entry は skip**（エラーにしない）。Slack URL は機密なのでログは mask される |
-| `type` | `slack \| generic \| microsoft-teams` | host 自動判定 | `hooks.slack.com` を含めば `slack`、それ以外 `generic` |
+| `type` | `slack \| generic \| microsoft-teams` | host 自動判定 | URL のホストが `hooks.slack.com` なら `slack`、それ以外 `generic` |
 | `triggers` | `string[]` | `[run:completed, run:errored, run:needs_attention]` | TFC notification trigger |
 | `hmac_secret` | `string` | (なし) | `generic` のみ。署名 secret |
 

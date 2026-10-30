@@ -832,7 +832,8 @@ const VALID_DESTINATION_TYPES = ["slack", "generic", "microsoft-teams"];
 /** URL のホストが hooks.slack.com か (部分一致では他ホストの URL も通ってしまうため host で判定) */
 const isSlackWebhookUrl = (url: string): boolean => {
   try {
-    return new URL(url).hostname === "hooks.slack.com";
+    // 末尾ドット付きの FQDN (hooks.slack.com.) も同じホストとして扱う
+    return new URL(url).hostname.replace(/\.$/, "") === "hooks.slack.com";
   } catch {
     return false;
   }
