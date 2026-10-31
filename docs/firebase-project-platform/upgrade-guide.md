@@ -176,7 +176,7 @@ dispatch Action は、知っている key だけを terraform に渡す。Action
 
 ---
 
-## v2.1.0 (unreleased)
+## v2.1.0 (2026-10-31)
 
 ### Features
 - `iam_bindings`: grants project-level roles to any member (`user:` / `serviceAccount:` / `group:` / `principal://` / `principalSet://`), e.g. a Workload Identity `principalSet` for a CI workflow that reads the project's state. Each entry is `{ name, role, members: { <label>: <member> }, condition? }`, and each member becomes `google_project_iam_member.binding["<name>|<label>"]`, so reordering or adding entries does not recreate other grants. Placeholders such as `${BOOTSTRAP_PROJECT_NUMBER}` are expanded in member values. See [variables-reference.md](./variables-reference.md#iam_bindings).
