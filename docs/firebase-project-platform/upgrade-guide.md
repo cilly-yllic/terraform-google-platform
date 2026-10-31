@@ -176,6 +176,37 @@ dispatch Action は、知っている key だけを terraform に渡す。Action
 
 ---
 
+## v2.1.0 (2026-10-31)
+
+### Features
+- `iam_bindings`: grants project-level roles to any member (`user:` / `serviceAccount:` / `group:` / `principal://` / `principalSet://`), e.g. a Workload Identity `principalSet` for a CI workflow that reads the project's state. Each entry is `{ name, role, members: { <label>: <member> }, condition? }`, and each member becomes `google_project_iam_member.binding["<name>|<label>"]`, so reordering or adding entries does not recreate other grants. Placeholders such as `${BOOTSTRAP_PROJECT_NUMBER}` are expanded in member values. See [variables-reference.md](./variables-reference.md#iam_bindings).
+- New output `iam_binding_members`.
+
+### GitHub Actions
+- `dispatch-firebase-platform` passes `iam_bindings` to the module and stops (before creating a run) when an entry has an unknown key, a duplicate `name`, an unsupported role or member, a condition on a basic role, the same role / member / condition twice, an unconditional overlap with a role set explicitly elsewhere in `settings.yml`, or an unresolved `${...}` placeholder.
+- `dispatch-firebase-platform` stops before creating a run when `module_version` clearly allows only versions older than v2.1.0 (e.g. `2.0.3`, `~> 2.0.3`).
+
+### Upgrade notes
+- Opt-in. Omitting `iam_bindings` produces no diff.
+- **Via the dispatch Action**: the v2.1.0 root template always passes `iam_bindings`, so update **both** the Action ref and `module_version` to v2.1.0 or later (`"~> 2.0"` / `"~> 2.1"` resolve to it; a pin that only allows v2.0.x, e.g. `2.0.3` or `~> 2.0.3`, stops the Action before it creates a run).
+- Older Actions (≤ v2.0.x) do not know `iam_bindings` and drop it without an error. Once you use it, do not run an older Action against the same `settings.yml`: the plan would **remove** the grants.
+- An unconditional `iam_bindings` entry that has the same role and member as another project-level grant of this module (e.g. `users`) is rejected: non-authoritative grants of the same pair share one binding, so removing one would remove the other. Overlaps with grants that need the project number (default compute SA, Pub/Sub service agent) may only be caught at apply when the number is unknown at plan. Avoid the same overlap with grants made outside this module as well.
+
+<details><summary>Ja</summary>
+
+- `iam_bindings`: 任意の member（`user:` / `serviceAccount:` / `group:` / `principal://` / `principalSet://`）に project-level の role を付ける。例: project の状態を読む CI のワークフローの、Workload Identity の `principalSet`。各 entry は `{ name, role, members: { <label>: <member> }, condition? }` で、member ごとに `google_project_iam_member.binding["<name>|<label>"]` になる。並べ替え・追加でほかの付与は作り直されない。member の値でも `${BOOTSTRAP_PROJECT_NUMBER}` などの placeholder が展開される。[variables-reference.md](./variables-reference.md#iam_bindings) 参照。
+- output `iam_binding_members` を追加。
+- `dispatch-firebase-platform` は `iam_bindings` を module に渡す。entry に未知の key、`name` の重なり、対応していない role・member、基本ロールへの condition、同じ role・member・condition の二重の付与、`settings.yml` のほかの場所で明示した role との条件なしの重なり、未解決の `${...}` があると、run を作る前に止まる。
+- `dispatch-firebase-platform` は、`module_version` が v2.1.0 より前の版しか許さないと明確に分かるとき（例 `2.0.3`、`~> 2.0.3`）、run を作る前に止まる。
+- opt-in。`iam_bindings` を書かなければ差分は出ない。
+- **dispatch Action 経由の場合**: v2.1.0 の root テンプレートは常に `iam_bindings` を渡すので、Action の ref と `module_version` の**両方**を v2.1.0 以降にする（`"~> 2.0"` / `"~> 2.1"` なら解決される。`2.0.3` や `~> 2.0.3` のように v2.0.x しか許さない固定では、Action が run を作る前に止まる）。
+- v2.0.x 以前の Action は `iam_bindings` を知らず、エラーにせず捨てる。使い始めたら、同じ `settings.yml` に古い Action を流さない（plan が付与を**消す**）。
+- 条件なしの `iam_bindings` が、このモジュールのほかの project 単位の付与（`users` など）と同じ role・member だと断る。non-authoritative な付与は同じ組を 1 つの binding として共有し、片方を外すともう片方も外れるため。project number が要る付与（既定 compute SA・Pub/Sub の service agent）との重なりは、project number が plan で決まらないと apply で止まることがある。モジュールの外の付与とも重ねない。
+
+</details>
+
+---
+
 ## v2.0.0 (2026-10-16)
 
 ### Breaking changes

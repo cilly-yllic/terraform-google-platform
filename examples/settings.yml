@@ -390,6 +390,17 @@ environments:
             principals:
               - { attribute: repository, value: my-org/my-service }
 
+      # 任意の member (別 project の SA、group、Workload Identity の principal /
+      # principalSet など) への project-level の付与 (必要な場合のみ)。
+      # 例: CI のワークフローが、削除の予約中かどうかなど project の状態を読む。
+      # キーは "<name>|<label>" で、並べ替え・追加でほかの付与は作り直されない。
+      # member 中の ${BOOTSTRAP_PROJECT_NUMBER} は dispatch Action が展開する。
+      # iam_bindings:
+      #   - name: ci-project-viewer
+      #     role: roles/browser
+      #     members:
+      #       github: "principalSet://iam.googleapis.com/projects/${BOOTSTRAP_PROJECT_NUMBER}/locations/global/workloadIdentityPools/terraform-cloud/attribute.repository/my-org/my-service"
+
   # ---------------------------------------------------------------------------
   # stg-001 — staging. project_id = my-service-stg-001
   # status: inactive — config is kept in sync with prd, but no infra is

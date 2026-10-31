@@ -113,3 +113,62 @@ function compareDotIdentifiers(a: string, b: string): number {
   }
   return 0;
 }
+
+// この Action が生成する root module (lib/templates) が要求する module の最低版。
+// v2.1.0 で iam_bindings を常に module に渡すようになった (それより前の module は
+// "Unsupported argument" で失敗する)。
+export const MIN_TEMPLATE_MODULE_VERSION = "2.1.0";
+
+const mainVersion = (v: string): string => v.replace(/^v/, "").split("-", 2)[0];
+
+const padVersion = (segs: number[]): string =>
+  [0, 1, 2].map((i) => segs[i] ?? 0).join(".");
+
+/**
+ * 明示された module_version の制約が、MIN_TEMPLATE_MODULE_VERSION 以上を
+ * 一切許さないと明確に分かる場合に throw する (run を作る前に説明つきで止める)。
+ * 判定できるもの: 厳密な版 (`2.0.3` / `=2.0.3` / `2` / `2.0`。足りない桁は 0)、`~> X.Y.Z` (X.Y.* に限る)、
+ * `~> X.Y` (X.* に限る)、`< V` / `<= V`。それ以外 (`>=` など) は判定しない。
+ * pre-release は本体の版で比べる (`2.1.0-rc.1` は 2.1.0 として通す)。
+ */
+export function assertModuleVersionSupportsTemplate(
+  constraint: string,
+  min: string = MIN_TEMPLATE_MODULE_VERSION,
+): void {
+  const tooOld = (part: string): boolean => {
+    const m = part.trim().match(/^(=|~>|<=|<|>=|>|!=)?\s*v?(\d+(?:\.\d+){0,2}(?:-[0-9A-Za-z.-]+)?)$/);
+    if (!m) return false;
+    const op = m[1] ?? "=";
+    const ver = m[2];
+    const segs = mainVersion(ver).split(".").map((n) => parseInt(n, 10));
+    switch (op) {
+      case "=":
+        // terraform は足りない桁を 0 とみなす ("2" / "2.0" は 2.0.0 に固定)。
+        return compareSemver(padVersion(segs), min) < 0;
+      case "~>": {
+        // ~> X.Y.Z → < X.(Y+1).0 / ~> X.Y → < (X+1).0.0 / ~> X → 判定しない
+        if (segs.length === 3) {
+          return compareSemver(`${segs[0]}.${segs[1] + 1}.0`, min) <= 0;
+        }
+        if (segs.length === 2) {
+          return compareSemver(`${segs[0] + 1}.0.0`, min) <= 0;
+        }
+        return false;
+      }
+      case "<":
+        return compareSemver(mainVersion(ver), min) <= 0;
+      case "<=":
+        return compareSemver(mainVersion(ver), min) < 0;
+      default:
+        return false;
+    }
+  };
+  if (constraint.split(",").some(tooOld)) {
+    throw new Error(
+      `module_version "${constraint}" only allows module versions older than ${min}, but this Action's root module requires ${min} or later ` +
+        `(it passes iam_bindings, which older modules reject as "Unsupported argument"). ` +
+        `Use e.g. "~> 2.1" (or "~> 2.0"), or pin the Action to a release that matches the module. ` +
+        "See docs/firebase-project-platform/upgrade-guide.md (v2.1.0).",
+    );
+  }
+}

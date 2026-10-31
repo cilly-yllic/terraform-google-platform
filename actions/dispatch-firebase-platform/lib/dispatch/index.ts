@@ -247,6 +247,8 @@ const PASSTHROUGH_KEYS = [
   // App Hosting の共有 compute SA と、Gen2 functions / 既定 Cloud Run の既定 compute SA。
   "app_hosting_compute_sa",
   "default_compute_sa",
+  // 任意の member への project-level の付与 ([{ name, role, members, condition? }])。
+  "iam_bindings",
 ] as const;
 
 // v1 で実行 SA の付与に使っていた key。v2.0.0 で app_hosting_compute_sa / default_compute_sa に
@@ -361,6 +363,252 @@ function validateSaGrants(firebasePlatform: FirebasePlatformConfig): void {
       }
     });
   }
+}
+
+// iam_bindings ([{ name, role, members, condition? }])。terraform の object 変換は未知の属性を
+// 黙って捨てるので、打ち間違い (例 member) や condition の誤りは付与が意図と違う形で通る。
+// module の validation (variables.tf) と同じ形を Action でも確かめ、run を作る前に止める。
+// placeholder (`${BOOTSTRAP_PROJECT_NUMBER}` など) は呼び出し前に展開済みの前提で、残っていれば
+// 未解決として止める (壊れた principalSet を付与しない)。
+const IAM_BINDING_KEYS = ["name", "role", "members", "condition"] as const;
+const IAM_BINDING_CONDITION_KEYS = ["title", "expression", "description"] as const;
+// name と members の label は resource のキー ("<name>|<label>") になる。
+const IAM_BINDING_ID_RE = /^[A-Za-z0-9_.-]{1,63}$/;
+const IAM_BINDING_ROLE_RE =
+  /^(roles\/[A-Za-z0-9_.]+|(projects|organizations)\/[^/]+\/roles\/[A-Za-z0-9_.]+)$/;
+const IAM_BINDING_MEMBER_RE =
+  /^((user|serviceAccount|group):|(principal|principalSet):\/\/iam\.googleapis\.com\/)\S+$/;
+
+function isPlainObject(val: unknown): val is Record<string, unknown> {
+  return val !== null && typeof val === "object" && !Array.isArray(val);
+}
+
+function rejectUnknownKeys(
+  where: string,
+  obj: Record<string, unknown>,
+  allowed: readonly string[],
+): void {
+  const unknown = Object.keys(obj).filter((k) => !allowed.includes(k));
+  if (unknown.length > 0) {
+    throw new Error(
+      `${where} has unknown key(s) ${unknown.map((k) => `"${k}"`).join(", ")} (allowed: ${allowed.join(", ")})`,
+    );
+  }
+}
+
+// 条件を付けられない基本ロール (GCP が条件付きの binding を拒否する)。
+const BASIC_ROLES = new Set(["roles/viewer", "roles/editor", "roles/owner"]);
+
+// 重なりを比べるための member の正規化。user: / serviceAccount: / group: のメールは provider が
+// 小文字に正規化するので小文字で比べる。principal:// / principalSet:// は大文字・小文字を区別する。
+export function normalizeIamMember(member: string): string {
+  return member.startsWith("principal") ? member : member.toLowerCase();
+}
+
+function rejectUnresolvedPlaceholder(at: string, val: string): void {
+  if (val.includes("${")) {
+    throw new Error(
+      `${at} still contains an unresolved placeholder (${JSON.stringify(val)}). Supported placeholders: \${service}, \${env}, \${BOOTSTRAP_PROJECT_NUMBER}.`,
+    );
+  }
+}
+
+// 同じ settings の中で分かる、module のほかの project 単位の付与 (すべて条件なし) の
+// "<role>|<member>"。条件なしの iam_bindings と重なると binding を共有し、片方を外すともう片方の
+// 権限も消える。機能から自動で決まる role (CI SA の自動 role、deploy の sugar、既定 compute SA など)
+// は module の precondition が plan で止める。
+function collectModuleProjectGrants(
+  projectId: string,
+  firebasePlatform: FirebasePlatformConfig,
+): Map<string, string> {
+  const grants = new Map<string, string>();
+  const add = (role: unknown, member: string, source: string) => {
+    if (typeof role === "string") {
+      grants.set(`${role}|${normalizeIamMember(member)}`, source);
+    }
+  };
+  const users = firebasePlatform.users;
+  const hasDataConnect =
+    Array.isArray(firebasePlatform.data_connect) &&
+    firebasePlatform.data_connect.length > 0;
+  if (Array.isArray(users)) {
+    users.forEach((u, i) => {
+      if (!isPlainObject(u) || typeof u.email !== "string") return;
+      const member = `user:${u.email}`;
+      const role = typeof u.role === "string" ? u.role : "viewer";
+      add(`roles/${role}`, member, `users[${i}]`);
+      if (u.deploy === true) {
+        add("roles/cloudfunctions.admin", member, `users[${i}].deploy`);
+        add("roles/artifactregistry.reader", member, `users[${i}].deploy`);
+      }
+      if (hasDataConnect && u.cloud_sql !== undefined && u.cloud_sql !== null) {
+        add("roles/cloudsql.instanceUser", member, `users[${i}].cloud_sql`);
+      }
+    });
+  }
+  const ci = firebasePlatform.ci_service_account;
+  if (ci === true || isPlainObject(ci)) {
+    const cfg = isPlainObject(ci) ? ci : {};
+    const accountId =
+      typeof cfg.account_id === "string" ? cfg.account_id : "ci-deploy";
+    const member = `serviceAccount:${accountId}@${projectId}.iam.gserviceaccount.com`;
+    add("roles/runtimeconfig.admin", member, "ci_service_account");
+    if (isStringArray(cfg.additional_roles)) {
+      for (const r of cfg.additional_roles) {
+        add(r, member, "ci_service_account.additional_roles");
+      }
+    }
+  }
+  const sas = firebasePlatform.service_accounts;
+  if (Array.isArray(sas)) {
+    sas.forEach((sa, i) => {
+      if (!isPlainObject(sa) || typeof sa.account_id !== "string") return;
+      if (!isStringArray(sa.roles)) return;
+      const member = `serviceAccount:${sa.account_id}@${projectId}.iam.gserviceaccount.com`;
+      for (const r of sa.roles) add(r, member, `service_accounts[${i}].roles`);
+    });
+  }
+  const appHosting = firebasePlatform.app_hosting;
+  const usesSharedComputeSa =
+    Array.isArray(appHosting) &&
+    appHosting.some(
+      (a) =>
+        isPlainObject(a) &&
+        (a.service_account === undefined ||
+          a.service_account === null ||
+          a.service_account === ""),
+    );
+  if (usesSharedComputeSa) {
+    const member = `serviceAccount:firebase-app-hosting-compute@${projectId}.iam.gserviceaccount.com`;
+    add("roles/firebaseapphosting.computeRunner", member, "app_hosting (shared compute SA)");
+    const ah = firebasePlatform.app_hosting_compute_sa;
+    if (isPlainObject(ah) && isStringArray(ah.roles)) {
+      for (const r of ah.roles) add(r, member, "app_hosting_compute_sa.roles");
+    }
+  }
+  return grants;
+}
+
+export function validateIamBindings(
+  firebasePlatform: FirebasePlatformConfig,
+  projectId = "",
+): void {
+  if (!("iam_bindings" in firebasePlatform)) return;
+  const val = firebasePlatform.iam_bindings;
+  if (!Array.isArray(val)) {
+    throw new Error(
+      `iam_bindings must be a list of { name, role, members } (got ${JSON.stringify(val)}). Omit the key to grant nothing.`,
+    );
+  }
+  const moduleGrants = projectId
+    ? collectModuleProjectGrants(projectId, firebasePlatform)
+    : new Map<string, string>();
+  const names = new Set<string>();
+  const pairs = new Set<string>();
+  val.forEach((entry, i) => {
+    const where = `iam_bindings[${i}]`;
+    if (!isPlainObject(entry)) {
+      throw new Error(
+        `${where} must be an object { name, role, members } (got ${JSON.stringify(entry)})`,
+      );
+    }
+    rejectUnknownKeys(where, entry, IAM_BINDING_KEYS);
+    const { name, role, members } = entry;
+    // YAML の空の `condition:` (null) は省略と同じ扱い。
+    const condition = entry.condition ?? undefined;
+    if (typeof name !== "string" || !IAM_BINDING_ID_RE.test(name)) {
+      throw new Error(
+        `${where}.name must be 1-63 characters of letters, digits, '_', '.' or '-' (got ${JSON.stringify(name)})`,
+      );
+    }
+    if (names.has(name)) {
+      throw new Error(`${where}.name "${name}" is used more than once`);
+    }
+    names.add(name);
+    const at0 = `${where} (name="${name}")`;
+    if (typeof role === "string") rejectUnresolvedPlaceholder(`${at0}.role`, role);
+    if (typeof role !== "string" || !IAM_BINDING_ROLE_RE.test(role)) {
+      throw new Error(
+        `${at0}.role must be "roles/...", "projects/<id>/roles/..." or "organizations/<id>/roles/..." (got ${JSON.stringify(role)})`,
+      );
+    }
+    if (condition !== undefined) {
+      if (!isPlainObject(condition)) {
+        throw new Error(
+          `${at0}.condition must be an object { title, expression, description? } (got ${JSON.stringify(condition)}). Omit the key for no condition.`,
+        );
+      }
+      rejectUnknownKeys(`${at0}.condition`, condition, IAM_BINDING_CONDITION_KEYS);
+      for (const key of ["title", "expression"] as const) {
+        if (typeof condition[key] !== "string" || condition[key] === "") {
+          throw new Error(
+            `${at0}.condition.${key} is required and must be a non-empty string`,
+          );
+        }
+        rejectUnresolvedPlaceholder(`${at0}.condition.${key}`, condition[key] as string);
+      }
+      if (
+        condition.description !== undefined &&
+        condition.description !== null &&
+        typeof condition.description !== "string"
+      ) {
+        throw new Error(`${at0}.condition.description must be a string`);
+      }
+      if (typeof condition.description === "string") {
+        rejectUnresolvedPlaceholder(`${at0}.condition.description`, condition.description);
+      }
+      if (BASIC_ROLES.has(role)) {
+        throw new Error(
+          `${at0}: a condition cannot be set on the basic role "${role}" (GCP rejects conditional bindings of roles/viewer, roles/editor and roles/owner). Use a predefined or custom role instead.`,
+        );
+      }
+    }
+    // provider は condition を含めて付与を識別するので、condition が違えば別の付与として扱う。
+    const conditionId =
+      condition === undefined
+        ? ""
+        : JSON.stringify([
+            condition.title,
+            condition.expression,
+            typeof condition.description === "string" ? condition.description : "",
+          ]);
+    if (!isPlainObject(members) || Object.keys(members).length === 0) {
+      throw new Error(
+        `${at0}.members must be a non-empty map of { <label>: <member> } (got ${JSON.stringify(members)})`,
+      );
+    }
+    for (const [label, member] of Object.entries(members)) {
+      const at = `${at0}.members.${label}`;
+      if (!IAM_BINDING_ID_RE.test(label)) {
+        throw new Error(
+          `${at0}.members label "${label}" must be 1-63 characters of letters, digits, '_', '.' or '-'`,
+        );
+      }
+      if (typeof member !== "string") {
+        throw new Error(`${at} must be a string (got ${JSON.stringify(member)})`);
+      }
+      rejectUnresolvedPlaceholder(at, member);
+      if (!IAM_BINDING_MEMBER_RE.test(member)) {
+        throw new Error(
+          `${at} must start with user:, serviceAccount:, group:, principal://iam.googleapis.com/ or principalSet://iam.googleapis.com/ (got ${JSON.stringify(member)}). domain:, allUsers and allAuthenticatedUsers are not supported.`,
+        );
+      }
+      const grant = `${role}|${normalizeIamMember(member)}`;
+      const pair = `${grant}|${conditionId}`;
+      if (pairs.has(pair)) {
+        throw new Error(
+          `${at}: role "${role}" is already granted to "${member}" ${conditionId === "" ? "without a condition" : "with the same condition"} by another iam_bindings entry (emails are compared case-insensitively)`,
+        );
+      }
+      pairs.add(pair);
+      const other = conditionId === "" ? moduleGrants.get(grant) : undefined;
+      if (other !== undefined) {
+        throw new Error(
+          `${at}: role "${role}" is already granted to "${member}" by ${other}. Non-authoritative grants of the same pair share one binding, so removing one would remove the other. Drop it from iam_bindings.`,
+        );
+      }
+    }
+  });
 }
 
 function toHclValue(val: unknown): string {
@@ -714,6 +962,7 @@ export function buildTerraformVariables(
   // v1 で消えた key を黙って捨てない（付与が消える plan を作らない）。
   rejectV1RemovedKeys(firebasePlatform);
   validateSaGrants(firebasePlatform);
+  validateIamBindings(firebasePlatform, projectId);
 
   const vars: VariableSpec[] = [];
 

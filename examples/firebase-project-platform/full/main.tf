@@ -232,4 +232,17 @@ module "firebase_platform" {
       }
     },
   ]
+
+  # 任意の member への project-level の付与 (別 project の SA、group、
+  # Workload Identity の principal / principalSet など)。
+  # 例: CI のワークフローが project の状態 (削除の予約中かどうかなど) を読む。
+  iam_bindings = [
+    {
+      name = "ci-project-viewer"
+      role = "roles/browser"
+      members = {
+        github = "principalSet://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/terraform-cloud/attribute.repository/my-org/my-service"
+      }
+    },
+  ]
 }

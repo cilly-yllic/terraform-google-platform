@@ -210,6 +210,26 @@ environments:
 
 各 feature flag は `null` (省略) / `true` / `{ ... }` (custom config) のいずれかを受け取る。設定可能な feature キーの完全リストは `lib/dispatch/index.ts` の `FEATURE_KEYS` / `PASSTHROUGH_KEYS` を参照。完全なサンプルは [`examples/settings.yml`](../../examples/settings.yml)。
 
+### 任意の member への project の付与 (`iam_bindings`)
+
+`users` / `ci_service_account` / `service_accounts` で表せない member (別 project の SA、group、Workload Identity の `principal://` / `principalSet://`) に project-level の role を付ける (v2.1.0 以降。Action の ref と `module_version` の両方を v2.1.0 以降にする)。
+
+```yaml
+firebase_platform:
+  iam_bindings:
+    - name: ci-project-viewer          # 一意な名前 (resource のキーの一部)
+      role: roles/browser
+      members:
+        # label → member。member の値でも ${BOOTSTRAP_PROJECT_NUMBER} などが展開される
+        github: "principalSet://iam.googleapis.com/projects/${BOOTSTRAP_PROJECT_NUMBER}/locations/global/workloadIdentityPools/terraform-cloud/attribute.repository/my-org/${service}"
+      # condition: { title: ..., expression: ..., description: ... }   # 任意
+```
+
+- run を作る前に形を確かめて止める: 未知の key (例 `member` の打ち間違い)、`name` の重なり、`roles/` などで始まらない role、`user:` / `serviceAccount:` / `group:` / `principal://iam.googleapis.com/` / `principalSet://iam.googleapis.com/` で始まらない member (`domain:`・`allUsers`・`allAuthenticatedUsers` は対象外)、基本ロール (`roles/viewer` / `editor` / `owner`) への condition、同じ role・member・condition の二重の付与 (メールは大文字・小文字を区別しない)、条件なしで `users` / `ci_service_account` / `service_accounts` / `app_hosting_compute_sa` の明示した role と重なる付与、member・role・condition に残った未解決の `${...}`。terraform の object 変換は未知の属性を黙って捨てるため。`condition: null` は省略と同じ。
+- 機能から自動で決まる role との重なりは module が止める。入力だけで決まる付与は plan で止まるが、project number が要る付与 (既定 compute SA・Pub/Sub の service agent など) との重なりは、初回作成などで project number が決まらない plan では apply まで遅れることがある。
+- `module_version` が v2.1.0 より前の版しか許さないと明確に分かる場合 (例 `2.0.3`、`~> 2.0.3`) は、run を作る前に止める。
+- resource は `google_project_iam_member.binding["<name>|<label>"]`。詳細は [variables-reference.md](../../docs/firebase-project-platform/variables-reference.md#iam_bindings)。
+
 ### Cloud SQL ユーザー
 
 Cloud SQL Studio にログインできる DB ユーザーを宣言できる (宣言が無ければ作られない)。種別で書く場所が違う:

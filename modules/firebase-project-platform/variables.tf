@@ -621,3 +621,118 @@ variable "service_accounts" {
   }))
   default = []
 }
+
+# ---------------------------------------------------------------------------
+# IAM – project の汎用の付与 (任意の member)
+# ---------------------------------------------------------------------------
+
+variable "iam_bindings" {
+  description = <<-EOT
+    任意の member に project-level の role を付ける汎用の付与。users / ci_service_account /
+    service_accounts / 実行 SA の付与で表せない member (別の project の SA、group、Workload
+    Identity の principal / principalSet など) に使う。付与は non-authoritative
+    (google_project_iam_member) で、ほかの付与を壊さない。
+      name      = 付与の一意な名前 (必須)。resource のキーになるので、並べ替え・追加で既存の付与は
+                  作り直されない。変えると付け直しになる
+      role      = 付ける role (必須)。"roles/..." か custom role
+                  ("projects/<id>/roles/..." / "organizations/<id>/roles/...")
+      members   = { <label> = <member> } (必須)。label は付与の中で一意な名前で、resource のキーになる
+                  (member の値ではなく label をキーにするので、値を変えてもその 1 件だけが付け直しになる)。
+                  member は次のいずれかで始まる:
+                    user: / serviceAccount: / group: /
+                    principal://iam.googleapis.com/ / principalSet://iam.googleapis.com/
+                  domain: は非対応。allUsers / allAuthenticatedUsers (公開) は対象外
+      condition = IAM の条件 (任意。null は省略と同じ)。{ title, expression, description }
+                  基本ロール (roles/viewer / roles/editor / roles/owner) には付けられない (GCP が拒否する)。
+                  ※ 条件は、同じ member・同じ role の条件なしの付与 (モジュールの外の付与) を狭めない
+    resource のキーは "<name>|<label>"。
+
+    例: CI のワークフロー (Workload Identity の principalSet) に project の状態を読ませる
+      [{
+        name    = "ci-project-viewer"
+        role    = "roles/browser"
+        members = {
+          github = "principalSet://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/example-pool/attribute.repository/your-org/example-service"
+        }
+      }]
+
+    重なりの検査 (user: / serviceAccount: / group: のメールは大文字・小文字を区別せずに比べる):
+      - iam_bindings の中で、同じ role・同じ member・同じ condition (なしを含む) を二重に持てない。
+        condition が違えば別の付与として扱う (provider も condition を含めて識別する)
+      - 条件なしの付与は、このモジュールのほかの project 単位の付与 (users・CI SA・service_accounts・
+        実行 SA など) と同じ role・同じ member にできない。non-authoritative な付与は同じ組を 1 つの
+        binding として共有するので、片方を外すともう片方の付与も外れる。
+        入力だけで決まる付与との重なりは plan で止める。project number が要る付与 (既定 compute SA・
+        Pub/Sub の service agent) との重なりは、project number が plan で決まらないとき (初回作成や
+        API の構成が変わる plan) は plan で止められず、apply で止まることがある
+  EOT
+  type = list(object({
+    name    = string
+    role    = string
+    members = map(string)
+    condition = optional(object({
+      title       = string
+      expression  = string
+      description = optional(string, "")
+    }))
+  }))
+  default  = []
+  nullable = false
+
+  validation {
+    condition     = length(distinct([for b in var.iam_bindings : b.name])) == length(var.iam_bindings)
+    error_message = "iam_bindings[*].name must be unique."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for b in var.iam_bindings : concat(
+        [can(regex("^[A-Za-z0-9_.-]{1,63}$", b.name))],
+        [for label in keys(b.members) : can(regex("^[A-Za-z0-9_.-]{1,63}$", label))],
+      )
+    ]))
+    error_message = "iam_bindings[*].name and the labels of iam_bindings[*].members must be 1-63 characters of letters, digits, '_', '.' or '-'."
+  }
+
+  validation {
+    condition = alltrue([
+      for b in var.iam_bindings : can(regex("^(roles/[A-Za-z0-9_.]+|(projects|organizations)/[^/]+/roles/[A-Za-z0-9_.]+)$", b.role))
+    ])
+    error_message = "iam_bindings[*].role must be \"roles/...\", \"projects/<id>/roles/...\" or \"organizations/<id>/roles/...\"."
+  }
+
+  validation {
+    condition     = alltrue([for b in var.iam_bindings : b.condition == null || !contains(["roles/viewer", "roles/editor", "roles/owner"], b.role)])
+    error_message = "iam_bindings[*].condition cannot be set on the basic roles (roles/viewer, roles/editor, roles/owner); GCP rejects conditional basic-role bindings."
+  }
+
+  validation {
+    condition     = alltrue([for b in var.iam_bindings : length(b.members) > 0])
+    error_message = "iam_bindings[*].members must have at least one member."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for b in var.iam_bindings : [
+        for m in values(b.members) : can(regex("^((user|serviceAccount|group):|(principal|principalSet)://iam\\.googleapis\\.com/)[^\\s]+$", m))
+      ]
+    ]))
+    error_message = "iam_bindings[*].members values must start with user:, serviceAccount:, group:, principal://iam.googleapis.com/ or principalSet://iam.googleapis.com/ (no whitespace). domain:, allUsers and allAuthenticatedUsers are not supported."
+  }
+
+  # 同じ role・同じ member・同じ condition を iam_bindings の中で二重に持たない (片方を外すと、もう片方の
+  # 付与まで消える)。メール形式の member は provider が小文字に正規化するので小文字で比べる。
+  # principal:// / principalSet:// は大文字・小文字を区別するのでそのまま比べる。
+  validation {
+    condition = length(flatten([
+      for b in var.iam_bindings : [
+        for m in values(b.members) : "${b.role}|${startswith(m, "principal") ? m : lower(m)}|${b.condition == null ? "" : jsonencode(b.condition)}"
+      ]
+      ])) == length(distinct(flatten([
+        for b in var.iam_bindings : [
+          for m in values(b.members) : "${b.role}|${startswith(m, "principal") ? m : lower(m)}|${b.condition == null ? "" : jsonencode(b.condition)}"
+        ]
+    ])))
+    error_message = "iam_bindings grants the same role to the same member (with the same condition) more than once. Emails in user:/serviceAccount:/group: are compared case-insensitively."
+  }
+}
