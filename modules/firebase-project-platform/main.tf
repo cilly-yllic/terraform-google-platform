@@ -1315,3 +1315,136 @@ resource "google_storage_bucket_iam_member" "service_account_bucket" {
     }
   }
 }
+
+# ---------------------------------------------------------------------------
+# project の汎用の付与 (iam_bindings)
+#
+# users / ci_service_account / service_accounts / 実行 SA の付与で表せない member
+# (別の project の SA、group、Workload Identity の principal / principalSet など) に
+# project-level の role を付ける。key = "<name>|<label>"。name と label は "|" を含められない
+# (variables.tf の validation) ので衝突しない。member の値をキーにしないので、並べ替え・追加や
+# 値の変更でほかの付与のアドレスは変わらない。
+# ---------------------------------------------------------------------------
+
+locals {
+  iam_bindings = merge([
+    for b in var.iam_bindings : {
+      for label, member in b.members : "${b.name}|${label}" => {
+        role      = b.role
+        member    = member
+        condition = b.condition
+      }
+    }
+  ]...)
+
+  # このモジュールのほかの project 単位の付与 (すべて条件なし) の "<role>|<member>"。
+  # 条件なしの iam_bindings と重なると、non-authoritative な付与が同じ binding を共有し、片方を外すと
+  # もう片方の権限も消えるので止める (google_project_iam_member.binding の precondition)。
+  # member は入力から組み立てる (作成前でも plan で比べられるように)。メール形式は小文字で比べる。
+  #
+  # 入力だけで決まる付与と、project number が要る付与 (既定 compute SA・Pub/Sub の service agent) を
+  # 分ける。project number は初回作成などで plan 時に unknown になり、1 つの set にまとめると set 全体が
+  # unknown になって、入力だけで分かる重なりまで apply に遅れるため。
+  iam_module_input_grants = toset([
+    for g in concat(
+      # users (modules/iam: user / deploy 用の role)
+      [for u in var.users : { role = "roles/${u.role}", member = "user:${u.email}" }],
+      flatten([
+        for u in var.users : [
+          for r in ["roles/cloudfunctions.admin", "roles/artifactregistry.reader"] : { role = r, member = "user:${u.email}" }
+        ] if u.deploy
+      ]),
+      # users[].cloud_sql の IAM DB ログイン
+      local.enable_data_connect ? [
+        for e in local.cloud_sql_iam_login_emails : { role = "roles/cloudsql.instanceUser", member = "user:${e}" }
+      ] : [],
+      # CI SA
+      local.enable_ci_sa ? [
+        for r in local.ci_sa_auto_roles : {
+          role   = r
+          member = "serviceAccount:${try(local.ci_sa_cfg.account_id, "ci-deploy")}@${var.project_id}.iam.gserviceaccount.com"
+        }
+      ] : [],
+      # service_accounts (deploy の sugar を含む)
+      flatten([
+        for id, roles in module.iam.service_account_roles : [
+          for r in roles : { role = r, member = "serviceAccount:${id}@${var.project_id}.iam.gserviceaccount.com" }
+        ]
+      ]),
+      # App Hosting の共有 compute SA
+      local.app_hosting_default_sa_needed ? [
+        for r in concat(["roles/firebaseapphosting.computeRunner"], var.app_hosting_compute_sa.roles) : {
+          role   = r
+          member = "serviceAccount:firebase-app-hosting-compute@${var.project_id}.iam.gserviceaccount.com"
+        }
+      ] : [],
+      # Firestore backup の export SA (export_platform = "cloud_functions" は App Engine の既定 SA)
+      try(local.storage_cfg.firestore_backup.export_platform, "cloud_functions") != "cloud_run" && try(local.storage_cfg.firestore_backup, null) != null ? [{
+        role   = "roles/datastore.importExportAdmin"
+        member = "serviceAccount:${var.project_id}@appspot.gserviceaccount.com"
+      }] : [],
+    ) : "${g.role}|${lower(g.member)}"
+  ])
+
+  # project number が要る付与。list の長さは入力 (機能フラグ・付与の指定) だけで決め、unknown になるのは
+  # 値だけにする。project number が plan で unknown なら、この検査は apply に遅れる。
+  iam_module_number_grants = toset([
+    for g in concat(
+      # 既定 compute SA (Gen2 functions の既定の付与 + default_compute_sa.roles)
+      [
+        for r in concat(local.enable_cloud_functions ? ["roles/run.invoker", "roles/eventarc.eventReceiver"] : [], var.default_compute_sa.roles) : {
+          role   = r
+          member = "serviceAccount:${local.compute_default_sa}"
+        }
+      ],
+      # Firestore backup の export SA (export_platform = "cloud_run" は既定 compute SA)
+      try(local.storage_cfg.firestore_backup.export_platform, "cloud_functions") == "cloud_run" && try(local.storage_cfg.firestore_backup, null) != null ? [{
+        role   = "roles/datastore.importExportAdmin"
+        member = "serviceAccount:${local.compute_default_sa}"
+      }] : [],
+      # Pub/Sub service agent (Gen2 functions)
+      local.enable_cloud_functions ? [{
+        role   = "roles/iam.serviceAccountTokenCreator"
+        member = "serviceAccount:service-${one(data.google_project.this[*].number)}@gcp-sa-pubsub.iam.gserviceaccount.com"
+      }] : [],
+    ) : "${g.role}|${lower(g.member)}"
+  ])
+}
+
+resource "google_project_iam_member" "binding" {
+  for_each = local.iam_bindings
+  project  = var.project_id
+  role     = each.value.role
+  member   = each.value.member
+
+  dynamic "condition" {
+    for_each = each.value.condition == null ? [] : [each.value.condition]
+    content {
+      title       = condition.value.title
+      expression  = condition.value.expression
+      description = condition.value.description
+    }
+  }
+
+  lifecycle {
+    # 入力だけで決まる付与との重なり (plan で止まる)
+    precondition {
+      condition = each.value.condition != null || !contains(
+        local.iam_module_input_grants,
+        "${each.value.role}|${startswith(each.value.member, "principal") ? each.value.member : lower(each.value.member)}",
+      )
+      error_message = "iam_bindings '${each.key}': this module already grants ${each.value.role} to ${each.value.member} (users / ci_service_account / service_accounts / App Hosting compute SA / Firestore backup grants). Non-authoritative grants of the same pair share one binding, so removing one would remove the other. Drop it from iam_bindings."
+    }
+
+    # project number が要る付与との重なり (number が plan で unknown なら apply で止まる)
+    precondition {
+      condition = each.value.condition != null || !contains(
+        local.iam_module_number_grants,
+        "${each.value.role}|${startswith(each.value.member, "principal") ? each.value.member : lower(each.value.member)}",
+      )
+      error_message = "iam_bindings '${each.key}': this module already grants ${each.value.role} to ${each.value.member} (default compute SA / Pub/Sub service agent grants). Non-authoritative grants of the same pair share one binding, so removing one would remove the other. Drop it from iam_bindings."
+    }
+  }
+
+  depends_on = [google_project_service.base]
+}

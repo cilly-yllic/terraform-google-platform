@@ -3,6 +3,7 @@ import {
   compareSemver,
   pickLatestSemver,
   resolveModuleVersion,
+  assertModuleVersionSupportsTemplate,
 } from "./index.js";
 
 describe("compareSemver", () => {
@@ -105,4 +106,20 @@ describe("resolveModuleVersion", () => {
       /No platform module versions/,
     );
   });
+});
+
+describe("assertModuleVersionSupportsTemplate", () => {
+  it.each(["2", "2.0", "= 2.0", "=2", "2.0.3", "=2.0.3", "v2.0.0", "~> 2.0.3", "~> 1.4", ">= 2.0.0, < 2.1.0", "<= 2.0.9", "1.5.0"])(
+    "rejects %s (only allows versions older than 2.1.0)",
+    (c) => {
+      expect(() => assertModuleVersionSupportsTemplate(c)).toThrow(/requires 2\.1\.0 or later/);
+    },
+  );
+
+  it.each(["~> 2.0", "~> 2.1", "2.1.0", "2.1.0-rc.1", "~> 2.1.0", ">= 2.0.0", "~> 2", "2.2.0", "< 3.0.0", "3", "2.1"])(
+    "accepts %s",
+    (c) => {
+      expect(() => assertModuleVersionSupportsTemplate(c)).not.toThrow();
+    },
+  );
 });

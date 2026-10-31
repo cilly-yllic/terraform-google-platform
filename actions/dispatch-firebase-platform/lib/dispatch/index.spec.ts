@@ -581,6 +581,305 @@ describe("buildTerraformVariables", () => {
     ).toThrow(err);
   });
 
+  describe("iam_bindings", () => {
+    const principalSet =
+      "principalSet://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/example-pool/attribute.repository/your-org/example-service";
+
+    it("passes iam_bindings through as an HCL list", () => {
+      const vars = buildTerraformVariables("p", {
+        iam_bindings: [
+          {
+            name: "ci-project-viewer",
+            role: "roles/browser",
+            members: { github: principalSet, ops: "group:ops@example.com" },
+          },
+          {
+            name: "external-sa",
+            role: "projects/p/roles/exampleReader",
+            members: { reader: "serviceAccount:reader@other.iam.gserviceaccount.com" },
+            condition: { title: "expires", expression: 'request.time < timestamp("2030-01-01T00:00:00Z")' },
+          },
+        ],
+      });
+      const r = vars.find((v) => v.key === "iam_bindings");
+      expect(r?.hcl).toBe(true);
+      expect(r?.sensitive).toBe(false);
+      expect(r?.value).toBe(
+        `[{ "name" = "ci-project-viewer", "role" = "roles/browser", "members" = { "github" = "${principalSet}", "ops" = "group:ops@example.com" } }, ` +
+          '{ "name" = "external-sa", "role" = "projects/p/roles/exampleReader", "members" = { "reader" = "serviceAccount:reader@other.iam.gserviceaccount.com" }, ' +
+          '"condition" = { "title" = "expires", "expression" = "request.time < timestamp(\\"2030-01-01T00:00:00Z\\")" } }]',
+      );
+    });
+
+    it("omits iam_bindings entirely when not set (uses module default)", () => {
+      const vars = buildTerraformVariables("p", {});
+      expect(vars.find((v) => v.key === "iam_bindings")).toBeUndefined();
+    });
+
+    it("accepts every supported member prefix", () => {
+      expect(() =>
+        buildTerraformVariables("p", {
+          iam_bindings: [
+            {
+              name: "all",
+              role: "roles/viewer",
+              members: {
+                u: "user:a@example.com",
+                sa: "serviceAccount:x@p.iam.gserviceaccount.com",
+                g: "group:g@example.com",
+                one: "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/example-pool/subject/s",
+                set: principalSet,
+              },
+            },
+          ],
+        }),
+      ).not.toThrow();
+    });
+
+    it("works with ${BOOTSTRAP_PROJECT_NUMBER} once placeholders are expanded", () => {
+      const fp = expandFirebasePlatformPlaceholders(
+        {
+          iam_bindings: [
+            {
+              name: "ci",
+              role: "roles/browser",
+              members: {
+                github:
+                  "principalSet://iam.googleapis.com/projects/${BOOTSTRAP_PROJECT_NUMBER}/locations/global/workloadIdentityPools/example-pool/attribute.repository/your-org/${service}",
+              },
+            },
+          ],
+        },
+        { service: "example-service", env: "dev-001", bootstrapProjectNumber: "123456789012" },
+      );
+      const r = buildTerraformVariables("p", fp).find((v) => v.key === "iam_bindings");
+      expect(r?.value).toContain(`"github" = "${principalSet}"`);
+    });
+
+    it("rejects an unresolved placeholder in a member", () => {
+      expect(() =>
+        buildTerraformVariables("p", {
+          iam_bindings: [
+            { name: "ci", role: "roles/browser", members: { github: "principalSet://iam.googleapis.com/projects/${UNKNOWN}/x" } },
+          ],
+        }),
+      ).toThrow(/unresolved placeholder/);
+    });
+
+    it("treats condition: null (an empty YAML condition) as omitted", () => {
+      expect(() =>
+        buildTerraformVariables("p", {
+          iam_bindings: [
+            { name: "x", role: "roles/viewer", members: { a: "user:a@example.com" }, condition: null },
+          ],
+        }),
+      ).not.toThrow();
+    });
+
+    it("compares email members case-insensitively", () => {
+      expect(() =>
+        buildTerraformVariables("p", {
+          iam_bindings: [
+            { name: "a", role: "roles/browser", members: { x: "user:Alice@example.com" } },
+            { name: "b", role: "roles/browser", members: { y: "user:alice@example.com" } },
+          ],
+        }),
+      ).toThrow(/already granted/);
+    });
+
+    it("keeps principalSet case-sensitive", () => {
+      expect(() =>
+        buildTerraformVariables("p", {
+          iam_bindings: [
+            { name: "a", role: "roles/browser", members: { x: principalSet } },
+            { name: "b", role: "roles/browser", members: { y: principalSet.replace("example-service", "Example-Service") } },
+          ],
+        }),
+      ).not.toThrow();
+    });
+
+    it("allows the same role and member with different conditions", () => {
+      expect(() =>
+        buildTerraformVariables("p", {
+          iam_bindings: [
+            { name: "a", role: "roles/browser", members: { x: "user:a@example.com" } },
+            {
+              name: "b",
+              role: "roles/browser",
+              members: { x: "user:a@example.com" },
+              condition: { title: "t", expression: "true" },
+            },
+          ],
+        }),
+      ).not.toThrow();
+    });
+
+    it.each([
+      ["users", { users: [{ email: "Lead@example.com", role: "editor" }] }, "roles/editor", "user:lead@example.com", /by users\[0\]/],
+      [
+        "users[].deploy",
+        { users: [{ email: "lead@example.com", deploy: true }] },
+        "roles/cloudfunctions.admin",
+        "user:lead@example.com",
+        /by users\[0\]\.deploy/,
+      ],
+      [
+        "ci_service_account.additional_roles",
+        { ci_service_account: { additional_roles: ["roles/viewer"] } },
+        "roles/viewer",
+        "serviceAccount:ci-deploy@p.iam.gserviceaccount.com",
+        /by ci_service_account\.additional_roles/,
+      ],
+      [
+        "service_accounts[].roles",
+        { service_accounts: [{ account_id: "app-runtime", type: "runtime", roles: ["roles/datastore.user"] }] },
+        "roles/datastore.user",
+        "serviceAccount:app-runtime@p.iam.gserviceaccount.com",
+        /by service_accounts\[0\]\.roles/,
+      ],
+      [
+        "app_hosting_compute_sa.roles",
+        {
+          app_hosting: [{ backend_id: "api" }],
+          app_hosting_compute_sa: { roles: ["roles/cloudtasks.enqueuer"] },
+        },
+        "roles/cloudtasks.enqueuer",
+        "serviceAccount:firebase-app-hosting-compute@p.iam.gserviceaccount.com",
+        /by app_hosting_compute_sa\.roles/,
+      ],
+    ])("rejects an unconditional overlap with %s", (_label, extra, role, member, err) => {
+      expect(() =>
+        buildTerraformVariables("p", {
+          ...extra,
+          iam_bindings: [{ name: "x", role, members: { a: member } }],
+        }),
+      ).toThrow(err);
+    });
+
+    it("allows a conditional grant that matches a module grant", () => {
+      expect(() =>
+        buildTerraformVariables("p", {
+          service_accounts: [{ account_id: "app-runtime", type: "runtime", roles: ["roles/datastore.user"] }],
+          iam_bindings: [
+            {
+              name: "x",
+              role: "roles/datastore.user",
+              members: { a: "serviceAccount:app-runtime@p.iam.gserviceaccount.com" },
+              condition: { title: "t", expression: "true" },
+            },
+          ],
+        }),
+      ).not.toThrow();
+    });
+
+    it.each([
+      ["null", null, /iam_bindings must be a list/],
+      ["an object", { name: "x" }, /iam_bindings must be a list/],
+      ["a non-object entry", ["roles/viewer"], /iam_bindings\[0\] must be an object/],
+      [
+        "a typo of members",
+        [{ name: "x", role: "roles/viewer", member: { a: "user:a@example.com" } }],
+        /iam_bindings\[0\] has unknown key\(s\) "member"/,
+      ],
+      [
+        "a missing name",
+        [{ role: "roles/viewer", members: { a: "user:a@example.com" } }],
+        /\.name must be/,
+      ],
+      [
+        "a name with the key separator",
+        [{ name: "a|b", role: "roles/viewer", members: { a: "user:a@example.com" } }],
+        /\.name must be/,
+      ],
+      [
+        "a duplicate name",
+        [
+          { name: "x", role: "roles/viewer", members: { a: "user:a@example.com" } },
+          { name: "x", role: "roles/browser", members: { b: "user:b@example.com" } },
+        ],
+        /name "x" is used more than once/,
+      ],
+      [
+        "a role without the roles/ prefix",
+        [{ name: "x", role: "viewer", members: { a: "user:a@example.com" } }],
+        /\.role must be/,
+      ],
+      ["empty members", [{ name: "x", role: "roles/viewer", members: {} }], /members must be a non-empty map/],
+      [
+        "members as a list",
+        [{ name: "x", role: "roles/viewer", members: ["user:a@example.com"] }],
+        /members must be a non-empty map/,
+      ],
+      [
+        "an unsupported member",
+        [{ name: "x", role: "roles/viewer", members: { a: "allUsers" } }],
+        /members\.a must start with/,
+      ],
+      [
+        "a principalSet on another host",
+        [{ name: "x", role: "roles/viewer", members: { a: "principalSet://example.com/x" } }],
+        /members\.a must start with/,
+      ],
+      [
+        "a bad label",
+        [{ name: "x", role: "roles/viewer", members: { "a b": "user:a@example.com" } }],
+        /members label "a b"/,
+      ],
+      [
+        "the same role and member twice",
+        [
+          { name: "x", role: "roles/viewer", members: { a: "user:a@example.com" } },
+          { name: "y", role: "roles/viewer", members: { b: "user:a@example.com" } },
+        ],
+        /already granted/,
+      ],
+      [
+        "a condition on a basic role",
+        [{ name: "x", role: "roles/editor", members: { a: "user:a@example.com" }, condition: { title: "t", expression: "true" } }],
+        /cannot be set on the basic role "roles\/editor"/,
+      ],
+      [
+        "an unresolved placeholder in role",
+        [{ name: "x", role: "projects/${UNKNOWN}/roles/r", members: { a: "user:a@example.com" } }],
+        /\.role still contains an unresolved placeholder/,
+      ],
+      [
+        "an unresolved placeholder in condition",
+        [{ name: "x", role: "roles/browser", members: { a: "user:a@example.com" }, condition: { title: "t", expression: "${EXPR}" } }],
+        /condition\.expression still contains an unresolved placeholder/,
+      ],
+      [
+        "a domain: member",
+        [{ name: "x", role: "roles/viewer", members: { a: "domain:example.com" } }],
+        /domain:, allUsers and allAuthenticatedUsers are not supported/,
+      ],
+      [
+        "allAuthenticatedUsers",
+        [{ name: "x", role: "roles/viewer", members: { a: "allAuthenticatedUsers" } }],
+        /not supported/,
+      ],
+      [
+        "a condition without expression",
+        [{ name: "x", role: "roles/viewer", members: { a: "user:a@example.com" }, condition: { title: "t" } }],
+        /condition\.expression is required/,
+      ],
+      [
+        "a condition with an unknown key",
+        [
+          {
+            name: "x",
+            role: "roles/viewer",
+            members: { a: "user:a@example.com" },
+            condition: { title: "t", expression: "true", expr: "x" },
+          },
+        ],
+        /condition has unknown key\(s\) "expr"/,
+      ],
+    ])("rejects %s", (_label, val, err) => {
+      expect(() => buildTerraformVariables("p", { iam_bindings: val })).toThrow(err);
+    });
+  });
+
   it("rejects an unknown key in service_accounts[] (e.g. a typo of self_roles)", () => {
     expect(() =>
       buildTerraformVariables("p", {
