@@ -210,3 +210,8 @@ output "service_account_wif_members" {
   description = "WIF principalSet members bound to manual service accounts (empty when none configure wif)."
   value       = module.iam.service_account_wif_members
 }
+
+output "iam_binding_members" {
+  description = "Members granted by iam_bindings, keyed by \"<name>|<label>\" ({ role, member })."
+  value       = { for k, b in google_project_iam_member.binding : k => { role = b.role, member = b.member } }
+}

@@ -53,6 +53,13 @@ dispatch-firebase-platform Action は settings.yml を読んだ後、`firebase_p
 |-------|--------|
 | `apps[].display_name` | `"${service} ${env} Main"` (App Store / Play Store とは別、Firebase Console 表示のみ) |
 
+**インフラ識別子** (bootstrap project 由来の値):
+
+| field | 使い方 |
+|-------|--------|
+| `ci_service_account.wif.pool_resource_name` / `service_accounts[].wif.pool_resource_name` | `projects/${BOOTSTRAP_PROJECT_NUMBER}/locations/global/workloadIdentityPools/terraform-cloud` |
+| `iam_bindings[].members.<label>` | `principalSet://iam.googleapis.com/projects/${BOOTSTRAP_PROJECT_NUMBER}/locations/global/workloadIdentityPools/terraform-cloud/attribute.repository/my-org/${service}` |
+
 ### 主用途
 
 YAML anchor で env を跨いで config を共有しつつ、env 固有の値 (Cloud SQL `instance_id` 等) だけ env-prefix で分離するパターン:
@@ -601,5 +608,61 @@ GitHub Actions 側ではこの SA を **provider フルパス**で impersonate �
 <details><summary>Ja</summary>
 
 `type = "deploy"` の SA にのみ共通で `roles/runtimeconfig.admin` が付与される。read-only SA を切って WIF で project repo から impersonate させ、custom domain の DNS 要件を読み取って Cloudflare 等に同期する構成が可能（上記 example 参照）。
+
+</details>
+
+### `iam_bindings`
+
+Grants project-level roles to **any member**: SAs in other projects, groups, and Workload Identity principals (`principal://` / `principalSet://`). Use it for members that `users` / `ci_service_account` / `service_accounts` / the runtime-SA grants cannot express. The grants are non-authoritative (`google_project_iam_member`) and do not touch other bindings. (v2.1.0+)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | `string` | (required) | Unique name of the grant (1–63 characters of letters, digits, `_`, `.`, `-`). Part of the resource key |
+| `role` | `string` | (required) | `roles/...`, or a custom role `projects/<id>/roles/...` / `organizations/<id>/roles/...` |
+| `members` | `map(string)` | (required) | `{ <label>: <member> }`. The label (same charset as `name`) is part of the resource key. The member starts with `user:`, `serviceAccount:`, `group:`, `principal://iam.googleapis.com/` or `principalSet://iam.googleapis.com/`. `domain:` is not supported; `allUsers` / `allAuthenticatedUsers` (public access) are out of scope |
+| `condition` | `object \| null` | `null` | IAM condition `{ title, expression, description? }`. `null` (an empty `condition:` in YAML) is the same as omitting it. Not allowed on the basic roles `roles/viewer` / `roles/editor` / `roles/owner` (GCP rejects conditional basic-role bindings) |
+
+- Resource address: `google_project_iam_member.binding["<name>|<label>"]`. Reordering or adding entries, or changing one member's value, does not recreate the other grants.
+- Overlaps are rejected. Emails in `user:` / `serviceAccount:` / `group:` are compared case-insensitively (the provider normalizes them); `principal://` / `principalSet://` are compared as written.
+  - Within `iam_bindings`: the same role, member and condition (including no condition) twice. A different condition is a different grant (the provider identifies a grant by its condition too), so it is allowed.
+  - An **unconditional** entry with the same role and member as another project-level grant of this module (`users`, the CI SA, `service_accounts`, the runtime SAs, ...) is rejected. Non-authoritative grants of the same pair share one binding, so removing one would remove the other. Overlaps with grants decided by the inputs alone fail at plan. Overlaps with grants that need the project number (the default compute SA, the Pub/Sub service agent) **cannot always be stopped at plan**: when the number is not known at plan time (first creation, or a plan that changes the API set), they fail at apply instead. The dispatch Action rejects the overlaps it can see in `settings.yml` (explicit roles) before creating a run.
+- A condition does not narrow an unconditional grant of the same role to the same member made outside this module.
+- Placeholders such as `${BOOTSTRAP_PROJECT_NUMBER}` are expanded in member values (like `wif.pool_resource_name`). An unresolved `${...}` in a member, role or condition stops the dispatch Action before it creates a run.
+
+Example: let a CI workflow (GitHub Actions through Workload Identity) read the project's state, e.g. whether the project is scheduled for deletion:
+
+```yaml
+iam_bindings:
+  - name: ci-project-viewer
+    role: roles/browser
+    members:
+      github: "principalSet://iam.googleapis.com/projects/${BOOTSTRAP_PROJECT_NUMBER}/locations/global/workloadIdentityPools/terraform-cloud/attribute.repository/my-org/my-service"
+  - name: external-reader
+    role: roles/storage.objectViewer   # conditions are not allowed on roles/viewer / editor / owner
+    members:
+      reporting: "serviceAccount:reporting@example-other-project.iam.gserviceaccount.com"
+    condition:
+      title: until-2030
+      expression: 'request.time < timestamp("2030-01-01T00:00:00Z")'
+```
+
+The granted members are in the output `iam_binding_members` (keyed by `"<name>|<label>"`).
+
+<details><summary>Ja</summary>
+
+**任意の member**（別の project の SA、group、Workload Identity の `principal://` / `principalSet://`）に project-level の role を付ける。`users` / `ci_service_account` / `service_accounts` / 実行 SA の付与で表せない member に使う。付与は non-authoritative（`google_project_iam_member`）で、ほかの付与を壊さない。（v2.1.0 以降）
+
+- `name`: 付与の一意な名前（英数字・`_`・`.`・`-` の 1〜63 文字）。resource のキーの一部
+- `role`: `roles/...`、または custom role（`projects/<id>/roles/...` / `organizations/<id>/roles/...`）
+- `members`: `{ <label>: <member> }`。label（`name` と同じ文字）は resource のキーの一部。member は `user:` / `serviceAccount:` / `group:` / `principal://iam.googleapis.com/` / `principalSet://iam.googleapis.com/` のいずれかで始まる。`domain:` は非対応、`allUsers` / `allAuthenticatedUsers`（公開）は対象外
+- `condition`: IAM の条件 `{ title, expression, description? }`（任意）。`null`（YAML の空の `condition:`）は省略と同じ。基本ロール（`roles/viewer` / `roles/editor` / `roles/owner`）には付けられない（GCP が条件付きの基本ロールを拒否する）
+- resource のアドレスは `google_project_iam_member.binding["<name>|<label>"]`。並べ替え・追加や、1 件の member の値の変更で、ほかの付与は作り直されない
+- 重なりは断る。`user:` / `serviceAccount:` / `group:` のメールは大文字・小文字を区別せずに比べる（provider が正規化する）。`principal://` / `principalSet://` は書いたまま比べる
+  - `iam_bindings` の中で、同じ role・member・condition（なしを含む）を二重に持てない。condition が違えば別の付与（provider も condition を含めて識別する）なので通す
+  - **条件なし**の entry が、このモジュールのほかの project 単位の付与（`users`、CI SA、`service_accounts`、実行 SA など）と同じ role・member だと断る。non-authoritative な付与は同じ組を 1 つの binding として共有し、片方を外すともう片方も外れるため。入力だけで決まる付与との重なりは plan で止まる。project number が要る付与（既定 compute SA・Pub/Sub の service agent）との重なりは、**plan で止められないことがある**（初回作成や API の構成が変わる plan で project number が plan 時に決まらないときは apply で止まる）。dispatch Action も `settings.yml` から分かる重なり（明示した role）を run の前に断る
+- 条件は、モジュールの外にある同じ role・同じ member の条件なしの付与を狭めない
+- member の値でも `${BOOTSTRAP_PROJECT_NUMBER}` などの placeholder が展開される（`wif.pool_resource_name` と同じ）。member・role・condition に未解決の `${...}` が残っていれば、dispatch Action が run を作る前に止める
+
+例: CI のワークフロー（Workload Identity 経由の GitHub Actions）に、project の状態（削除の予約中かどうかなど）を読ませる（上の YAML）。付けた member は output `iam_binding_members`（キーは `"<name>|<label>"`）で確かめられる。
 
 </details>

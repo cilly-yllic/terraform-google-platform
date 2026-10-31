@@ -38,7 +38,10 @@ import {
   parseCloudSqlSecrets,
 } from "../lib/dispatch/index.js";
 import { buildTemplateFiles } from "../lib/templates/index.js";
-import { resolveModuleVersion } from "../lib/registry/index.js";
+import {
+  assertModuleVersionSupportsTemplate,
+  resolveModuleVersion,
+} from "../lib/registry/index.js";
 import { buildTarball } from "../lib/config-version/index.js";
 
 async function run(): Promise<void> {
@@ -167,6 +170,10 @@ async function run(): Promise<void> {
     // 拾わない仕様 (`0.0.0-rcN` しか公開されていない現状だと "no versions
     // available" になる) ため、Action 側で明示的に最新版を埋める。
     const resolvedModuleVersion = await resolveModuleVersion(moduleVersion);
+    // 生成する root module が要求する版より古い module への明確な固定は、run を作る前に止める。
+    if (moduleVersion.trim() !== "") {
+      assertModuleVersionSupportsTemplate(resolvedModuleVersion);
+    }
     const wasAutoResolved = !moduleVersion || moduleVersion.trim() === "";
     core.info(
       wasAutoResolved

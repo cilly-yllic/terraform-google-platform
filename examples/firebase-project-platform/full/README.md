@@ -1,10 +1,10 @@
 # examples/full
 
-Configuration with every feature on. Exercises Firebase core / extensions / GCP services / IAM (users + ci_service_account + service_accounts).
+Configuration with every feature on. Exercises Firebase core / extensions / GCP services / IAM (users + ci_service_account + service_accounts + iam_bindings).
 
 <details><summary>Ja</summary>
 
-全機能 on の構成例。Firebase core / extensions / GCP services / IAM (users + ci_service_account + service_accounts) をすべて使う。
+全機能 on の構成例。Firebase core / extensions / GCP services / IAM (users + ci_service_account + service_accounts + iam_bindings) をすべて使う。
 
 </details>
 
@@ -15,6 +15,7 @@ Configuration with every feature on. Exercises Firebase core / extensions / GCP 
 - Multiple users in `users` (editor + deploy / viewer)
 - `ci_service_account` configured explicitly with `additional_roles`
 - A deploy SA defined in `service_accounts`
+- A grant to a Workload Identity `principalSet` via `iam_bindings`
 - Multiple databases via the `firestore` list (default + 2 extra)
 - Additional buckets + a Firestore-backup bucket via `storage.buckets` + `storage.firestore_backup`
 - Cloud SQL provisioned via the `data_connect` list (shared instance dedup + an independent instance)
@@ -26,6 +27,7 @@ Configuration with every feature on. Exercises Firebase core / extensions / GCP 
 - `users` に複数ユーザー (editor + deploy / viewer)
 - `ci_service_account` を `additional_roles` 付きで明示指定
 - `service_accounts` で deploy 用追加 SA を作成
+- `iam_bindings` で Workload Identity の `principalSet` に role を付与
 - `firestore` list で複数 DB を作成 (default + 追加 2 件)
 - `storage.buckets` + `storage.firestore_backup` で追加 bucket と backup bucket を作成
 - `data_connect` list で Cloud SQL も含めて作成 (共有 instance dedup + 独立 instance)
@@ -40,7 +42,7 @@ Configuration with every feature on. Exercises Firebase core / extensions / GCP 
 | Firebase core | Firebase project / Identity Platform / Firestore default + 2 databases (`analytics-db`, `logs-db`) / RTDB / Hosting site + Web App / Storage 2 buckets (`{project_id}-icons`, `{project_id}-uploads`, `auto_prefix=true`) + Firestore-backup bucket (`{project_id}-firestore-backups`). default bucket は `default_bucket` 未指定 (=false) なので未作成 — Console で事前作成済みなら `default_bucket = true` を足す / Data Connect service + Cloud SQL instance |
 | Firebase extensions | FCM / Remote Config / App Check / Crashlytics / Performance / Analytics / Extensions all API-enabled |
 | GCP services | Secret Manager / Cloud Tasks / Cloud Scheduler / Pub/Sub / Eventarc / Cloud Run / Cloud Functions all API-enabled |
-| IAM | 2 user bindings + CI SA (`ci-deploy` + auto roles + `roles/viewer`) + additional SA (`app-runtime`) |
+| IAM | 2 user bindings + CI SA (`ci-deploy` + auto roles + `roles/viewer`) + additional SA (`app-runtime`) + 1 `iam_bindings` grant (`principalSet`) |
 
 Details: [`main.tf`](./main.tf).
 

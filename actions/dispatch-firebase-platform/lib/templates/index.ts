@@ -38,6 +38,8 @@ ${VERSION_PLACEHOLDER}
 
   app_hosting_compute_sa = var.app_hosting_compute_sa
   default_compute_sa     = var.default_compute_sa
+
+  iam_bindings = var.iam_bindings
 }
 
 # Console で Authentication を開始済み (= Identity Platform にアップグレード済み) の
@@ -217,6 +219,11 @@ variable "ci_service_account" {
 }
 
 variable "service_accounts" {
+  type    = any
+  default = []
+}
+
+variable "iam_bindings" {
   type    = any
   default = []
 }
