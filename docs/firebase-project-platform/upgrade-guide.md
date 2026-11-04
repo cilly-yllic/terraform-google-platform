@@ -176,7 +176,7 @@ dispatch Action は、知っている key だけを terraform に渡す。Action
 
 ---
 
-## v2.2.0 (unreleased)
+## v2.2.0 (2026-11-04)
 
 ### Features
 - `monitoring`: Cloud Monitoring notification channels (`email` / `pubsub`), log-based counter metrics and alert policies (`log_match` / `threshold` / `absent` conditions), as `{ notification_channels, log_metrics, alert_policies }` maps keyed by name. For pubsub channels, the Monitoring notification service agent gets `roles/pubsub.publisher` on the topic (the topic is not created). `monitoring.googleapis.com` / `logging.googleapis.com` (and `pubsub.googleapis.com` for pubsub channels) are enabled only when something is declared. See [variables-reference.md](./variables-reference.md#monitoring).
