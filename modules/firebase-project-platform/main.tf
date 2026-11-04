@@ -61,6 +61,14 @@ locals {
   enable_eventarc        = var.eventarc != null
   enable_cloud_run       = var.cloud_run != null
   enable_cloud_functions = var.cloud_functions != null
+  # monitoring は既定 {}。どれか 1 つでも宣言があれば有効
+  enable_monitoring = (
+    length(var.monitoring.notification_channels) > 0 ||
+    length(var.monitoring.log_metrics) > 0 ||
+    length(var.monitoring.alert_policies) > 0
+  )
+  # pubsub の通知先があれば、通知用 service agent の email に project number が要る
+  monitoring_pubsub_channels = anytrue([for c in values(var.monitoring.notification_channels) : c.type == "pubsub"])
 
   # -- normalised configs (true → null, object → そのまま, null → ignored) ----
   # 前提: 各変数は type=any で「null=無効 / true=デフォルトで有効 / object=詳細指定」
@@ -424,6 +432,14 @@ locals {
     ] : [],
     local.enable_cloud_run ? [
       "run.googleapis.com",
+    ] : [],
+    local.enable_monitoring ? [
+      "monitoring.googleapis.com",
+      "logging.googleapis.com",
+    ] : [],
+    # pubsub の通知先: topic への付与 (google_pubsub_topic_iam_member) に Pub/Sub API が要る
+    local.monitoring_pubsub_channels ? [
+      "pubsub.googleapis.com",
     ] : [],
     local.enable_cloud_functions ? [
       "cloudfunctions.googleapis.com",
@@ -1073,6 +1089,24 @@ module "eventarc" {
 }
 
 # ---------------------------------------------------------------------------
+# Monitoring (通知先・log-based metric・alert policy)
+# ---------------------------------------------------------------------------
+
+module "monitoring" {
+  count   = local.enable_monitoring ? 1 : 0
+  source  = "./modules/monitoring"
+  project = var.project_id
+  # pubsub の通知先があるときだけ読む (data.google_project の count 条件を参照)
+  project_number = local.monitoring_pubsub_channels ? one(data.google_project.this[*].number) : ""
+
+  notification_channels = var.monitoring.notification_channels
+  log_metrics           = var.monitoring.log_metrics
+  alert_policies        = var.monitoring.alert_policies
+
+  depends_on = [google_project_service.this]
+}
+
+# ---------------------------------------------------------------------------
 # CI Service Account – auto-determined roles from enabled features
 # ---------------------------------------------------------------------------
 
@@ -1169,12 +1203,14 @@ data "google_project" "this" {
   # cloud_functions 有効時 (gen2 compute SA bindings 用) か、default_compute_sa の付与が
   # 指定された時 (SA email の project number 解決用) に取得する。
   # storage.firestore_backup.export_platform = "cloud_run" の export SA 解決にも使う。
+  # monitoring の pubsub の通知先 (通知用 service agent の email) にも使う。
   count = (
     local.enable_cloud_functions ||
     length(var.default_compute_sa.roles) > 0 ||
     length(var.default_compute_sa.self_roles) > 0 ||
     length(var.default_compute_sa.bucket_roles) > 0 ||
-    try(local.storage_cfg.firestore_backup.export_platform, "cloud_functions") == "cloud_run"
+    try(local.storage_cfg.firestore_backup.export_platform, "cloud_functions") == "cloud_run" ||
+    local.monitoring_pubsub_channels
   ) ? 1 : 0
   project_id = var.project_id
   # depends_on は不変な base API (google_project_service.base) だけに付ける。

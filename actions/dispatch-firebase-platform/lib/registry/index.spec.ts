@@ -109,14 +109,14 @@ describe("resolveModuleVersion", () => {
 });
 
 describe("assertModuleVersionSupportsTemplate", () => {
-  it.each(["2", "2.0", "= 2.0", "=2", "2.0.3", "=2.0.3", "v2.0.0", "~> 2.0.3", "~> 1.4", ">= 2.0.0, < 2.1.0", "<= 2.0.9", "1.5.0"])(
-    "rejects %s (only allows versions older than 2.1.0)",
+  it.each(["2", "2.0", "= 2.0", "=2", "2.0.3", "=2.0.3", "v2.0.0", "~> 2.0.3", "~> 1.4", ">= 2.0.0, < 2.1.0", "<= 2.0.9", "1.5.0", "2.1.0", "2.1", "~> 2.1.0", "< 2.2.0", "<= 2.1.9"])(
+    "rejects %s (only allows versions older than 2.2.0)",
     (c) => {
-      expect(() => assertModuleVersionSupportsTemplate(c)).toThrow(/requires 2\.1\.0 or later/);
+      expect(() => assertModuleVersionSupportsTemplate(c)).toThrow(/requires 2\.2\.0 or later/);
     },
   );
 
-  it.each(["~> 2.0", "~> 2.1", "2.1.0", "2.1.0-rc.1", "~> 2.1.0", ">= 2.0.0", "~> 2", "2.2.0", "< 3.0.0", "3", "2.1"])(
+  it.each(["~> 2.0", "~> 2.1", "~> 2.2", "2.2.0", "2.2.0-rc.1", "~> 2.2.0", ">= 2.0.0", "~> 2", "2.3.0", "< 3.0.0", "3", "2.2"])(
     "accepts %s",
     (c) => {
       expect(() => assertModuleVersionSupportsTemplate(c)).not.toThrow();

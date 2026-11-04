@@ -736,3 +736,257 @@ variable "iam_bindings" {
     error_message = "iam_bindings grants the same role to the same member (with the same condition) more than once. Emails in user:/serviceAccount:/group: are compared case-insensitively."
   }
 }
+
+# ---------------------------------------------------------------------------
+# Monitoring – 通知先・log-based metric・alert policy
+# ---------------------------------------------------------------------------
+
+variable "monitoring" {
+  description = <<-EOT
+    Cloud Monitoring の通知先・log-based metric・alert policy。未指定 (既定の {}) なら何も作らない。
+    各 map の key は resource のキーになるので、並べ替え・追加でほかの resource は作り直されない。
+
+      notification_channels = { <name> = { type, display_name?, labels } }
+        type         = "email" | "pubsub"
+        display_name = 表示名 (省略時は key)
+        labels       = email:  { email_address = "ops@example.com" }
+                       pubsub: { topic = "alerts" } (名前なら同じ project の topic。
+                               "projects/<id>/topics/<name>" なら別の project の topic も指せる)
+                       pubsub の topic はこのモジュールでは作らない。Monitoring の通知用 service agent
+                       (service-<number>@gcp-sa-monitoring-notification.iam.gserviceaccount.com) に
+                       topic 単位で roles/pubsub.publisher を付ける
+
+      log_metrics = { <metric name> = { filter, description?, label_extractors?, labels? } }
+        log-based の counter (DELTA / INT64)。metric type は logging.googleapis.com/user/<metric name>
+        metric name は 100 文字まで、英数字と _-.,+!*'()%/ ("/" は階層の区切りで、先頭には置けない)
+        label_extractors = { <label> = "EXTRACT(jsonPayload.code)" など }。label は STRING で宣言する
+        labels           = { <label> = <説明> }。label_extractors にある label の説明 (任意)
+
+      alert_policies = { <name> = { display_name, channels, conditions, documentation?, severity?,
+                                    combiner?, notification_rate_limit?, auto_close? } }
+        channels   = notification_channels の key のリスト
+        severity   = "CRITICAL" | "ERROR" | "WARNING" (任意)
+        combiner   = "OR" (既定) | "AND" | "AND_WITH_MATCHING_RESOURCE"
+        conditions = [{ display_name, log_match? | threshold? | absent? }] (各 condition に 1 つだけ)
+          log_match = { filter, label_extractors? }  ログが一致したら通知 (policy の condition は 1 つだけ)
+          threshold = { filter, comparison, threshold_value, duration, alignment_period?,
+                        per_series_aligner?, cross_series_reducer?, group_by_fields? }
+                      comparison は "COMPARISON_GT" | "COMPARISON_LT"。duration は 60 秒の倍数 ("0s" 可)
+          absent    = { filter, duration, alignment_period?, per_series_aligner?,
+                        cross_series_reducer?, group_by_fields? }
+                      duration は 120 秒以上かつ 60 秒の倍数
+          集計 (aggregations) はどれか 1 つでも書けば付ける。alignment_period は 60 秒以上。
+          ALIGN_NONE 以外の aligner には alignment_period、REDUCE_NONE 以外の reducer には aligner
+          (ALIGN_NONE 以外) と alignment_period、group_by_fields には reducer が要る
+        notification_rate_limit = log_match の policy の通知の間隔 (既定 "300s")。log_match の policy にだけ書ける
+        auto_close              = incident を自動で閉じるまでの時間 (例 "1800s"。任意)
+        filter がこのモジュールの log_metrics を参照する場合も、metric を先に作る
+
+    例:
+      {
+        notification_channels = {
+          ops    = { type = "email", labels = { email_address = "ops@example.com" } }
+          alerts = { type = "pubsub", labels = { topic = "alerts" } }
+        }
+        log_metrics = {
+          app-error-events = { filter = "severity>=ERROR AND resource.type=\"cloud_run_revision\"" }
+        }
+        alert_policies = {
+          app-errors = {
+            display_name = "App errors"
+            channels     = ["ops", "alerts"]
+            conditions = [{
+              display_name = "error events > 0"
+              threshold = {
+                filter             = "metric.type=\"logging.googleapis.com/user/app-error-events\" AND resource.type=\"cloud_run_revision\""
+                comparison         = "COMPARISON_GT"
+                threshold_value    = 0
+                duration           = "0s"
+                alignment_period   = "300s"
+                per_series_aligner = "ALIGN_SUM"
+              }
+            }]
+          }
+        }
+      }
+  EOT
+  type = object({
+    notification_channels = optional(map(object({
+      type         = string
+      display_name = optional(string)
+      labels       = map(string)
+    })), {})
+    log_metrics = optional(map(object({
+      filter           = string
+      description      = optional(string)
+      label_extractors = optional(map(string), {})
+      labels           = optional(map(string), {})
+    })), {})
+    alert_policies = optional(map(object({
+      display_name            = string
+      channels                = list(string)
+      documentation           = optional(string)
+      severity                = optional(string)
+      combiner                = optional(string, "OR")
+      notification_rate_limit = optional(string)
+      auto_close              = optional(string)
+      conditions = list(object({
+        display_name = string
+        log_match = optional(object({
+          filter           = string
+          label_extractors = optional(map(string), {})
+        }))
+        threshold = optional(object({
+          filter               = string
+          comparison           = string
+          threshold_value      = number
+          duration             = string
+          alignment_period     = optional(string)
+          per_series_aligner   = optional(string)
+          cross_series_reducer = optional(string)
+          group_by_fields      = optional(list(string), [])
+        }))
+        absent = optional(object({
+          filter               = string
+          duration             = string
+          alignment_period     = optional(string)
+          per_series_aligner   = optional(string)
+          cross_series_reducer = optional(string)
+          group_by_fields      = optional(list(string), [])
+        }))
+      }))
+    })), {})
+  })
+  default  = {}
+  nullable = false
+
+  validation {
+    condition = alltrue(concat(
+      [for k in keys(var.monitoring.notification_channels) : can(regex("^[A-Za-z0-9_.-]{1,63}$", k))],
+      [for k in keys(var.monitoring.alert_policies) : can(regex("^[A-Za-z0-9_.-]{1,63}$", k))],
+      # Logging の metric 名の規則: 100 文字まで、A-Z a-z 0-9 と _-.,+!*'()%/。"/" は階層の区切りで先頭に置けない
+      [for k in keys(var.monitoring.log_metrics) : can(regex("^[A-Za-z0-9_.,+!*'()%-][A-Za-z0-9_.,+!*'()%/-]{0,99}$", k))],
+    ))
+    error_message = "monitoring: the keys of notification_channels / alert_policies must be 1-63 characters of letters, digits, '_', '.' or '-'. log_metrics names must be 1-100 characters of letters, digits and _-.,+!*'()%/ (not starting with '/')."
+  }
+
+  validation {
+    condition = alltrue([
+      for c in values(var.monitoring.notification_channels) : (
+        c.type == "email" ? (length(c.labels) == 1 && contains(keys(c.labels), "email_address") && can(regex("^[^@\\s]+@[^@\\s]+$", c.labels["email_address"]))) :
+        c.type == "pubsub" ? (length(c.labels) == 1 && contains(keys(c.labels), "topic") && can(regex("^(projects/[^/]+/topics/)?[A-Za-z][A-Za-z0-9._~+%-]{2,254}$", c.labels["topic"]))) :
+        false
+      )
+    ])
+    error_message = "monitoring.notification_channels[*]: type must be \"email\" (labels = { email_address = \"...\" }) or \"pubsub\" (labels = { topic = \"<name>\" or \"projects/<id>/topics/<name>\" })."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for m in values(var.monitoring.log_metrics) : [
+        for l in keys(m.labels) : contains(keys(m.label_extractors), l)
+      ]
+    ]))
+    error_message = "monitoring.log_metrics[*].labels may only describe labels that are in label_extractors."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for p in values(var.monitoring.alert_policies) : [
+        for ch in p.channels : contains(keys(var.monitoring.notification_channels), ch)
+      ]
+    ]))
+    error_message = "monitoring.alert_policies[*].channels must be keys of monitoring.notification_channels."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for p in values(var.monitoring.alert_policies) : concat(
+        [length(p.conditions) > 0],
+        [for c in p.conditions : length([for x in [c.log_match, c.threshold, c.absent] : x if x != null]) == 1],
+      )
+    ]))
+    error_message = "monitoring.alert_policies[*].conditions must be non-empty, and each condition must set exactly one of log_match / threshold / absent."
+  }
+
+  validation {
+    condition = alltrue([
+      for p in values(var.monitoring.alert_policies) : (
+        anytrue([for c in p.conditions : c.log_match != null]) ? length(p.conditions) == 1 : p.notification_rate_limit == null
+      )
+    ])
+    error_message = "monitoring.alert_policies[*]: a policy with a log_match condition must have only that condition, and notification_rate_limit can only be set on such a policy."
+  }
+
+  validation {
+    condition = alltrue([
+      for p in values(var.monitoring.alert_policies) : (
+        (p.severity == null || contains(["CRITICAL", "ERROR", "WARNING"], coalesce(p.severity, "-"))) &&
+        contains(["OR", "AND", "AND_WITH_MATCHING_RESOURCE"], p.combiner)
+      )
+    ])
+    error_message = "monitoring.alert_policies[*]: severity must be CRITICAL, ERROR or WARNING, and combiner must be OR, AND or AND_WITH_MATCHING_RESOURCE."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for p in values(var.monitoring.alert_policies) : concat(
+        [for d in [p.notification_rate_limit, p.auto_close] : d == null || can(regex("^[0-9]+s$", coalesce(d, "-")))],
+        flatten([
+          for c in p.conditions : [
+            for d in [try(c.threshold.duration, null), try(c.threshold.alignment_period, null), try(c.absent.duration, null), try(c.absent.alignment_period, null)] :
+            d == null || can(regex("^[0-9]+s$", coalesce(d, "-")))
+          ]
+        ]),
+      )
+    ]))
+    error_message = "monitoring.alert_policies[*]: durations (duration / alignment_period / notification_rate_limit / auto_close) must be seconds like \"300s\"."
+  }
+
+  # MetricThreshold.comparison は GT / LT だけを受け付ける (API の仕様)。
+  validation {
+    condition = alltrue(flatten([
+      for p in values(var.monitoring.alert_policies) : [
+        for c in p.conditions : c.threshold == null || contains(["COMPARISON_GT", "COMPARISON_LT"], try(c.threshold.comparison, ""))
+      ]
+    ]))
+    error_message = "monitoring.alert_policies[*].conditions[*].threshold.comparison must be COMPARISON_GT or COMPARISON_LT (the only comparisons Cloud Monitoring supports for metric thresholds)."
+  }
+
+  # API の範囲: threshold.duration は 60 秒の倍数 (0 を含む)、absent.duration は 120 秒以上かつ 60 秒の倍数、
+  # alignment_period は 60 秒以上 90000 秒（25 時間）以下。書式の誤りは上の validation が出すので、ここでは try で通す。
+  validation {
+    condition = alltrue(flatten([
+      for p in values(var.monitoring.alert_policies) : [
+        for c in p.conditions : [
+          c.threshold == null || try(tonumber(trimsuffix(c.threshold.duration, "s")) % 60 == 0, true),
+          c.absent == null || try(tonumber(trimsuffix(c.absent.duration, "s")) >= 120 && tonumber(trimsuffix(c.absent.duration, "s")) % 60 == 0, true),
+          try(c.threshold.alignment_period, null) == null || try(tonumber(trimsuffix(c.threshold.alignment_period, "s")) >= 60 && tonumber(trimsuffix(c.threshold.alignment_period, "s")) <= 90000, true),
+          try(c.absent.alignment_period, null) == null || try(tonumber(trimsuffix(c.absent.alignment_period, "s")) >= 60 && tonumber(trimsuffix(c.absent.alignment_period, "s")) <= 90000, true),
+        ]
+      ]
+    ]))
+    error_message = "monitoring.alert_policies[*].conditions[*]: threshold.duration must be a multiple of 60s (e.g. \"0s\", \"300s\"), absent.duration must be at least 120s and a multiple of 60s, and alignment_period must be between 60s and 90000s."
+  }
+
+  # aggregations は API が受け付ける組み合わせだけを通す (黙って捨てたり、apply で失敗したりしないように):
+  #   - ALIGN_NONE 以外の per_series_aligner には alignment_period が要る
+  #   - REDUCE_NONE 以外の cross_series_reducer には、ALIGN_NONE 以外の per_series_aligner と alignment_period が要る
+  #   - group_by_fields は REDUCE_NONE 以外の cross_series_reducer と一緒にだけ意味を持つ
+  validation {
+    condition = alltrue(flatten([
+      for p in values(var.monitoring.alert_policies) : [
+        for c in p.conditions : [
+          for a in [c.threshold, c.absent] : (
+            (a.per_series_aligner == null || a.per_series_aligner == "ALIGN_NONE" || a.alignment_period != null) &&
+            (a.cross_series_reducer == null || a.cross_series_reducer == "REDUCE_NONE" || (
+              a.per_series_aligner != null && a.per_series_aligner != "ALIGN_NONE" && a.alignment_period != null
+            )) &&
+            (length(a.group_by_fields) == 0 || (a.cross_series_reducer != null && a.cross_series_reducer != "REDUCE_NONE"))
+          ) if a != null
+        ]
+      ]
+    ]))
+    error_message = "monitoring.alert_policies[*].conditions[*] aggregation: a per_series_aligner other than ALIGN_NONE needs alignment_period; a cross_series_reducer other than REDUCE_NONE needs a per_series_aligner other than ALIGN_NONE and alignment_period; group_by_fields needs a cross_series_reducer other than REDUCE_NONE."
+  }
+}

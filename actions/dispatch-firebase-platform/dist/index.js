@@ -50279,6 +50279,9 @@ const PASSTHROUGH_KEYS = [
     "default_compute_sa",
     // 任意の member への project-level の付与 ([{ name, role, members, condition? }])。
     "iam_bindings",
+    // Cloud Monitoring の通知先・log-based metric・alert policy
+    // ({ notification_channels, log_metrics, alert_policies })。
+    "monitoring",
 ];
 // v1 で実行 SA の付与に使っていた key。v2.0.0 で app_hosting_compute_sa / default_compute_sa に
 // まとめた。黙って捨てると付与が消える plan になるので、読まずに止める
@@ -50563,6 +50566,220 @@ function validateIamBindings(firebasePlatform, projectId = "") {
         }
     });
 }
+// monitoring ({ notification_channels, log_metrics, alert_policies })。terraform の object 変換は
+// 未知の属性を黙って捨てるので、打ち間違い (例 alert_policy) は通知が作られないまま通る。
+// 形 (未知の key・型・condition の種類・channels の参照先) を Action でも確かめ、run を作る前に止める。
+// 値の細かい検査 (severity・duration の書式など) は module の validation (variables.tf) が行う。
+const MONITORING_KEYS = ["notification_channels", "log_metrics", "alert_policies"];
+const MONITORING_CHANNEL_KEYS = ["type", "display_name", "labels"];
+const MONITORING_CHANNEL_LABELS = {
+    email: "email_address",
+    pubsub: "topic",
+};
+const MONITORING_LOG_METRIC_KEYS = ["filter", "description", "label_extractors", "labels"];
+const MONITORING_POLICY_KEYS = [
+    "display_name",
+    "channels",
+    "documentation",
+    "severity",
+    "combiner",
+    "notification_rate_limit",
+    "auto_close",
+    "conditions",
+];
+const MONITORING_CONDITION_KINDS = ["log_match", "threshold", "absent"];
+const MONITORING_CONDITION_KEYS = ["display_name", ...MONITORING_CONDITION_KINDS];
+const MONITORING_AGGREGATION_KEYS = [
+    "alignment_period",
+    "per_series_aligner",
+    "cross_series_reducer",
+    "group_by_fields",
+];
+const MONITORING_KIND_KEYS = {
+    log_match: ["filter", "label_extractors"],
+    threshold: ["filter", "comparison", "threshold_value", "duration", ...MONITORING_AGGREGATION_KEYS],
+    absent: ["filter", "duration", ...MONITORING_AGGREGATION_KEYS],
+};
+const MONITORING_KIND_REQUIRED = {
+    log_match: ["filter"],
+    threshold: ["filter", "comparison", "threshold_value", "duration"],
+    absent: ["filter", "duration"],
+};
+// resource のキーになる map の key (module の validation と同じ)。
+const MONITORING_ID_RE = /^[A-Za-z0-9_.-]{1,63}$/;
+// Logging の metric 名の規則: 100 文字まで、A-Z a-z 0-9 と _-.,+!*'()%/。"/" は階層の区切りで先頭に置けない。
+const MONITORING_METRIC_ID_RE = /^[A-Za-z0-9_.,+!*'()%-][A-Za-z0-9_.,+!*'()%\/-]{0,99}$/;
+// MetricThreshold.comparison は GT / LT だけを受け付ける (API の仕様)。
+const MONITORING_COMPARISONS = new Set(["COMPARISON_GT", "COMPARISON_LT"]);
+function requireNonEmptyString(at, val) {
+    if (typeof val !== "string" || val === "") {
+        throw new Error(`${at} is required and must be a non-empty string (got ${JSON.stringify(val)})`);
+    }
+}
+function optionalString(at, val) {
+    if (val !== undefined && val !== null && typeof val !== "string") {
+        throw new Error(`${at} must be a string (got ${JSON.stringify(val)})`);
+    }
+}
+function optionalStringMap(at, val) {
+    if (val === undefined || val === null)
+        return;
+    if (!dispatch_isPlainObject(val) || !Object.values(val).every((v) => typeof v === "string")) {
+        throw new Error(`${at} must be a map of strings (got ${JSON.stringify(val)})`);
+    }
+}
+function monitoringMap(at, val) {
+    if (val === undefined || val === null)
+        return {};
+    if (!dispatch_isPlainObject(val)) {
+        throw new Error(`${at} must be a map of { <name>: { ... } } (got ${JSON.stringify(val)})`);
+    }
+    return val;
+}
+function validateMonitoring(firebasePlatform) {
+    if (!("monitoring" in firebasePlatform))
+        return;
+    const val = firebasePlatform.monitoring;
+    if (!dispatch_isPlainObject(val)) {
+        throw new Error(`monitoring must be an object { notification_channels, log_metrics, alert_policies } (got ${JSON.stringify(val)}). Omit the key to create nothing.`);
+    }
+    rejectUnknownKeys("monitoring", val, MONITORING_KEYS);
+    const channels = monitoringMap("monitoring.notification_channels", val.notification_channels);
+    for (const [name, ch] of Object.entries(channels)) {
+        const at = `monitoring.notification_channels.${name}`;
+        if (!MONITORING_ID_RE.test(name)) {
+            throw new Error(`${at}: the name must be 1-63 characters of letters, digits, '_', '.' or '-'`);
+        }
+        if (!dispatch_isPlainObject(ch)) {
+            throw new Error(`${at} must be an object { type, labels, display_name? } (got ${JSON.stringify(ch)})`);
+        }
+        rejectUnknownKeys(at, ch, MONITORING_CHANNEL_KEYS);
+        const label = typeof ch.type === "string" ? MONITORING_CHANNEL_LABELS[ch.type] : undefined;
+        if (label === undefined) {
+            throw new Error(`${at}.type must be "email" or "pubsub" (got ${JSON.stringify(ch.type)})`);
+        }
+        optionalString(`${at}.display_name`, ch.display_name);
+        if (!dispatch_isPlainObject(ch.labels)) {
+            throw new Error(`${at}.labels must be an object { ${label}: ... } (got ${JSON.stringify(ch.labels)})`);
+        }
+        rejectUnknownKeys(`${at}.labels`, ch.labels, [label]);
+        requireNonEmptyString(`${at}.labels.${label}`, ch.labels[label]);
+        rejectUnresolvedPlaceholder(`${at}.labels.${label}`, ch.labels[label]);
+    }
+    const metrics = monitoringMap("monitoring.log_metrics", val.log_metrics);
+    for (const [name, m] of Object.entries(metrics)) {
+        const at = `monitoring.log_metrics.${name}`;
+        if (!MONITORING_METRIC_ID_RE.test(name)) {
+            throw new Error(`${at}: the metric name must be 1-100 characters of letters, digits and _-.,+!*'()%/ (not starting with '/')`);
+        }
+        if (!dispatch_isPlainObject(m)) {
+            throw new Error(`${at} must be an object { filter, ... } (got ${JSON.stringify(m)})`);
+        }
+        rejectUnknownKeys(at, m, MONITORING_LOG_METRIC_KEYS);
+        requireNonEmptyString(`${at}.filter`, m.filter);
+        optionalString(`${at}.description`, m.description);
+        optionalStringMap(`${at}.label_extractors`, m.label_extractors);
+        optionalStringMap(`${at}.labels`, m.labels);
+        const extractors = dispatch_isPlainObject(m.label_extractors) ? Object.keys(m.label_extractors) : [];
+        const described = dispatch_isPlainObject(m.labels) ? Object.keys(m.labels) : [];
+        const orphan = described.filter((l) => !extractors.includes(l));
+        if (orphan.length > 0) {
+            throw new Error(`${at}.labels describes label(s) ${orphan.map((l) => `"${l}"`).join(", ")} that are not in label_extractors`);
+        }
+    }
+    const policies = monitoringMap("monitoring.alert_policies", val.alert_policies);
+    for (const [name, p] of Object.entries(policies)) {
+        const at = `monitoring.alert_policies.${name}`;
+        if (!MONITORING_ID_RE.test(name)) {
+            throw new Error(`${at}: the name must be 1-63 characters of letters, digits, '_', '.' or '-'`);
+        }
+        if (!dispatch_isPlainObject(p)) {
+            throw new Error(`${at} must be an object { display_name, channels, conditions, ... } (got ${JSON.stringify(p)})`);
+        }
+        rejectUnknownKeys(at, p, MONITORING_POLICY_KEYS);
+        requireNonEmptyString(`${at}.display_name`, p.display_name);
+        for (const key of ["documentation", "severity", "combiner", "notification_rate_limit", "auto_close"]) {
+            optionalString(`${at}.${key}`, p[key]);
+        }
+        if (!isStringArray(p.channels)) {
+            throw new Error(`${at}.channels must be a list of notification_channels names (got ${JSON.stringify(p.channels)})`);
+        }
+        for (const ch of p.channels) {
+            if (!Object.hasOwn(channels, ch)) {
+                throw new Error(`${at}.channels: "${ch}" is not in monitoring.notification_channels`);
+            }
+        }
+        if (!Array.isArray(p.conditions) || p.conditions.length === 0) {
+            throw new Error(`${at}.conditions must be a non-empty list (got ${JSON.stringify(p.conditions)})`);
+        }
+        let hasLogMatch = false;
+        p.conditions.forEach((c, i) => {
+            const cat = `${at}.conditions[${i}]`;
+            if (!dispatch_isPlainObject(c)) {
+                throw new Error(`${cat} must be an object { display_name, log_match | threshold | absent } (got ${JSON.stringify(c)})`);
+            }
+            rejectUnknownKeys(cat, c, MONITORING_CONDITION_KEYS);
+            requireNonEmptyString(`${cat}.display_name`, c.display_name);
+            const kinds = MONITORING_CONDITION_KINDS.filter((k) => c[k] !== undefined && c[k] !== null);
+            if (kinds.length !== 1) {
+                throw new Error(`${cat} must set exactly one of log_match / threshold / absent (got ${kinds.length === 0 ? "none" : kinds.join(", ")})`);
+            }
+            const kind = kinds[0];
+            const body = c[kind];
+            if (!dispatch_isPlainObject(body)) {
+                throw new Error(`${cat}.${kind} must be an object (got ${JSON.stringify(body)})`);
+            }
+            rejectUnknownKeys(`${cat}.${kind}`, body, MONITORING_KIND_KEYS[kind]);
+            for (const key of MONITORING_KIND_REQUIRED[kind]) {
+                if (key === "threshold_value") {
+                    if (typeof body[key] !== "number") {
+                        throw new Error(`${cat}.${kind}.threshold_value is required and must be a number (got ${JSON.stringify(body[key])})`);
+                    }
+                }
+                else {
+                    requireNonEmptyString(`${cat}.${kind}.${key}`, body[key]);
+                }
+            }
+            if (kind === "log_match") {
+                hasLogMatch = true;
+                optionalStringMap(`${cat}.log_match.label_extractors`, body.label_extractors);
+            }
+            else {
+                for (const key of ["alignment_period", "per_series_aligner", "cross_series_reducer"]) {
+                    optionalString(`${cat}.${kind}.${key}`, body[key]);
+                }
+                if (body.group_by_fields !== undefined && body.group_by_fields !== null && !isStringArray(body.group_by_fields)) {
+                    throw new Error(`${cat}.${kind}.group_by_fields must be a list of strings`);
+                }
+                if (kind === "threshold" && !MONITORING_COMPARISONS.has(body.comparison)) {
+                    throw new Error(`${cat}.threshold.comparison must be COMPARISON_GT or COMPARISON_LT (got ${JSON.stringify(body.comparison)})`);
+                }
+                // aggregations は API が受け付ける組み合わせだけを通す (module の validation と同じ)。
+                const set = (v) => v !== undefined && v !== null;
+                const aligner = body.per_series_aligner;
+                const reducer = body.cross_series_reducer;
+                const hasPeriod = set(body.alignment_period);
+                const realAligner = set(aligner) && aligner !== "ALIGN_NONE";
+                const realReducer = set(reducer) && reducer !== "REDUCE_NONE";
+                if (realAligner && !hasPeriod) {
+                    throw new Error(`${cat}.${kind}: per_series_aligner ${JSON.stringify(aligner)} needs alignment_period`);
+                }
+                if (realReducer && !(realAligner && hasPeriod)) {
+                    throw new Error(`${cat}.${kind}: cross_series_reducer ${JSON.stringify(reducer)} needs a per_series_aligner other than ALIGN_NONE and alignment_period`);
+                }
+                if (Array.isArray(body.group_by_fields) && body.group_by_fields.length > 0 && !realReducer) {
+                    throw new Error(`${cat}.${kind}: group_by_fields needs a cross_series_reducer other than REDUCE_NONE`);
+                }
+            }
+        });
+        if (hasLogMatch && p.conditions.length > 1) {
+            throw new Error(`${at}: a policy with a log_match condition must have only that condition`);
+        }
+        if (!hasLogMatch && p.notification_rate_limit !== undefined && p.notification_rate_limit !== null) {
+            throw new Error(`${at}.notification_rate_limit can only be set on a policy with a log_match condition`);
+        }
+    }
+}
 function toHclValue(val) {
     if (val === null || val === undefined)
         return "null";
@@ -50834,6 +51051,7 @@ function buildTerraformVariables(projectId, firebasePlatform) {
     rejectV1RemovedKeys(firebasePlatform);
     validateSaGrants(firebasePlatform);
     validateIamBindings(firebasePlatform, projectId);
+    validateMonitoring(firebasePlatform);
     const vars = [];
     vars.push({
         key: "project_id",
@@ -51226,6 +51444,7 @@ ${VERSION_PLACEHOLDER}
   default_compute_sa     = var.default_compute_sa
 
   iam_bindings = var.iam_bindings
+  monitoring   = var.monitoring
 }
 
 # Console で Authentication を開始済み (= Identity Platform にアップグレード済み) の
@@ -51413,6 +51632,11 @@ variable "iam_bindings" {
   type    = any
   default = []
 }
+
+variable "monitoring" {
+  type    = any
+  default = {}
+}
 `;
 const VERSIONS_TF = `terraform {
   required_version = ">= 1.10.0"
@@ -51543,9 +51767,9 @@ function compareDotIdentifiers(a, b) {
     return 0;
 }
 // この Action が生成する root module (lib/templates) が要求する module の最低版。
-// v2.1.0 で iam_bindings を常に module に渡すようになった (それより前の module は
+// v2.1.0 で iam_bindings、v2.2.0 で monitoring を常に module に渡すようになった (それより前の module は
 // "Unsupported argument" で失敗する)。
-const MIN_TEMPLATE_MODULE_VERSION = "2.1.0";
+const MIN_TEMPLATE_MODULE_VERSION = "2.2.0";
 const mainVersion = (v) => v.replace(/^v/, "").split("-", 2)[0];
 const padVersion = (segs) => [0, 1, 2].map((i) => segs[i] ?? 0).join(".");
 /**
@@ -51587,9 +51811,9 @@ function assertModuleVersionSupportsTemplate(constraint, min = MIN_TEMPLATE_MODU
     };
     if (constraint.split(",").some(tooOld)) {
         throw new Error(`module_version "${constraint}" only allows module versions older than ${min}, but this Action's root module requires ${min} or later ` +
-            `(it passes iam_bindings, which older modules reject as "Unsupported argument"). ` +
-            `Use e.g. "~> 2.1" (or "~> 2.0"), or pin the Action to a release that matches the module. ` +
-            "See docs/firebase-project-platform/upgrade-guide.md (v2.1.0).");
+            `(it passes iam_bindings and monitoring, which older modules reject as "Unsupported argument"). ` +
+            `Use e.g. "~> 2.2" (or "~> 2.0"), or pin the Action to a release that matches the module. ` +
+            `See docs/firebase-project-platform/upgrade-guide.md (v${min}).`);
     }
 }
 

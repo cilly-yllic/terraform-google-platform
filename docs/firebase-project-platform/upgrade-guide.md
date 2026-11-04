@@ -176,6 +176,37 @@ dispatch Action は、知っている key だけを terraform に渡す。Action
 
 ---
 
+## v2.2.0 (unreleased)
+
+### Features
+- `monitoring`: Cloud Monitoring notification channels (`email` / `pubsub`), log-based counter metrics and alert policies (`log_match` / `threshold` / `absent` conditions), as `{ notification_channels, log_metrics, alert_policies }` maps keyed by name. For pubsub channels, the Monitoring notification service agent gets `roles/pubsub.publisher` on the topic (the topic is not created). `monitoring.googleapis.com` / `logging.googleapis.com` (and `pubsub.googleapis.com` for pubsub channels) are enabled only when something is declared. See [variables-reference.md](./variables-reference.md#monitoring).
+- New submodule `modules/monitoring`.
+- New outputs `monitoring_notification_channel_ids`, `monitoring_alert_policy_names`, `monitoring_log_metric_types`.
+
+### GitHub Actions
+- `dispatch-firebase-platform` passes `monitoring` to the module and stops (before creating a run) when it has an unknown key, a wrong shape, a channel type other than `email` / `pubsub`, a policy channel that is not declared, a condition without exactly one of `log_match` / `threshold` / `absent`, a `log_match` policy with other conditions, `notification_rate_limit` on a non-`log_match` policy, a threshold `comparison` other than `COMPARISON_GT` / `COMPARISON_LT`, an aggregation the API rejects (e.g. an aligner or reducer without `alignment_period`, `group_by_fields` without a reducer), or an unresolved `${...}` in a channel label.
+- `dispatch-firebase-platform` now stops before creating a run when `module_version` clearly allows only versions older than v2.2.0 (e.g. `2.1.0`, `~> 2.1.0`).
+
+### Upgrade notes
+- Opt-in. Omitting `monitoring` produces no diff.
+- **Via the dispatch Action**: the v2.2.0 root template always passes `monitoring`, so update **both** the Action ref and `module_version` to v2.2.0 or later (`"~> 2.0"` / `"~> 2.2"` resolve to it; a pin that only allows v2.1.x or older, e.g. `2.1.0` or `~> 2.1.0`, stops the Action before it creates a run).
+- Older Actions (≤ v2.1.x) do not know `monitoring` and drop it without an error. Once you use it, do not run an older Action against the same `settings.yml`: the plan would **delete** the channels, metrics and policies.
+
+<details><summary>Ja</summary>
+
+- `monitoring`: Cloud Monitoring の通知先（`email` / `pubsub`）・log-based の counter metric・alert policy（condition は `log_match` / `threshold` / `absent`）を、名前をキーにした map `{ notification_channels, log_metrics, alert_policies }` で作る。pubsub の通知先では、Monitoring の通知用 service agent に topic 単位で `roles/pubsub.publisher` を付ける（topic は作らない）。`monitoring.googleapis.com` / `logging.googleapis.com`（pubsub の通知先があれば `pubsub.googleapis.com` も）は、何か宣言したときだけ有効化する。[variables-reference.md](./variables-reference.md#monitoring) 参照。
+- submodule `modules/monitoring` を追加。
+- output `monitoring_notification_channel_ids`・`monitoring_alert_policy_names`・`monitoring_log_metric_types` を追加。
+- `dispatch-firebase-platform` は `monitoring` を module に渡す。未知の key、形の誤り、`email` / `pubsub` 以外の通知先、宣言していない通知先を指す policy、`log_match` / `threshold` / `absent` をちょうど 1 つ持たない condition、ほかの condition を持つ `log_match` の policy、`log_match` でない policy の `notification_rate_limit`、`COMPARISON_GT` / `COMPARISON_LT` 以外の threshold の `comparison`、API が拒否する集計（`alignment_period` のない aligner・reducer、reducer のない `group_by_fields` など）、通知先の label に残った未解決の `${...}` があると、run を作る前に止まる。
+- `dispatch-firebase-platform` は、`module_version` が v2.2.0 より前の版しか許さないと明確に分かるとき（例 `2.1.0`、`~> 2.1.0`）、run を作る前に止まる。
+- opt-in。`monitoring` を書かなければ差分は出ない。
+- **dispatch Action 経由の場合**: v2.2.0 の root テンプレートは常に `monitoring` を渡すので、Action の ref と `module_version` の**両方**を v2.2.0 以降にする（`"~> 2.0"` / `"~> 2.2"` なら解決される。`2.1.0` や `~> 2.1.0` のように v2.1.x 以前しか許さない固定では、Action が run を作る前に止まる）。
+- v2.1.x 以前の Action は `monitoring` を知らず、エラーにせず捨てる。使い始めたら、同じ `settings.yml` に古い Action を流さない（plan が通知先・metric・policy を**消す**）。
+
+</details>
+
+---
+
 ## v2.1.0 (2026-10-31)
 
 ### Features
