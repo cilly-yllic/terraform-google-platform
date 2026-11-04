@@ -172,6 +172,7 @@ cloud-run-router は TFC notification が設定されていない限り呼ばれ
 | Resource-creating | `hosting` | `google_firebase_hosting_site` (one per `hosting[]`; the linked Web App comes from `web-app`), `google_firebase_hosting_custom_domain` (one per `custom_domains[]`) |
 | Resource-creating | `app-hosting` | `google_firebase_app_hosting_backend` (one per `app_hosting[]`), `google_firebase_app_hosting_domain` (one per `custom_domains[]`). The shared compute SA (`google_service_account` + `google_project_iam_member`) is created in the root `main.tf`, not the submodule. |
 | Resource-creating | `data-connect` | `google_firebase_data_connect_service`, `google_sql_database_instance`, `google_sql_database` |
+| Resource-creating | `monitoring` | `google_monitoring_notification_channel`, `google_logging_metric`, `google_monitoring_alert_policy`, and for pubsub channels `google_project_service_identity` + `google_pubsub_topic_iam_member` (topic-level publisher for the notification service agent) |
 | API placeholder | `fcm`, `remote-config`, `app-check`, `crashlytics`, `performance`, `analytics`, `extensions` | None (API enablement only) |
 | API placeholder | `secret-manager`, `cloud-tasks`, `cloud-scheduler`, `pubsub`, `eventarc` | None (API enablement only) |
 | Cross-cutting | `iam` | `google_project_iam_member`, `google_service_account` |
@@ -194,6 +195,7 @@ cloud-run-router は TFC notification が設定されていない限り呼ばれ
 | リソース作成型 | `hosting` | `google_firebase_hosting_site` (`hosting[]` ごとに 1 つ。link 先の Web App は `web-app` 側が作る)、`google_firebase_hosting_custom_domain` (`custom_domains[]` ごとに 1 つ) |
 | リソース作成型 | `app-hosting` | `google_firebase_app_hosting_backend` (`app_hosting[]` ごとに 1 つ)、`google_firebase_app_hosting_domain` (`custom_domains[]` ごとに 1 つ)。共有 compute SA (`google_service_account` + `google_project_iam_member`) は submodule ではなくルートの `main.tf` で作成される。 |
 | リソース作成型 | `data-connect` | `google_firebase_data_connect_service`, `google_sql_database_instance`, `google_sql_database` |
+| リソース作成型 | `monitoring` | `google_monitoring_notification_channel`, `google_logging_metric`, `google_monitoring_alert_policy`。pubsub の通知先では `google_project_service_identity` + `google_pubsub_topic_iam_member` (通知用 service agent への topic 単位の publisher) |
 | API有効化のみ | `fcm`, `remote-config`, `app-check`, `crashlytics`, `performance`, `analytics`, `extensions` | なし (API 有効化のみ) |
 | API有効化のみ | `secret-manager`, `cloud-tasks`, `cloud-scheduler`, `pubsub`, `eventarc` | なし (API 有効化のみ) |
 | 横断型 | `iam` | `google_project_iam_member`, `google_service_account` |

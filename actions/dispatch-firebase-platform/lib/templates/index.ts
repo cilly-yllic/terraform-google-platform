@@ -40,6 +40,7 @@ ${VERSION_PLACEHOLDER}
   default_compute_sa     = var.default_compute_sa
 
   iam_bindings = var.iam_bindings
+  monitoring   = var.monitoring
 }
 
 # Console で Authentication を開始済み (= Identity Platform にアップグレード済み) の
@@ -226,6 +227,11 @@ variable "service_accounts" {
 variable "iam_bindings" {
   type    = any
   default = []
+}
+
+variable "monitoring" {
+  type    = any
+  default = {}
 }
 `;
 

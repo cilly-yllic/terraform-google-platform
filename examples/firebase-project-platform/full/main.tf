@@ -245,4 +245,46 @@ module "firebase_platform" {
       }
     },
   ]
+
+  # Cloud Monitoring の通知先・log-based metric・alert policy。
+  # pubsub の通知先は topic を作らず、Monitoring の通知用 service agent に
+  # topic 単位で roles/pubsub.publisher を付ける (topic は別途作っておく)。
+  monitoring = {
+    notification_channels = {
+      ops    = { type = "email", labels = { email_address = "ops@example.com" } }
+      alerts = { type = "pubsub", labels = { topic = "alerts" } }
+    }
+    log_metrics = {
+      app-error-events = {
+        filter           = "severity>=ERROR AND resource.type=\"cloud_run_revision\""
+        label_extractors = { service = "EXTRACT(resource.labels.service_name)" }
+      }
+    }
+    alert_policies = {
+      app-errors = {
+        display_name = "App errors"
+        channels     = ["ops", "alerts"]
+        severity     = "ERROR"
+        conditions = [{
+          display_name = "error events > 0"
+          threshold = {
+            filter             = "metric.type=\"logging.googleapis.com/user/app-error-events\" AND resource.type=\"cloud_run_revision\""
+            comparison         = "COMPARISON_GT"
+            threshold_value    = 0
+            duration           = "0s"
+            alignment_period   = "300s"
+            per_series_aligner = "ALIGN_SUM"
+          }
+        }]
+      }
+      fatal-log = {
+        display_name = "Fatal log entry"
+        channels     = ["ops"]
+        conditions = [{
+          display_name = "severity=CRITICAL"
+          log_match    = { filter = "severity=CRITICAL" }
+        }]
+      }
+    }
+  }
 }

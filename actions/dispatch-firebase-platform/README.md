@@ -227,8 +227,34 @@ firebase_platform:
 
 - run を作る前に形を確かめて止める: 未知の key (例 `member` の打ち間違い)、`name` の重なり、`roles/` などで始まらない role、`user:` / `serviceAccount:` / `group:` / `principal://iam.googleapis.com/` / `principalSet://iam.googleapis.com/` で始まらない member (`domain:`・`allUsers`・`allAuthenticatedUsers` は対象外)、基本ロール (`roles/viewer` / `editor` / `owner`) への condition、同じ role・member・condition の二重の付与 (メールは大文字・小文字を区別しない)、条件なしで `users` / `ci_service_account` / `service_accounts` / `app_hosting_compute_sa` の明示した role と重なる付与、member・role・condition に残った未解決の `${...}`。terraform の object 変換は未知の属性を黙って捨てるため。`condition: null` は省略と同じ。
 - 機能から自動で決まる role との重なりは module が止める。入力だけで決まる付与は plan で止まるが、project number が要る付与 (既定 compute SA・Pub/Sub の service agent など) との重なりは、初回作成などで project number が決まらない plan では apply まで遅れることがある。
-- `module_version` が v2.1.0 より前の版しか許さないと明確に分かる場合 (例 `2.0.3`、`~> 2.0.3`) は、run を作る前に止める。
+- `module_version` が v2.1.0 より前の版しか許さないと明確に分かる場合 (例 `2.0.3`、`~> 2.0.3`) は、run を作る前に止める (v2.2.0 の Action からは v2.2.0 より前。[`monitoring`](#監視-monitoring) 参照)。
 - resource は `google_project_iam_member.binding["<name>|<label>"]`。詳細は [variables-reference.md](../../docs/firebase-project-platform/variables-reference.md#iam_bindings)。
+
+### 監視 (`monitoring`)
+
+Cloud Monitoring の通知先 (`email` / `pubsub`)・log-based metric・alert policy を作る (v2.2.0 以降。Action の ref と `module_version` の両方を v2.2.0 以降にする)。
+
+```yaml
+firebase_platform:
+  monitoring:
+    notification_channels:
+      ops:    { type: email,  labels: { email_address: ops@example.com } }
+      alerts: { type: pubsub, labels: { topic: alerts } }   # topic は作らない。通知用 service agent に publisher を付ける
+    log_metrics:
+      app-error-events: { filter: "severity>=ERROR" }
+    alert_policies:
+      fatal-log:
+        display_name: Fatal log entry
+        channels: [ops, alerts]
+        conditions:
+          - display_name: severity=CRITICAL
+            log_match: { filter: severity=CRITICAL }   # notification_rate_limit の既定は 300s
+```
+
+- run を作る前に形を確かめて止める: 未知の key (例 `alert_policy` の打ち間違い)、`email` / `pubsub` 以外の通知先、通知先の種類に合わない label、宣言していない通知先を指す policy、`log_match` / `threshold` / `absent` をちょうど 1 つ持たない condition、ほかの condition を持つ `log_match` の policy、`log_match` でない policy の `notification_rate_limit`、`COMPARISON_GT` / `COMPARISON_LT` 以外の threshold の `comparison`、API が拒否する集計 (`alignment_period` のない aligner・reducer、reducer のない `group_by_fields` など)、通知先の label に残った未解決の `${...}`。terraform の object 変換は未知の属性を黙って捨てるため。
+- severity・duration の書式・範囲 (threshold は 60 秒の倍数、absent は 120 秒以上、`alignment_period` は 60 秒以上) などの値の検査は module の validation が行う。
+- `module_version` が v2.2.0 より前の版しか許さないと明確に分かる場合 (例 `2.1.0`、`~> 2.1.0`) は、run を作る前に止める。
+- 詳細は [variables-reference.md](../../docs/firebase-project-platform/variables-reference.md#monitoring)。
 
 ### Cloud SQL ユーザー
 

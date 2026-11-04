@@ -112,6 +112,7 @@ describe("buildTemplateFiles", () => {
       "app_hosting_compute_sa",
       "default_compute_sa",
       "iam_bindings",
+      "monitoring",
     ];
     for (const k of passthrough) {
       expect(main, `should declare variable ${k}`).toContain(

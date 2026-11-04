@@ -215,3 +215,22 @@ output "iam_binding_members" {
   description = "Members granted by iam_bindings, keyed by \"<name>|<label>\" ({ role, member })."
   value       = { for k, b in google_project_iam_member.binding : k => { role = b.role, member = b.member } }
 }
+
+# ---------------------------------------------------------------------------
+# Monitoring
+# ---------------------------------------------------------------------------
+
+output "monitoring_notification_channel_ids" {
+  description = "Notification channel IDs created from monitoring.notification_channels, keyed by channel name (empty when none)."
+  value       = try(module.monitoring[0].notification_channel_ids, {})
+}
+
+output "monitoring_alert_policy_names" {
+  description = "Alert policy resource names created from monitoring.alert_policies, keyed by policy name (empty when none)."
+  value       = try(module.monitoring[0].alert_policy_names, {})
+}
+
+output "monitoring_log_metric_types" {
+  description = "Metric types (logging.googleapis.com/user/<name>) of the log-based metrics created from monitoring.log_metrics (empty when none)."
+  value       = try(module.monitoring[0].log_metric_types, {})
+}
