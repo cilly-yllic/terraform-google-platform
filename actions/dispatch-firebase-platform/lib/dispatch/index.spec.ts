@@ -880,6 +880,266 @@ describe("buildTerraformVariables", () => {
     });
   });
 
+  describe("monitoring", () => {
+    const channels = {
+      ops: { type: "email", labels: { email_address: "ops@example.com" } },
+      alerts: { type: "pubsub", display_name: "Alerts", labels: { topic: "alerts" } },
+    };
+    const threshold = {
+      filter: 'metric.type="logging.googleapis.com/user/app-error-events"',
+      comparison: "COMPARISON_GT",
+      threshold_value: 0,
+      duration: "0s",
+      alignment_period: "300s",
+      per_series_aligner: "ALIGN_SUM",
+    };
+    const policy = (conditions: unknown[], extra: Record<string, unknown> = {}) => ({
+      display_name: "App errors",
+      channels: ["ops"],
+      conditions,
+      ...extra,
+    });
+    const build = (monitoring: unknown) =>
+      buildTerraformVariables("p", { monitoring } as Record<string, unknown>);
+
+    it("passes monitoring through as an HCL object", () => {
+      const vars = build({
+        notification_channels: channels,
+        log_metrics: {
+          "app-error-events": {
+            filter: "severity>=ERROR",
+            label_extractors: { code: "EXTRACT(jsonPayload.code)" },
+            labels: { code: "error code" },
+          },
+        },
+        alert_policies: {
+          "app-errors": policy([{ display_name: "errors > 0", threshold }], { severity: "ERROR" }),
+          fatal: {
+            display_name: "Fatal",
+            channels: ["ops", "alerts"],
+            notification_rate_limit: "3600s",
+            conditions: [{ display_name: "fatal", log_match: { filter: "severity=CRITICAL" } }],
+          },
+          heartbeat: policy([
+            { display_name: "absent", absent: { filter: threshold.filter, duration: "600s" } },
+          ]),
+        },
+      });
+      const r = vars.find((v) => v.key === "monitoring");
+      expect(r?.hcl).toBe(true);
+      expect(r?.sensitive).toBe(false);
+      expect(r?.value).toContain(
+        '"notification_channels" = { "ops" = { "type" = "email", "labels" = { "email_address" = "ops@example.com" } }',
+      );
+      expect(r?.value).toContain('"threshold_value" = 0');
+      expect(r?.value).toContain('"log_match" = { "filter" = "severity=CRITICAL" }');
+    });
+
+    it("omits monitoring entirely when not set (uses module default)", () => {
+      const vars = buildTerraformVariables("p", {});
+      expect(vars.find((v) => v.key === "monitoring")).toBeUndefined();
+    });
+
+    it("accepts aggregations the API accepts and a hierarchical metric name", () => {
+      expect(() =>
+        build({
+          notification_channels: channels,
+          log_metrics: { "app/error-events": { filter: "severity>=ERROR" } },
+          alert_policies: {
+            plain: policy([
+              { display_name: "c", threshold: { filter: threshold.filter, comparison: "COMPARISON_LT", threshold_value: 1, duration: "60s" } },
+            ]),
+            none: policy([
+              { display_name: "c", threshold: { filter: threshold.filter, comparison: "COMPARISON_GT", threshold_value: 0, duration: "0s", per_series_aligner: "ALIGN_NONE" } },
+            ]),
+            grouped: policy([
+              {
+                display_name: "c",
+                threshold: { ...threshold, cross_series_reducer: "REDUCE_SUM", group_by_fields: ["resource.label.service_name"] },
+              },
+            ]),
+          },
+        }),
+      ).not.toThrow();
+    });
+
+    it("accepts an empty object and a full topic path", () => {
+      expect(() => build({})).not.toThrow();
+      expect(() =>
+        build({
+          notification_channels: {
+            shared: { type: "pubsub", labels: { topic: "projects/example-shared/topics/alerts" } },
+          },
+        }),
+      ).not.toThrow();
+    });
+
+    it.each<[string, unknown, RegExp]>([
+      ["a non-object", [], /monitoring must be an object/],
+      ["an unknown top-level key", { alert_policy: {} }, /monitoring has unknown key\(s\) "alert_policy"/],
+      [
+        "an unsupported channel type",
+        { notification_channels: { hook: { type: "webhook_tokenauth", labels: { url: "https://example.com/hook" } } } },
+        /notification_channels\.hook\.type must be "email" or "pubsub"/,
+      ],
+      [
+        "a wrong label for the channel type",
+        { notification_channels: { ops: { type: "email", labels: { topic: "alerts" } } } },
+        /notification_channels\.ops\.labels has unknown key\(s\) "topic"/,
+      ],
+      [
+        "a missing email address",
+        { notification_channels: { ops: { type: "email", labels: {} } } },
+        /labels\.email_address is required/,
+      ],
+      [
+        "an unknown channel key",
+        { notification_channels: { ops: { ...channels.ops, label: {} } } },
+        /notification_channels\.ops has unknown key\(s\) "label"/,
+      ],
+      [
+        "an unresolved placeholder in a channel label",
+        { notification_channels: { ops: { type: "email", labels: { email_address: "${OPS_EMAIL}" } } } },
+        /unresolved placeholder/,
+      ],
+      [
+        "a log metric without filter",
+        { log_metrics: { m: { description: "x" } } },
+        /log_metrics\.m\.filter is required/,
+      ],
+      [
+        "a label description without an extractor",
+        { log_metrics: { m: { filter: "severity>=ERROR", labels: { code: "x" } } } },
+        /describes label\(s\) "code" that are not in label_extractors/,
+      ],
+      [
+        "an unknown policy key",
+        { notification_channels: channels, alert_policies: { p: policy([{ display_name: "c", threshold }], { channel: ["ops"] }) } },
+        /alert_policies\.p has unknown key\(s\) "channel"/,
+      ],
+      [
+        "a channel that is not declared",
+        { alert_policies: { p: policy([{ display_name: "c", threshold }]) } },
+        /"ops" is not in monitoring\.notification_channels/,
+      ],
+      [
+        "a condition with no kind",
+        { notification_channels: channels, alert_policies: { p: policy([{ display_name: "c" }]) } },
+        /exactly one of log_match \/ threshold \/ absent \(got none\)/,
+      ],
+      [
+        "a condition with two kinds",
+        {
+          notification_channels: channels,
+          alert_policies: {
+            p: policy([{ display_name: "c", threshold, log_match: { filter: "severity>=ERROR" } }]),
+          },
+        },
+        /exactly one of log_match \/ threshold \/ absent \(got log_match, threshold\)/,
+      ],
+      [
+        "an unknown key in a threshold (e.g. a typo of threshold_value)",
+        {
+          notification_channels: channels,
+          alert_policies: { p: policy([{ display_name: "c", threshold: { ...threshold, value: 1 } }]) },
+        },
+        /conditions\[0\]\.threshold has unknown key\(s\) "value"/,
+      ],
+      [
+        "a non-numeric threshold_value",
+        {
+          notification_channels: channels,
+          alert_policies: { p: policy([{ display_name: "c", threshold: { ...threshold, threshold_value: "0" } }]) },
+        },
+        /threshold_value is required and must be a number/,
+      ],
+      [
+        "a log_match policy with another condition",
+        {
+          notification_channels: channels,
+          alert_policies: {
+            p: policy([
+              { display_name: "log", log_match: { filter: "severity>=ERROR" } },
+              { display_name: "c", threshold },
+            ]),
+          },
+        },
+        /a policy with a log_match condition must have only that condition/,
+      ],
+      [
+        "notification_rate_limit on a metric policy",
+        {
+          notification_channels: channels,
+          alert_policies: { p: policy([{ display_name: "c", threshold }], { notification_rate_limit: "300s" }) },
+        },
+        /notification_rate_limit can only be set on a policy with a log_match condition/,
+      ],
+      [
+        "a channel name that only exists on the prototype",
+        {
+          notification_channels: channels,
+          alert_policies: { p: policy([{ display_name: "c", threshold }], { channels: ["toString"] }) },
+        },
+        /"toString" is not in monitoring\.notification_channels/,
+      ],
+      [
+        "an unsupported comparison",
+        {
+          notification_channels: channels,
+          alert_policies: { p: policy([{ display_name: "c", threshold: { ...threshold, comparison: "COMPARISON_GE" } }]) },
+        },
+        /threshold\.comparison must be COMPARISON_GT or COMPARISON_LT/,
+      ],
+      [
+        "an aligner without alignment_period",
+        {
+          notification_channels: channels,
+          alert_policies: {
+            p: policy([{ display_name: "c", threshold: { ...threshold, alignment_period: undefined } }]),
+          },
+        },
+        /per_series_aligner "ALIGN_SUM" needs alignment_period/,
+      ],
+      [
+        "a reducer without an aligner",
+        {
+          notification_channels: channels,
+          alert_policies: {
+            p: policy([
+              {
+                display_name: "c",
+                absent: { filter: threshold.filter, duration: "600s", alignment_period: "300s", cross_series_reducer: "REDUCE_SUM" },
+              },
+            ]),
+          },
+        },
+        /cross_series_reducer "REDUCE_SUM" needs a per_series_aligner other than ALIGN_NONE and alignment_period/,
+      ],
+      [
+        "group_by_fields without a reducer",
+        {
+          notification_channels: channels,
+          alert_policies: {
+            p: policy([{ display_name: "c", threshold: { ...threshold, group_by_fields: ["resource.label.service_name"] } }]),
+          },
+        },
+        /group_by_fields needs a cross_series_reducer other than REDUCE_NONE/,
+      ],
+      [
+        "a log metric name starting with '/'",
+        { log_metrics: { "/m": { filter: "severity>=ERROR" } } },
+        /the metric name must be 1-100 characters/,
+      ],
+      [
+        "an empty conditions list",
+        { notification_channels: channels, alert_policies: { p: policy([]) } },
+        /conditions must be a non-empty list/,
+      ],
+    ])("rejects %s", (_label, val, err) => {
+      expect(() => build(val)).toThrow(err);
+    });
+  });
+
   it("rejects an unknown key in service_accounts[] (e.g. a typo of self_roles)", () => {
     expect(() =>
       buildTerraformVariables("p", {
