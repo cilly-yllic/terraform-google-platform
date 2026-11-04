@@ -115,9 +115,9 @@ function compareDotIdentifiers(a: string, b: string): number {
 }
 
 // この Action が生成する root module (lib/templates) が要求する module の最低版。
-// v2.1.0 で iam_bindings を常に module に渡すようになった (それより前の module は
+// v2.1.0 で iam_bindings、v2.2.0 で monitoring を常に module に渡すようになった (それより前の module は
 // "Unsupported argument" で失敗する)。
-export const MIN_TEMPLATE_MODULE_VERSION = "2.1.0";
+export const MIN_TEMPLATE_MODULE_VERSION = "2.2.0";
 
 const mainVersion = (v: string): string => v.replace(/^v/, "").split("-", 2)[0];
 
@@ -166,9 +166,9 @@ export function assertModuleVersionSupportsTemplate(
   if (constraint.split(",").some(tooOld)) {
     throw new Error(
       `module_version "${constraint}" only allows module versions older than ${min}, but this Action's root module requires ${min} or later ` +
-        `(it passes iam_bindings, which older modules reject as "Unsupported argument"). ` +
-        `Use e.g. "~> 2.1" (or "~> 2.0"), or pin the Action to a release that matches the module. ` +
-        "See docs/firebase-project-platform/upgrade-guide.md (v2.1.0).",
+        `(it passes iam_bindings and monitoring, which older modules reject as "Unsupported argument"). ` +
+        `Use e.g. "~> 2.2" (or "~> 2.0"), or pin the Action to a release that matches the module. ` +
+        `See docs/firebase-project-platform/upgrade-guide.md (v${min}).`,
     );
   }
 }

@@ -1,10 +1,10 @@
 # examples/full
 
-Configuration with every feature on. Exercises Firebase core / extensions / GCP services / IAM (users + ci_service_account + service_accounts + iam_bindings).
+Configuration with every feature on. Exercises Firebase core / extensions / GCP services / IAM (users + ci_service_account + service_accounts + iam_bindings) / Monitoring.
 
 <details><summary>Ja</summary>
 
-全機能 on の構成例。Firebase core / extensions / GCP services / IAM (users + ci_service_account + service_accounts + iam_bindings) をすべて使う。
+全機能 on の構成例。Firebase core / extensions / GCP services / IAM (users + ci_service_account + service_accounts + iam_bindings) / Monitoring をすべて使う。
 
 </details>
 
@@ -16,6 +16,7 @@ Configuration with every feature on. Exercises Firebase core / extensions / GCP 
 - `ci_service_account` configured explicitly with `additional_roles`
 - A deploy SA defined in `service_accounts`
 - A grant to a Workload Identity `principalSet` via `iam_bindings`
+- Email / Pub/Sub notification channels, a log-based metric and alert policies (threshold + log match) via `monitoring`
 - Multiple databases via the `firestore` list (default + 2 extra)
 - Additional buckets + a Firestore-backup bucket via `storage.buckets` + `storage.firestore_backup`
 - Cloud SQL provisioned via the `data_connect` list (shared instance dedup + an independent instance)
@@ -28,6 +29,7 @@ Configuration with every feature on. Exercises Firebase core / extensions / GCP 
 - `ci_service_account` を `additional_roles` 付きで明示指定
 - `service_accounts` で deploy 用追加 SA を作成
 - `iam_bindings` で Workload Identity の `principalSet` に role を付与
+- `monitoring` で email / Pub/Sub の通知先、log-based metric、alert policy (threshold + log match) を作成
 - `firestore` list で複数 DB を作成 (default + 追加 2 件)
 - `storage.buckets` + `storage.firestore_backup` で追加 bucket と backup bucket を作成
 - `data_connect` list で Cloud SQL も含めて作成 (共有 instance dedup + 独立 instance)
@@ -43,6 +45,7 @@ Configuration with every feature on. Exercises Firebase core / extensions / GCP 
 | Firebase extensions | FCM / Remote Config / App Check / Crashlytics / Performance / Analytics / Extensions all API-enabled |
 | GCP services | Secret Manager / Cloud Tasks / Cloud Scheduler / Pub/Sub / Eventarc / Cloud Run / Cloud Functions all API-enabled |
 | IAM | 2 user bindings + CI SA (`ci-deploy` + auto roles + `roles/viewer`) + additional SA (`app-runtime`) + 1 `iam_bindings` grant (`principalSet`) |
+| Monitoring | 2 notification channels (email + Pub/Sub topic `alerts`, with a topic-level publisher grant for the notification service agent) / 1 log-based metric (`app-error-events`) / 2 alert policies |
 
 Details: [`main.tf`](./main.tf).
 

@@ -401,6 +401,34 @@ environments:
       #     members:
       #       github: "principalSet://iam.googleapis.com/projects/${BOOTSTRAP_PROJECT_NUMBER}/locations/global/workloadIdentityPools/terraform-cloud/attribute.repository/my-org/my-service"
 
+      # Cloud Monitoring の通知先・log-based metric・alert policy (必要な場合のみ)。
+      # pubsub の topic は作らない (別途作る)。通知用 service agent に topic 単位で
+      # roles/pubsub.publisher を付ける。各 map の key が resource のキーになる。
+      # monitoring:
+      #   notification_channels:
+      #     ops:
+      #       type: email
+      #       labels: { email_address: ops@example.com }
+      #     alerts:
+      #       type: pubsub
+      #       labels: { topic: alerts }
+      #   log_metrics:
+      #     app-error-events:
+      #       filter: 'severity>=ERROR AND resource.type="cloud_run_revision"'
+      #   alert_policies:
+      #     app-errors:
+      #       display_name: App errors
+      #       channels: [ops, alerts]
+      #       conditions:
+      #         - display_name: error events > 0
+      #           threshold:
+      #             filter: 'metric.type="logging.googleapis.com/user/app-error-events" AND resource.type="cloud_run_revision"'
+      #             comparison: COMPARISON_GT
+      #             threshold_value: 0
+      #             duration: 0s
+      #             alignment_period: 300s
+      #             per_series_aligner: ALIGN_SUM
+
   # ---------------------------------------------------------------------------
   # stg-001 — staging. project_id = my-service-stg-001
   # status: inactive — config is kept in sync with prd, but no infra is

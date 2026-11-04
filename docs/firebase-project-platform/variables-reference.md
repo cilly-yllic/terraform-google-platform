@@ -666,3 +666,128 @@ The granted members are in the output `iam_binding_members` (keyed by `"<name>|<
 例: CI のワークフロー（Workload Identity 経由の GitHub Actions）に、project の状態（削除の予約中かどうかなど）を読ませる（上の YAML）。付けた member は output `iam_binding_members`（キーは `"<name>|<label>"`）で確かめられる。
 
 </details>
+
+---
+
+## Monitoring
+
+### `monitoring`
+
+Cloud Monitoring **notification channels**, **log-based metrics** and **alert policies**. Omitted (the default `{}`) creates nothing and enables no API. (v2.2.0+)
+
+```hcl
+monitoring = {
+  notification_channels = { <name> = { type, display_name?, labels } }
+  log_metrics           = { <metric name> = { filter, description?, label_extractors?, labels? } }
+  alert_policies        = { <name> = { display_name, channels, conditions, documentation?, severity?, combiner?, notification_rate_limit?, auto_close? } }
+}
+```
+
+Each map key is part of the resource address, so reordering or adding entries does not recreate the others. Keys of `notification_channels` / `alert_policies` are 1–63 characters of letters, digits, `_`, `.`, `-`. Log metric names follow the Logging rule: up to 100 characters of letters, digits and `_-.,+!*'()%/` (`/` separates a hierarchy and cannot come first).
+
+**`notification_channels.<name>`**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `type` | `string` | (required) | `"email"` or `"pubsub"` |
+| `display_name` | `string` | the key | Name shown in the console |
+| `labels` | `map(string)` | (required) | `email`: `{ email_address = "..." }`. `pubsub`: `{ topic = "<name>" }` (a topic in the same project) or `{ topic = "projects/<id>/topics/<name>" }` |
+
+For pubsub channels the module grants the Monitoring notification service agent (`service-<project number>@gcp-sa-monitoring-notification.iam.gserviceaccount.com`) `roles/pubsub.publisher` **on the topic** (one grant per distinct topic) and makes sure the agent exists. The topic itself is not created; create it elsewhere (a topic in another project needs permission to set its IAM policy).
+
+**`log_metrics.<metric name>`** — a log-based counter (`DELTA` / `INT64`). Its metric type is `logging.googleapis.com/user/<metric name>`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `filter` | `string` | (required) | Logging query |
+| `description` | `string` | `null` | |
+| `label_extractors` | `map(string)` | `{}` | `{ <label> = "EXTRACT(jsonPayload.code)" }`. Each key is declared as a `STRING` label |
+| `labels` | `map(string)` | `{}` | `{ <label> = <description> }` for labels in `label_extractors` |
+
+**`alert_policies.<name>`**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `display_name` | `string` | (required) | |
+| `channels` | `list(string)` | (required) | Keys of `notification_channels` (may be `[]`) |
+| `conditions` | `list(object)` | (required) | Non-empty. Each condition is `{ display_name, <one of log_match / threshold / absent> }` |
+| `documentation` | `string` | `null` | Markdown shown in the notification |
+| `severity` | `string` | `null` | `CRITICAL` / `ERROR` / `WARNING` |
+| `combiner` | `string` | `"OR"` | `OR` / `AND` / `AND_WITH_MATCHING_RESOURCE` |
+| `notification_rate_limit` | `string` | `"300s"` for `log_match` policies | Minimum interval between notifications. Only for policies with a `log_match` condition (GCP requires it there) |
+| `auto_close` | `string` | `null` | e.g. `"1800s"` |
+
+Condition kinds (durations are seconds such as `"300s"`):
+
+| Kind | Fields | Notes |
+|------|--------|-------|
+| `log_match` | `filter`, `label_extractors?` | Notifies when a log entry matches. Must be the **only** condition of its policy |
+| `threshold` | `filter`, `comparison` (`COMPARISON_GT` / `COMPARISON_LT`, the only ones Cloud Monitoring supports for metric thresholds), `threshold_value`, `duration` (a multiple of 60s, `0s` allowed), `alignment_period?`, `per_series_aligner?`, `cross_series_reducer?`, `group_by_fields?` | |
+| `absent` | `filter`, `duration` (at least 120s, a multiple of 60s), `alignment_period?`, `per_series_aligner?`, `cross_series_reducer?`, `group_by_fields?` | Notifies when the time series stops |
+
+Aggregation (`threshold` / `absent`): the block is set when any of `alignment_period` / `per_series_aligner` / `cross_series_reducer` / `group_by_fields` is given. Only combinations the API accepts pass validation: `alignment_period` is between 60s and 90000s (25h); a `per_series_aligner` other than `ALIGN_NONE` needs `alignment_period`; a `cross_series_reducer` other than `REDUCE_NONE` needs a `per_series_aligner` other than `ALIGN_NONE` and `alignment_period`; `group_by_fields` needs a `cross_series_reducer` other than `REDUCE_NONE`. For a log-based counter (`DELTA`), use `ALIGN_SUM` to count matching entries per period (`ALIGN_COUNT` counts data points, including zero-valued ones).
+
+Policies are created after the log-based metrics, so a filter can reference a metric declared in the same `monitoring`.
+
+APIs: `monitoring.googleapis.com` and `logging.googleapis.com` are enabled when anything is declared, plus `pubsub.googleapis.com` when a pubsub channel is declared.
+
+Outputs: `monitoring_notification_channel_ids`, `monitoring_alert_policy_names`, `monitoring_log_metric_types` (keyed by the map keys).
+
+Example (`settings.yml`):
+
+```yaml
+monitoring:
+  notification_channels:
+    ops:
+      type: email
+      labels: { email_address: ops@example.com }
+    alerts:
+      type: pubsub
+      labels: { topic: alerts }          # or projects/example-dev/topics/alerts
+  log_metrics:
+    app-error-events:
+      filter: 'severity>=ERROR AND resource.type="cloud_run_revision"'
+      label_extractors: { service: EXTRACT(resource.labels.service_name) }
+  alert_policies:
+    app-errors:
+      display_name: App errors
+      channels: [ops, alerts]
+      severity: ERROR
+      conditions:
+        - display_name: error events > 0
+          threshold:
+            filter: 'metric.type="logging.googleapis.com/user/app-error-events" AND resource.type="cloud_run_revision"'
+            comparison: COMPARISON_GT
+            threshold_value: 0
+            duration: 0s
+            alignment_period: 300s
+            per_series_aligner: ALIGN_SUM
+    fatal-log:
+      display_name: Fatal log entry
+      channels: [ops]
+      conditions:
+        - display_name: severity=CRITICAL
+          log_match: { filter: severity=CRITICAL }
+      # notification_rate_limit: 300s (default for log_match policies)
+```
+
+<details><summary>Ja</summary>
+
+Cloud Monitoring の**通知先**・**log-based metric**・**alert policy**。省略（既定の `{}`）なら何も作らず、API も有効化しない。（v2.2.0 以降）
+
+- 各 map の key は resource のアドレスの一部。並べ替え・追加でほかは作り直されない。`notification_channels` / `alert_policies` の key は英数字・`_`・`.`・`-` の 1〜63 文字。log metric の名前は Logging の規則に従い、英数字と `_-.,+!*'()%/` の 100 文字まで（`/` は階層の区切りで、先頭には置けない）
+- `notification_channels.<name>`: `type` は `"email"`（`labels = { email_address }`）か `"pubsub"`（`labels = { topic }`）。topic は名前なら同じ project、`projects/<id>/topics/<name>` なら別の project の topic も指せる。`display_name` の既定は key
+- pubsub の通知先では、Monitoring の通知用 service agent（`service-<project number>@gcp-sa-monitoring-notification.iam.gserviceaccount.com`）に **topic 単位で** `roles/pubsub.publisher` を付け（topic ごとに 1 つ）、agent が存在するようにする。topic 自体は作らない（別の場所で作る。別の project の topic は IAM を変える権限が要る）
+- `log_metrics.<metric name>`: log-based の counter（`DELTA` / `INT64`）。metric type は `logging.googleapis.com/user/<metric name>`。`label_extractors` の key ごとに `STRING` の label を宣言し、`labels` で説明を付ける（`label_extractors` にない label は書けない）
+- `alert_policies.<name>`: `channels` は `notification_channels` の key。`conditions` は空にできず、各 condition は `log_match` / `threshold` / `absent` のどれか 1 つ。`severity` は `CRITICAL` / `ERROR` / `WARNING`、`combiner` の既定は `OR`
+- `log_match` の condition は policy の唯一の condition にする。`notification_rate_limit` は `log_match` の policy にだけ書け、既定は `300s`（GCP がそこで必須にする）
+- `threshold` の `comparison` は `COMPARISON_GT` / `COMPARISON_LT` だけ（metric の threshold で Cloud Monitoring が受け付けるもの）。`threshold.duration` は 60 秒の倍数（`0s` 可）、`absent.duration` は 120 秒以上かつ 60 秒の倍数。duration は `"300s"` のような秒
+- `threshold` / `absent` の集計（aggregations）は、`alignment_period` / `per_series_aligner` / `cross_series_reducer` / `group_by_fields` のどれかを書けば付ける。API が受け付ける組み合わせだけ通す: `alignment_period` は 60 秒以上 90000 秒（25 時間）以下、`ALIGN_NONE` 以外の aligner には `alignment_period`、`REDUCE_NONE` 以外の reducer には `ALIGN_NONE` 以外の aligner と `alignment_period`、`group_by_fields` には `REDUCE_NONE` 以外の reducer が要る
+- log-based の counter（`DELTA`）で期間あたりの件数を数えるには `ALIGN_SUM` を使う（`ALIGN_COUNT` は値が 0 の点も含めた点の数を数える）
+- log-based metric の後に alert policy を作るので、同じ `monitoring` の metric を filter で参照できる
+- API: 何か宣言すれば `monitoring.googleapis.com` と `logging.googleapis.com`、pubsub の通知先があれば `pubsub.googleapis.com` も有効化する
+- output: `monitoring_notification_channel_ids`・`monitoring_alert_policy_names`・`monitoring_log_metric_types`（キーは map の key）
+
+例は上の YAML。
+
+</details>
